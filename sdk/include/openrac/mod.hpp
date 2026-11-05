@@ -1150,6 +1150,9 @@ public:
         return m_api->api_minor >= 12
                && m_api->size >= offsetof(openrac_api, hero_hurt) + sizeof(void*);
     }
+
+    // Whether the port has interface 1.13's hit-source metadata/replay support.
+    bool has_api_13() const { return m_api->api_minor >= 13; }
     bool has_hero_drive() const { return has_api_12(); }
     bool has_collision() const { return has_api_12(); }
     bool has_props() const { return has_api_12(); }
@@ -1393,6 +1396,9 @@ public:
     bool moby_hit(const openrac_hit& hit) const {
         openrac_hit h = hit;
         h.size = sizeof h;
+        if (h.source_oclass > 0 && !has_api_13()) {
+            return false;
+        }
         return m_api->api_minor >= 9 && m_api->moby_hit(m_handle, &h) == OPENRAC_HOOK_OK;
     }
 

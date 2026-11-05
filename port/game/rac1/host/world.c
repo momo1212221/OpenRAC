@@ -75,6 +75,8 @@ enum {
     MOBY_ANIM_TIME = 0x54,
     MOBY_ANIM_SPEED = 0x58,
     MOBY_UPDATE = 0x74,
+    MOBY_COLLISION = 0x94,
+    MOBY_COLLISION_OFF = 0x98,
     MOBY_HIT = 0xA4,
     MOBY_OCLASS = 0xA6,
     MOBY_SIZE = 0x100,
@@ -131,6 +133,9 @@ static struct {
     int on;
     uint8_t motion[3][16];
     gaddr moby;
+    gaddr figure;
+    gaddr figure_collision;
+    int32_t figure_collision_off;
 } stand;
 
 static int in_level(void) {
@@ -414,7 +419,18 @@ void rac1_world_stand_in(const float position[3], gaddr moby) {
         }
     }
     stand.moby = GREF(gaddr, HERO_MOBY);
+    stand.figure = 0;
     if (moby != 0) {
+        /* Figures are normally visual-only. For exactly this enemy update, lend the real hero's
+         * collision to the remote figure so contact/sphere attacks can produce a normal hit. */
+        stand.figure = moby;
+        stand.figure_collision = GREF(gaddr, moby + MOBY_COLLISION);
+        stand.figure_collision_off = GREF(int32_t, moby + MOBY_COLLISION_OFF);
+        if (stand.moby != 0) {
+            GREF(gaddr, moby + MOBY_COLLISION) = GREF(gaddr, stand.moby + MOBY_COLLISION);
+            GREF(int32_t, moby + MOBY_COLLISION_OFF) =
+                GREF(int32_t, stand.moby + MOBY_COLLISION_OFF);
+        }
         GREF(gaddr, HERO_MOBY) = moby;
     }
 }
@@ -427,7 +443,12 @@ void rac1_stand_in_end(void) {
     for (unsigned i = 0; i < 3; ++i) {
         memcpy(G(HERO + offsets[i]), stand.motion[i], 16);
     }
+    if (stand.figure != 0) {
+        GREF(gaddr, stand.figure + MOBY_COLLISION) = stand.figure_collision;
+        GREF(int32_t, stand.figure + MOBY_COLLISION_OFF) = stand.figure_collision_off;
+    }
     GREF(gaddr, HERO_MOBY) = stand.moby;
+    stand.figure = 0;
     stand.on = 0;
 }
 
@@ -485,9 +506,19 @@ static void hit_written(gaddr victim, uint8_t before, const uint8_t* old) {
         velocity[c] = GREF(float, record + 0x10u + 4u * c);
     }
     const gaddr attacker = GREF(gaddr, record + HIT_ATTACKER);
+    int32_t source_oclass = 0;
+    float source_position[3] = {position[0], position[1], position[2]};
+    if (attacker != 0) {
+        source_oclass = GREF(int16_t, attacker + MOBY_OCLASS);
+        for (unsigned c = 0; c < 3; ++c) {
+            source_position[c] = GREF(float, attacker + MOBY_POS + 4u * c);
+        }
+    }
     if (openrac_game_moby_hit(
             rac1_moby_slot(victim),
             attacker != 0 ? rac1_moby_slot(attacker) : -1,
+            source_oclass,
+            source_position,
             GREF(uint32_t, record + HIT_MASK),
             GREF(float, record + HIT_DAMAGE),
             position,
@@ -553,6 +584,39 @@ void rac1_world_post_hit(
 #else
     func_L00_0025AC00__game(victim, damage, (int)attacker, (int)mask, vectors, vectors + 0x10u);
 #endif
+}
+
+
+/* A remote hit whose original source moby exists only in another game. Keep a ring of synthetic
+ * source mobys as long-lived as the game's hit ring: retail hit response code reads the source's
+ * oclass (and sometimes its position) after the hit was posted. */
+void rac1_world_post_hit_source(
+    gaddr victim,
+    int32_t source_oclass,
+    const float source_position[3],
+    uint32_t mask,
+    float damage,
+    const float position[3],
+    const float velocity[3]
+) {
+    enum { REMOTE_SOURCES = 64 };
+    static gaddr sources;
+    static unsigned next;
+    if (victim == 0 || source_oclass <= 0 || !in_level()) {
+        return;
+    }
+    if (sources == 0) {
+        sources = openrac_guest_static((unsigned)REMOTE_SOURCES * MOBY_SIZE);
+    }
+    const gaddr source = sources + (gaddr)(next++ % REMOTE_SOURCES) * MOBY_SIZE;
+    memset(G(source), 0, MOBY_SIZE);
+    GREF(int16_t, source + MOBY_OCLASS) = (int16_t)source_oclass;
+    if (source_position != NULL) {
+        for (unsigned c = 0; c < 3; ++c) {
+            GREF(float, source + MOBY_POS + 4u * c) = source_position[c];
+        }
+    }
+    rac1_world_post_hit(victim, source, mask, damage, position, velocity);
 }
 
 /* The world going on under a menu (interface 1.9, play_overlay_pause): while a mod asks for it,
