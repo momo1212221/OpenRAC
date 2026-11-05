@@ -115,6 +115,15 @@ void rac1_world_post_hit(
     const float position[3],
     const float velocity[3]
 );
+void rac1_world_post_hit_source(
+    gaddr victim,
+    int32_t source_oclass,
+    const float source_position[3],
+    uint32_t mask,
+    float damage,
+    const float position[3],
+    const float velocity[3]
+);
 void rac1_world_eyes(const float* xyz, int count);
 int32_t rac1_world_bolts(int32_t add);
 void rac1_world_keep_running(int on);

@@ -57,7 +57,7 @@ extern "C" {
  * around a place, props (meshes of the mod's drawn in the level), sounds of the mod's own, the
  * camera set by a mod, heat haze drawn over the picture and text in the game's HUD.
  */
-#define OPENRAC_MOD_API_MINOR 12
+#define OPENRAC_MOD_API_MINOR 13
 
 /* The interface a mod is built for, what its openrac_mod_query reports: its manifest's "api" minor,
  * which the SDK's openrac_add_mod passes in, else this header's. A mod for 1.1 built with a newer
@@ -800,6 +800,11 @@ typedef struct openrac_hit {
     float damage;
     float position[3];
     float velocity[3];
+    /* Since 1.13: the source moby's RAC1 object class and its position when the hit was posted.
+     * Zero means unknown/not supplied. A multiplayer transport can preserve the weapon/projectile
+     * semantics even when the original source moby does not exist in this game. */
+    int32_t source_oclass;
+    float source_position[3];
 } openrac_hit;
 
 /* Told a hit the game posted (openrac_api.on_moby_hit); returns 1 to take it back (the victim
