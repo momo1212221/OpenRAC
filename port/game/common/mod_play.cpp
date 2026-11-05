@@ -30,7 +30,9 @@ int (*openrac_game_moby_hit)(
     std::uint32_t mask,
     float damage,
     const float position[3],
-    const float velocity[3]
+    const float velocity[3],
+    std::int32_t source_oclass,
+    const float source_position[3]
 ) = nullptr;
 
 namespace openrac::mods {
@@ -496,11 +498,20 @@ int api_on_moby_hit(openrac_mod* mod, openrac_hit_fn fn, void* user) {
 
 int api_moby_hit(openrac_mod* mod, const openrac_hit* hit) {
     const gaddr victim = hit != nullptr ? moby_address(hit->victim) : 0;
-    if (mod == nullptr || victim == 0 || hit->size < sizeof(openrac_hit)) {
+    constexpr std::size_t kHit12Size = offsetof(openrac_hit, source_oclass);
+    if (mod == nullptr || victim == 0 || hit->size < kHit12Size) {
         return OPENRAC_HOOK_UNKNOWN;
     }
+    const bool has_source = hit->size >= sizeof(openrac_hit);
     g_play->post_hit(
-        victim, moby_address(hit->attacker), hit->mask, hit->damage, hit->position, hit->velocity
+        victim,
+        moby_address(hit->attacker),
+        hit->mask,
+        hit->damage,
+        hit->position,
+        hit->velocity,
+        has_source ? hit->source_oclass : 0,
+        has_source ? hit->source_position : nullptr
     );
     return OPENRAC_HOOK_OK;
 }
@@ -709,7 +720,9 @@ int game_moby_hit(
     std::uint32_t mask,
     float damage,
     const float position[3],
-    const float velocity[3]
+    const float velocity[3],
+    std::int32_t source_oclass,
+    const float source_position[3]
 ) {
     if (g_hits.fn == nullptr) {
         return 0;
@@ -722,6 +735,10 @@ int game_moby_hit(
     hit.damage = damage;
     std::copy(position, position + 3, hit.position);
     std::copy(velocity, velocity + 3, hit.velocity);
+    hit.source_oclass = source_oclass;
+    if (source_position != nullptr) {
+        std::copy(source_position, source_position + 3, hit.source_position);
+    }
     return g_hits.fn(g_hits.user, &hit) != 0 ? 1 : 0;
 }
 

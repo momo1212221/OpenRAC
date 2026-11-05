@@ -79,7 +79,7 @@ void install(
     const fs::path& plugins,
     const std::string& which,
     const char* built,
-    const std::string& api = "1.12",
+    const std::string& api = "1.13",
     const std::string& extra = ""
 ) {
     const fs::path dir = plugins / ("test-" + which);
@@ -244,10 +244,18 @@ const openrac_game_play kPlay = {
             + std::to_string(static_cast<int>(position[2])) + " " + std::to_string(moby)
         );
     },
-    [](gaddr victim, gaddr attacker, std::uint32_t mask, float damage, const float*, const float*) {
+    [](gaddr victim,
+       gaddr attacker,
+       std::uint32_t mask,
+       float damage,
+       const float*,
+       const float*,
+       std::int32_t source_oclass,
+       const float*) {
         g_played.push_back(
             "post_hit " + std::to_string(slot_at(victim)) + " " + std::to_string(slot_at(attacker))
             + " " + std::to_string(mask) + " " + std::to_string(static_cast<int>(damage))
+            + " source " + std::to_string(source_oclass)
         );
     },
     [](const float*, int count) { g_played.push_back("eyes " + std::to_string(count)); },
@@ -421,7 +429,7 @@ void an_installed_launchers_layout(const fs::path& root) {
     write(
         mod / "openrac-mod.json",
         R"({"format": 2, "id": "test-a", "name": "Test", "version": "1.0.0",
-        "api": "1.12", "games": {"test": ["one"]}, "hooks": ["Test_Add"],
+        "api": "1.13", "games": {"test": ["one"]}, "hooks": ["Test_Add"],
         "plugin": {")"
             + std::string(mods::platform_key()) + R"(": ")" + lib.generic_string() + R"("},
         "settings": [{"key": "tag", "name": "Tag", "type": "int", "default": 0}]})"
@@ -733,7 +741,7 @@ void the_world_reaches_the_game(const fs::path& plugins, const fs::path& dir) {
              "scene_start 3",
              "scene_start -1",
              "moby_hide 1 1",
-             "post_hit 1 0 4 3",
+             "post_hit 1 0 4 3 source 0",
          })
     );
     // The game's gate: a driven moby (slot 1, 3) is skipped without asking the mod; others ask it,
@@ -752,8 +760,8 @@ void the_world_reaches_the_game(const fs::path& plugins, const fs::path& dir) {
     // The game's hit: the watcher is told and decides (more than 5 damage: taken back).
     const float at[3] = {0, 0, 0};
     g_records.clear();
-    CHECK(openrac_game_moby_hit(1, -1, 4, 3.0f, at, at) == 0);
-    CHECK(openrac_game_moby_hit(1, 0, 4, 9.0f, at, at) == 1);
+    CHECK(openrac_game_moby_hit(1, -1, 4, 3.0f, at, at, 0, at) == 0);
+    CHECK(openrac_game_moby_hit(1, 0, 4, 9.0f, at, at, 71, at) == 1);
     CHECK((g_records == std::vector<int>{8810, 8811}));
     // The level loaded again: the drives are gone with it (and the fake level is whole again).
     g_loads = 2;
@@ -970,7 +978,7 @@ void views_reach_the_host(const fs::path& plugins) {
 
     // Without "vulkan_device" the mods load after the window, as always; with it, before.
     CHECK(!mods::makes_vulkan_device(plugins / "plugins.json", false));
-    install(plugins, "a", OPENRAC_TEST_MOD_A, "1.12", R"( "vulkan_device": true,)");
+    install(plugins, "a", OPENRAC_TEST_MOD_A, "1.13", R"( "vulkan_device": true,)");
     CHECK(mods::makes_vulkan_device(plugins / "plugins.json", false));
     CHECK(!mods::makes_vulkan_device(plugins / "plugins.json", true));  // purist: none
     CHECK(!mods::makes_vulkan_device(plugins / "nowhere.json", false));
