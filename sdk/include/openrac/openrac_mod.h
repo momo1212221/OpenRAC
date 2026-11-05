@@ -53,6 +53,8 @@ extern "C" {
  * update with the hero standing in for another player, hits watched and posted, eyes that keep
  * mobys running, and the bolts, 1.10 optional top-level desktop menu entries for mods, 1.11 a
  * folder of the mod's own for its files and the memory card slot the game in progress saves into,
+ * 1.13 hit source metadata (the retail source moby class and position) so a remote hit can
+ * preserve weapon/projectile semantics when replayed in another game.
  * 1.12 the hero moved by a mod (his update a hook point, his pose set), the collision triangles
  * around a place, props (meshes of the mod's drawn in the level), sounds of the mod's own, the
  * camera set by a mod, heat haze drawn over the picture and text in the game's HUD.
@@ -800,9 +802,8 @@ typedef struct openrac_hit {
     float damage;
     float position[3];
     float velocity[3];
-    /* Since 1.13: the source moby's RAC1 object class and its position when the hit was posted.
-     * Zero means unknown/not supplied. A multiplayer transport can preserve the weapon/projectile
-     * semantics even when the original source moby does not exist in this game. */
+    /* Interface 1.13: the retail moby that originated the hit (a wrench, projectile, enemy
+     * attack), preserved even when `attacker` is a synthetic/remote source. 0: unknown. */
     int32_t source_oclass;
     float source_position[3];
 } openrac_hit;

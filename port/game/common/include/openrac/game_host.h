@@ -449,7 +449,9 @@ typedef struct openrac_game_play {
         uint32_t mask,
         float damage,
         const float position[3],
-        const float velocity[3]
+        const float velocity[3],
+        int32_t source_oclass,
+        const float source_position[3]
     );
     /* Up to 8 points besides the camera that keep the mobys near them running (each moby's update
      * distance), until set again. */
@@ -514,17 +516,6 @@ typedef struct openrac_game_play {
     /* Hit points taken from the hero as a hit does (openrac_api.hero_hurt): his health after, or
      * -1 with no hero. NULL for a game without it. */
     int (*hero_hurt)(int damage);
-    /* Interface 1.13: posts a hit whose original source moby is not in this game, preserving its
-     * object class and position for the retail hit-response code. NULL when unsupported. */
-    void (*post_hit_source)(
-        gaddr victim,
-        int32_t source_oclass,
-        const float source_position[3],
-        uint32_t mask,
-        float damage,
-        const float position[3],
-        const float velocity[3]
-    );
 } openrac_game_play;
 
 extern const openrac_game_play* openrac_game_play_host;
@@ -537,12 +528,12 @@ extern int (*openrac_game_moby_update)(int32_t slot, int phase);
 extern int (*openrac_game_moby_hit)(
     int32_t victim,
     int32_t attacker,
-    int32_t source_oclass,
-    const float source_position[3],
     uint32_t mask,
     float damage,
     const float position[3],
-    const float velocity[3]
+    const float velocity[3],
+    int32_t source_oclass,
+    const float source_position[3]
 );
 
 /* Host rendering and menus use the game's descriptor, not a particular disc's level count.

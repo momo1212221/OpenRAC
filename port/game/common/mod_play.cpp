@@ -27,12 +27,12 @@ int (*openrac_game_moby_update)(std::int32_t slot, int phase) = nullptr;
 int (*openrac_game_moby_hit)(
     std::int32_t victim,
     std::int32_t attacker,
-    std::int32_t source_oclass,
-    const float source_position[3],
     std::uint32_t mask,
     float damage,
     const float position[3],
-    const float velocity[3]
+    const float velocity[3],
+    std::int32_t source_oclass,
+    const float source_position[3]
 ) = nullptr;
 
 namespace openrac::mods {
@@ -498,27 +498,21 @@ int api_on_moby_hit(openrac_mod* mod, openrac_hit_fn fn, void* user) {
 
 int api_moby_hit(openrac_mod* mod, const openrac_hit* hit) {
     const gaddr victim = hit != nullptr ? moby_address(hit->victim) : 0;
-    constexpr std::size_t kHitV19Size = offsetof(openrac_hit, source_oclass);
-    if (mod == nullptr || victim == 0 || hit == nullptr || hit->size < kHitV19Size) {
+    constexpr std::size_t kHit12Size = offsetof(openrac_hit, source_oclass);
+    if (mod == nullptr || victim == 0 || hit->size < kHit12Size) {
         return OPENRAC_HOOK_UNKNOWN;
     }
-    const bool has_source =
-        hit->size >= sizeof(openrac_hit) && hit->source_oclass > 0 && g_play->post_hit_source != nullptr;
-    if (has_source) {
-        g_play->post_hit_source(
-            victim,
-            hit->source_oclass,
-            hit->source_position,
-            hit->mask,
-            hit->damage,
-            hit->position,
-            hit->velocity
-        );
-    } else {
-        g_play->post_hit(
-            victim, moby_address(hit->attacker), hit->mask, hit->damage, hit->position, hit->velocity
-        );
-    }
+    const bool has_source = hit->size >= sizeof(openrac_hit);
+    g_play->post_hit(
+        victim,
+        moby_address(hit->attacker),
+        hit->mask,
+        hit->damage,
+        hit->position,
+        hit->velocity,
+        has_source ? hit->source_oclass : 0,
+        has_source ? hit->source_position : nullptr
+    );
     return OPENRAC_HOOK_OK;
 }
 
@@ -723,12 +717,12 @@ int game_moby_update(std::int32_t slot, int phase) {
 int game_moby_hit(
     std::int32_t victim,
     std::int32_t attacker,
-    std::int32_t source_oclass,
-    const float source_position[3],
     std::uint32_t mask,
     float damage,
     const float position[3],
-    const float velocity[3]
+    const float velocity[3],
+    std::int32_t source_oclass,
+    const float source_position[3]
 ) {
     if (g_hits.fn == nullptr) {
         return 0;
