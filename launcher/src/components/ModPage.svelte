@@ -78,7 +78,7 @@
 
   const bakeProgress = $derived(builtIn?.job ? readProgress(builtIn.job.actionId, builtIn.job.lines) : null);
 
-  type AiTextureMode = "faithful" | "balanced" | "enhanced";
+  type AiAssetMode = "faithful" | "balanced" | "enhanced";
   let textureMessage = $state("");
   let textureReload = $state(0);
   let aiBusy = $state(false);
@@ -87,7 +87,7 @@
     return localStorage.getItem(`openrac.graphics.${key}`) ?? fallback;
   };
   const savedAiMode = aiPref("aiMode", "balanced");
-  let aiMode = $state<AiTextureMode>(
+  let aiMode = $state<AiAssetMode>(
     savedAiMode === "faithful" || savedAiMode === "enhanced" ? savedAiMode : "balanced",
   );
   let aiPreserveMicrodetail = $state(aiPref("preserveMicrodetail", "1") !== "0");
@@ -100,7 +100,7 @@
   async function aiPreRender() {
     if (!builtIn || aiBusy) return;
     aiBusy = true;
-    textureMessage = "AI texture pre-render is running…";
+    textureMessage = "AI asset pre-render is running…";
     try {
       const result = await api.aiTextureBake(builtIn.game, builtIn.version, {
         mode: aiMode,
@@ -109,7 +109,18 @@
       });
       await api.texturePacksSet(builtIn.game, builtIn.version, { enabled: true });
       textureReload++;
-      textureMessage = `${result.processed} textures rendered with ${result.model}; preserved ${result.preservedStars} stars/tiny lights and ${result.preservedMicrodetails} microdetails.`;
+
+      let meshText = "";
+      try {
+        const meshes = await api.aiMeshBake(builtIn.game, builtIn.version, aiMode);
+        meshText = meshes.available
+          ? ` ${meshes.processed}/${meshes.discovered} render meshes were AI-refined; collision was left original.`
+          : ` ${meshes.discovered} render meshes were found; this computer has no 3D AI backend yet, so geometry was left original.`;
+      } catch (meshError) {
+        meshText = ` Texture AI succeeded; 3D AI failed: ${String(meshError)}`;
+      }
+
+      textureMessage = `${result.processed} textures rendered with ${result.model}; preserved ${result.preservedStars} stars/tiny lights and ${result.preservedMicrodetails} microdetails.${meshText}`;
       builtIn.onpack();
     } catch (e) {
       textureMessage = String(e);
@@ -448,22 +459,22 @@
     <section class="panel texture-tools" aria-labelledby={`${mod.id}-textures`}>
       <div class="texture-head">
         <div>
-          <h3 id={`${mod.id}-textures`}>AI texture enhancement</h3>
+          <h3 id={`${mod.id}-textures`}>AI asset enhancement</h3>
           <p class="muted">
-            Neural upscaling, material-detail reconstruction and recovery of tiny source details such as stars and
-            lights. Everything is pre-rendered, so there is no runtime AI cost.
+            Neural enhancement for textures and render meshes, including terrain, scenery and models. Collision stays
+            untouched. Everything is pre-rendered, so there is no runtime AI cost.
           </p>
         </div>
       </div>
 
       <div class="texture-ai-grid">
         <label class="ai-profile">
-          <span>AI upscaling profile</span>
+          <span>AI asset profile</span>
           <select
             value={aiMode}
             disabled={aiBusy}
             onchange={(e) => {
-              aiMode = e.currentTarget.value as AiTextureMode;
+              aiMode = e.currentTarget.value as AiAssetMode;
               rememberAi("aiMode", aiMode);
             }}
           >
@@ -508,11 +519,11 @@
           onclick={() => void aiPreRender()}
         >
           {#if aiBusy}<span class="spinner"></span>{:else}<Icon name="refresh" size={16} />{/if}
-          Build AI texture pack
+          Build AI asset pack
         </button>
         <span class="muted small-print">
-          Faithful minimizes invented detail. Balanced is the recommended default. Maximum Detail is intentionally more
-          aggressive.
+          Faithful stays closest to the original. Balanced is the recommended default. Maximum Detail allows the
+          strongest texture and mesh reconstruction; rigged assets must retain their skinning.
         </span>
       </div>
       {#if textureMessage}<p class="texture-message" role="status">{textureMessage}</p>{/if}

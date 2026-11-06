@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 mod android;
+mod asset_ai;
 mod texture_ai;
 
 use openrac_launcher_core::actions::{Platform, Scope};
@@ -1271,6 +1272,21 @@ async fn ai_texture_bake(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Offline AI enhancement of extracted render meshes. Collision stays on the original game data;
+/// replacements are staged and backed up before they enter the ordinary --mods override tree.
+#[tauri::command]
+async fn ai_mesh_bake(
+    state: State<'_, AppState>,
+    game: String,
+    version: String,
+    mode: String,
+) -> Result<asset_ai::MeshBake, String> {
+    let data = game_data_dir(&state, &game)?;
+    tauri::async_runtime::spawn_blocking(move || asset_ai::bake_meshes(&data, &version, &mode))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Deletes every lighting bake of a version (Enhanced graphics' "Delete the lighting"): the game
@@ -3176,6 +3192,7 @@ pub fn run() {
             enhanced_auto_configure,
             texture_packs_prepare_ultra,
             ai_texture_bake,
+            ai_mesh_bake,
             enhanced_set_setting,
             enhanced_delete_bakes,
             plugins_set_enabled,

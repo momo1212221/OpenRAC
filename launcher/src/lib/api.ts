@@ -519,6 +519,15 @@ export const api = {
       output: string;
       backup: string;
     }>("ai_texture_bake", { game, version, options }),
+  aiMeshBake: (game: string, version: string, mode: "faithful" | "balanced" | "enhanced") =>
+    call<{
+      available: boolean;
+      discovered: number;
+      processed: number;
+      backend: string;
+      output: string;
+      backup: string;
+    }>("ai_mesh_bake", { game, version, mode }),
   enhancedView: (game: string, version: string) => call<EnhancedView | null>("enhanced_view", { game, version }),
   enhancedSetEnabled: (game: string, version: string, enabled: boolean) =>
     call<EnhancedView | null>("enhanced_set_enabled", { game, version, enabled }),
