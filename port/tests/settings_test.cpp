@@ -472,7 +472,12 @@ int main() {
         CHECK(settings::get().anisotropy_samples(false) == 1);
     }
 
-    for (auto filter : {renderer::TextureFilter::Normal, renderer::TextureFilter::EdgeAware}) {
+    for (auto filter : {
+             renderer::TextureFilter::Normal,
+             renderer::TextureFilter::EdgeAware,
+             renderer::TextureFilter::EdgeAware4x,
+             renderer::TextureFilter::EdgeAware8x,
+         }) {
         settings::get().texture_filter = filter;
         settings::save();
         settings::get().texture_filter = renderer::TextureFilter::Normal;
@@ -480,7 +485,9 @@ int main() {
         CHECK(settings::get().texture_filter == filter);
     }
     CHECK(std::string(settings::name(renderer::TextureFilter::EdgeAware)) == "Edge-aware (2x)");
-    CHECK(std::string(settings::name(renderer::TextureFilter::Count)) == "Edge-aware (2x)");
+    CHECK(std::string(settings::name(renderer::TextureFilter::EdgeAware4x)) == "Edge-aware (4x)");
+    CHECK(std::string(settings::name(renderer::TextureFilter::EdgeAware8x)) == "Edge-aware (8x)");
+    CHECK(std::string(settings::name(renderer::TextureFilter::Count)) == "Edge-aware (8x)");
     std::ofstream(file) << "texture_filter = bspline\n";
     settings::load(file);
     CHECK(settings::get().texture_filter == renderer::TextureFilter::EdgeAware);
