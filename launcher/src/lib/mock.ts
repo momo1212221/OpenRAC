@@ -2649,6 +2649,22 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
     }
     case "texture_packs_export":
       return delay({ saved: "~/Downloads/rac2-ntsc-texture-pack.zip", textures: mockTextures.packCount, leftOut: 3 });
+    case "ai_texture_bake": {
+      const options = (args.options ?? {}) as Record<string, unknown>;
+      const mode = typeof options.mode === "string" ? options.mode : "balanced";
+      const model =
+        mode === "faithful" ? "high-fidelity-4x" : mode === "enhanced" ? "ultrasharp-4x" : "ultramix-balanced-4x";
+      mockTextures.packCount = Math.max(mockTextures.packCount, 2521);
+      return delay({
+        processed: 2521,
+        model,
+        mode,
+        preservedMicrodetails: options.preserveMicrodetail === false ? 0 : 18420,
+        preservedStars: options.preserveStars === false ? 0 : 1376,
+        output: "/home/you/OpenRAC/texture_packs/rac1-pal",
+        backup: "/home/you/OpenRAC/texture_packs/rac1-pal.before-ai-demo",
+      });
+    }
     case "enhanced_view":
     case "enhanced_set_enabled":
     case "enhanced_set_setting":

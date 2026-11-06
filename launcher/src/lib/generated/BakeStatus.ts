@@ -16,4 +16,4 @@ noBakerHere: boolean, levels: number, ready: number, failed: number,
 /**
  * Levels a stopped bake left part way: the next bake goes on from what they have.
  */
-partial: number, };
+partial: number, busy: boolean, };

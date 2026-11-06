@@ -9,7 +9,16 @@
   // A built-in entry (Enhanced graphics, core/src/enhanced.rs: `builtIn`) has no folder, menu or
   // source; its page also says how far its lighting bake is, with the way to run it.
   import { onDestroy, onMount, tick } from "svelte";
-  import { ask, type BakeStatus, type ModSources, type ModUpdate, type PluginPreset, type PluginView } from "$lib/api";
+  import {
+    api,
+    ask,
+    type BakeStatus,
+    type ModSources,
+    type ModUpdate,
+    type PluginPreset,
+    type PluginView,
+    type VersionView,
+  } from "$lib/api";
   import { phaseLabel, readProgress } from "$lib/progress";
   import type { Job } from "$lib/queue";
   import { Saver, type SaveState } from "$lib/autosave";
@@ -22,6 +31,7 @@
   import Menu, { type MenuItem } from "./Menu.svelte";
   import ModSetting from "./ModSetting.svelte";
   import Reason from "./Reason.svelte";
+  import TexturePacksBlock from "./TexturePacksBlock.svelte";
 
   let {
     mod,
@@ -54,10 +64,59 @@
     onhomepage: () => void;
     onremove: () => void;
     /** A built-in entry's bake: its status, the job running it, and the way to start it. */
-    builtIn?: { bake: BakeStatus; job: Job | null; onbake: () => void; ondelete: () => void } | null;
+    builtIn?: {
+      bake: BakeStatus;
+      job: Job | null;
+      game: string;
+      version: string;
+      versionView: VersionView;
+      onbake: () => void;
+      ondelete: () => void;
+      onpack: () => void;
+    } | null;
   } = $props();
 
   const bakeProgress = $derived(builtIn?.job ? readProgress(builtIn.job.actionId, builtIn.job.lines) : null);
+
+  type AiTextureMode = "faithful" | "balanced" | "enhanced";
+  let textureMessage = $state("");
+  let textureReload = $state(0);
+  let aiBusy = $state(false);
+  const aiPref = (key: string, fallback: string) => {
+    if (typeof localStorage === "undefined") return fallback;
+    return localStorage.getItem(`openrac.graphics.${key}`) ?? fallback;
+  };
+  const savedAiMode = aiPref("aiMode", "balanced");
+  let aiMode = $state<AiTextureMode>(
+    savedAiMode === "faithful" || savedAiMode === "enhanced" ? savedAiMode : "balanced",
+  );
+  let aiPreserveMicrodetail = $state(aiPref("preserveMicrodetail", "1") !== "0");
+  let aiPreserveStars = $state(aiPref("preserveStars", "1") !== "0");
+
+  function rememberAi(key: string, value: string) {
+    if (typeof localStorage !== "undefined") localStorage.setItem(`openrac.graphics.${key}`, value);
+  }
+
+  async function aiPreRender() {
+    if (!builtIn || aiBusy) return;
+    aiBusy = true;
+    textureMessage = "AI texture pre-render is running…";
+    try {
+      const result = await api.aiTextureBake(builtIn.game, builtIn.version, {
+        mode: aiMode,
+        preserveMicrodetail: aiPreserveMicrodetail,
+        preserveStars: aiPreserveStars,
+      });
+      await api.texturePacksSet(builtIn.game, builtIn.version, { enabled: true });
+      textureReload++;
+      textureMessage = `${result.processed} textures rendered with ${result.model}; preserved ${result.preservedStars} stars/tiny lights and ${result.preservedMicrodetails} microdetails.`;
+      builtIn.onpack();
+    } catch (e) {
+      textureMessage = String(e);
+    } finally {
+      aiBusy = false;
+    }
+  }
 
   // ---- Saving as the player goes ----
 
@@ -97,6 +156,48 @@
     presets.length ? (presets.some((p) => p.id === "default") ? presets : [null, ...presets]) : [],
   );
   const changed = $derived(shown.filter((s) => s.value !== s.default && String(s.value) !== String(s.default)));
+
+  function enhancedParent(key: string): string | null {
+    if (mod.id !== "enhanced-graphics") return null;
+    if (key === "agx_exposure" || key === "agx_brightness") return "agx_preview";
+    if (key === "bloom_strength" || key === "bloom_radius") return "bloom";
+    if (
+      [
+        "gtao_quality",
+        "gtao_radius",
+        "gtao_strength",
+        "gtao_slices",
+        "gtao_steps",
+        "gtao_half_resolution",
+        "gtao_hi_z",
+      ].includes(key)
+    )
+      return "gtao";
+    if (["rim_light_strength", "rim_light_falloff", "rim_shadow_lift"].includes(key)) return "rim_light";
+    if (
+      [
+        "motion_blur_strength",
+        "motion_blur_radius",
+        "motion_blur_samples",
+        "motion_blur_min_motion",
+        "motion_blur_spread",
+        "motion_blur_depth_tolerance",
+        "motion_blur_cutscene_multiplier",
+      ].includes(key)
+    )
+      return "motion_blur";
+    return null;
+  }
+
+  function enhancedChildOf(key: string): string | undefined {
+    const parent = enhancedParent(key);
+    return parent ? `${mod.id}-${parent}-name` : undefined;
+  }
+
+  function enhancedSettingDisabled(key: string): boolean {
+    const parent = enhancedParent(key);
+    return parent ? shown.find((setting) => setting.key === parent)?.value !== true : false;
+  }
 
   function change(key: string, value: unknown, delay: number) {
     saver.set(key, value, delay);
@@ -292,6 +393,8 @@
             {phaseLabel(job)}{bakeProgress?.percent != null
               ? `, ${Math.round(bakeProgress.percent)} %${bakeProgress.left ? `, ${bakeProgress.left}` : ""}`
               : "…"}
+          {:else if bake.busy}
+            {T.ENHANCED.busy(bake.ready, bake.levels)}
           {:else if !bake.available}
             {bake.noBakerHere ? T.ENHANCED.noBakerHere : bake.levels === 0 ? T.ENHANCED.noLevels : T.ENHANCED.noBaker}
           {:else if bake.ready >= bake.levels}
@@ -302,22 +405,24 @@
             {#if bake.failed}{T.ENHANCED.failed(bake.failed)}{/if}
           {/if}
         </p>
-        {#if job}
+        {#if job !== null || bake.busy}
           <div
             class="track"
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-valuenow={bakeProgress?.percent ?? undefined}
+            aria-valuenow={job ? (bakeProgress?.percent ?? undefined) : undefined}
+            aria-label={bake.busy && !job ? T.ENHANCED.busy(bake.ready, bake.levels) : undefined}
           >
-            {#if bakeProgress?.percent != null}<i style:width={`${bakeProgress.percent}%`}></i>{:else}<i class="moving"
+            {#if job && bakeProgress?.percent != null}<i style:width={`${bakeProgress.percent}%`}></i>{:else}<i
+                class="moving"
               ></i>{/if}
           </div>
         {:else if bake.ready < bake.levels && !bake.noBakerHere}
           <p class="dim small-print">{T.ENHANCED.fallback}</p>
         {/if}
       </div>
-      {#if !job && (bake.available || bake.ready + bake.partial + bake.failed > 0)}
+      {#if !job && !bake.busy && (bake.available || bake.ready + bake.partial + bake.failed > 0)}
         <div class="bake-actions">
           {#if bake.available}
             <button class:ghost={bake.ready >= bake.levels} onclick={builtIn.onbake}
@@ -337,6 +442,82 @@
         </div>
       {/if}
     </section>
+  {/if}
+
+  {#if builtIn}
+    <section class="panel texture-tools" aria-labelledby={`${mod.id}-textures`}>
+      <div class="texture-head">
+        <div>
+          <h3 id={`${mod.id}-textures`}>AI texture enhancement</h3>
+          <p class="muted">
+            Neural upscaling, material-detail reconstruction and recovery of tiny source details such as stars and
+            lights. Everything is pre-rendered, so there is no runtime AI cost.
+          </p>
+        </div>
+      </div>
+
+      <div class="texture-ai-grid">
+        <label class="ai-profile">
+          <span>AI upscaling profile</span>
+          <select
+            value={aiMode}
+            disabled={aiBusy}
+            onchange={(e) => {
+              aiMode = e.currentTarget.value as AiTextureMode;
+              rememberAi("aiMode", aiMode);
+            }}
+          >
+            <option value="faithful">Faithful · preserve original look</option>
+            <option value="balanced">Balanced · add material detail</option>
+            <option value="enhanced">Maximum detail · strongest reconstruction</option>
+          </select>
+        </label>
+        <label>
+          <span>Preserve original micro-detail</span>
+          <input
+            type="checkbox"
+            role="switch"
+            class="switch"
+            checked={aiPreserveMicrodetail}
+            disabled={aiBusy}
+            onchange={(e) => {
+              aiPreserveMicrodetail = e.currentTarget.checked;
+              rememberAi("preserveMicrodetail", aiPreserveMicrodetail ? "1" : "0");
+            }}
+          />
+        </label>
+        <label>
+          <span>Preserve stars & tiny lights</span>
+          <input
+            type="checkbox"
+            role="switch"
+            class="switch"
+            checked={aiPreserveStars}
+            disabled={aiBusy}
+            onchange={(e) => {
+              aiPreserveStars = e.currentTarget.checked;
+              rememberAi("preserveStars", aiPreserveStars ? "1" : "0");
+            }}
+          />
+        </label>
+      </div>
+
+      <div class="texture-actions">
+        <button
+          disabled={aiBusy || builtIn.game !== "rac1" || builtIn.version !== "pal"}
+          onclick={() => void aiPreRender()}
+        >
+          {#if aiBusy}<span class="spinner"></span>{:else}<Icon name="refresh" size={16} />{/if}
+          Build AI texture pack
+        </button>
+        <span class="muted small-print">
+          Faithful minimizes invented detail. Balanced is the recommended default. Maximum Detail is intentionally more
+          aggressive.
+        </span>
+      </div>
+      {#if textureMessage}<p class="texture-message" role="status">{textureMessage}</p>{/if}
+    </section>
+    <TexturePacksBlock version={builtIn.versionView} reload={textureReload} />
   {/if}
 
   {#if mod.settings.length}
@@ -383,12 +564,8 @@
             {#each g.settings as s (s.key)}
               <ModSetting
                 setting={s}
-                childOf={mod.id === "enhanced-graphics" && s.key === "agx_brightness"
-                  ? `${mod.id}-agx_preview-name`
-                  : undefined}
-                disabled={mod.id === "enhanced-graphics" &&
-                  s.key === "agx_brightness" &&
-                  shown.find((setting) => setting.key === "agx_preview")?.value !== true}
+                childOf={enhancedChildOf(s.key)}
+                disabled={enhancedSettingDisabled(s.key)}
                 id={`${mod.id}-${s.key}`}
                 saved={savedCount[s.key] ?? 0}
                 conflicts={clashes[s.key] ?? []}
@@ -407,12 +584,8 @@
             {#each g.settings as s (s.key)}
               <ModSetting
                 setting={s}
-                childOf={mod.id === "enhanced-graphics" && s.key === "agx_brightness"
-                  ? `${mod.id}-agx_preview-name`
-                  : undefined}
-                disabled={mod.id === "enhanced-graphics" &&
-                  s.key === "agx_brightness" &&
-                  shown.find((setting) => setting.key === "agx_preview")?.value !== true}
+                childOf={enhancedChildOf(s.key)}
+                disabled={enhancedSettingDisabled(s.key)}
                 id={`${mod.id}-${s.key}`}
                 saved={savedCount[s.key] ?? 0}
                 conflicts={clashes[s.key] ?? []}
@@ -838,6 +1011,92 @@
 
   .small-print {
     font-size: 0.8125rem;
+  }
+
+  .texture-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .texture-head,
+  .texture-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+  }
+
+  .texture-head h3 {
+    margin: 0 0 4px;
+    font-family: var(--font-sans);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+
+  .texture-head p,
+  .texture-message {
+    margin: 0;
+    font-size: 0.8125rem;
+  }
+
+  .texture-ai-grid > label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  .texture-ai-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+    background: var(--panel-hi);
+  }
+
+  .texture-ai-grid label {
+    font-size: 0.78rem;
+  }
+
+  .texture-ai-grid .ai-profile {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .texture-ai-grid select {
+    width: 100%;
+  }
+
+  .texture-actions .small-print {
+    max-width: 54ch;
+    text-align: right;
+  }
+
+  .texture-message {
+    color: var(--soft);
+  }
+
+  @media (max-width: 760px) {
+    .texture-head,
+    .texture-actions {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .texture-ai-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .texture-actions .small-print {
+      text-align: left;
+    }
   }
 
   /* Its heading where the other groups have theirs, the fold's chevron at the right (app.css). */

@@ -21,7 +21,7 @@
   import { packSummary, previewSummary, textureCount } from "$lib/texturePacks";
   import { slide } from "svelte/transition";
 
-  let { version }: { version: VersionView } = $props();
+  let { version, reload = 0 }: { version: VersionView; reload?: number } = $props();
 
   let view = $state<TexturePackView | null>(null);
   let failed = $state<string | null>(null);
@@ -48,7 +48,7 @@
   // saved textures.
   const playing = $derived(isPlaying(version));
   $effect(() => {
-    if (version.key && !playing) {
+    if (reload >= 0 && version.key && !playing) {
       adding = null;
       void load();
     }

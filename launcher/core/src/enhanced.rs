@@ -75,9 +75,21 @@ fn range(mut s: SettingSpec, min: f64, max: f64, step: f64) -> SettingSpec {
     s
 }
 
-fn advanced(mut s: SettingSpec) -> SettingSpec {
-    s.group = "advanced".into();
+fn group(mut s: SettingSpec, name: &str) -> SettingSpec {
+    s.group = name.into();
     s
+}
+
+fn advanced(s: SettingSpec) -> SettingSpec {
+    group(s, "advanced")
+}
+
+fn preset(id: &str, name: &str, values: &[(&str, Value)]) -> Preset {
+    Preset {
+        id: id.into(),
+        name: name.into(),
+        values: values.iter().map(|(key, value)| ((*key).into(), value.clone())).collect(),
+    }
 }
 
 /// The settings the entry's page shows, with the port's defaults and ranges (settings.cpp). The
@@ -85,6 +97,7 @@ fn advanced(mut s: SettingSpec) -> SettingSpec {
 /// own Enhanced menu.
 pub fn settings() -> Vec<SettingSpec> {
     let mut quality = spec("gtao_quality", "Occlusion quality", "choice", "performance".into(), "");
+    quality.group = "ambient_occlusion".into();
     quality.choices = vec![
         Choice { value: "performance".into(), name: "Performance".into() },
         Choice { value: "quality".into(), name: "Quality".into() },
@@ -102,12 +115,13 @@ pub fn settings() -> Vec<SettingSpec> {
         Choice { value: "medium".into(), name: "Medium".into() },
         Choice { value: "high".into(), name: "High".into() },
     ];
+    shadows.group = "lighting".into();
     let mut texture_filter = spec(
         "texture_filter",
-        "Runtime texture upscaling",
+        "Texture upscaling",
         "choice",
         "edge-aware".into(),
-        "Fallback live upscaling. Ultra / Maximum pre-renders an 8x, 4K-capped texture pack before Play and uses Normal here.",
+        "Enlarges world textures while keeping edges sharp.",
     );
     texture_filter.choices = vec![
         Choice { value: "normal".into(), name: "Normal".into() },
@@ -115,19 +129,7 @@ pub fn settings() -> Vec<SettingSpec> {
         Choice { value: "edge-aware-4x".into(), name: "Edge-aware (4x)".into() },
         Choice { value: "edge-aware-8x".into(), name: "Edge-aware (8x)".into() },
     ];
-    let mut volumetrics = spec(
-        "volumetric_quality",
-        "Volumetric lighting",
-        "choice",
-        "high".into(),
-        "Participating-light/fog quality for beams, glow and atmospheric depth.",
-    );
-    volumetrics.choices = vec![
-        Choice { value: "off".into(), name: "Off".into() },
-        Choice { value: "low".into(), name: "Low".into() },
-        Choice { value: "medium".into(), name: "Medium".into() },
-        Choice { value: "high".into(), name: "High".into() },
-    ];
+    texture_filter.group = "textures".into();
     let mut temporal = spec(
         "temporal_quality",
         "Temporal upscaling",
@@ -142,88 +144,439 @@ pub fn settings() -> Vec<SettingSpec> {
         Choice { value: "balanced".into(), name: "Balanced".into() },
         Choice { value: "performance".into(), name: "Performance".into() },
     ];
+    temporal.group = "rendering".into();
+    let mut volumetric = spec(
+        "volumetric_quality",
+        "Volumetric lighting",
+        "choice",
+        "off".into(),
+        "Participating-light/fog quality for beams, glow and atmospheric depth.",
+    );
+    volumetric.choices = vec![
+        Choice { value: "off".into(), name: "Off".into() },
+        Choice { value: "low".into(), name: "Low".into() },
+        Choice { value: "medium".into(), name: "Medium".into() },
+        Choice { value: "high".into(), name: "High".into() },
+    ];
+    volumetric.group = "lighting".into();
+
+    let mut msaa =
+        spec("msaa", "MSAA", "choice", "1".into(), "Multisample anti-aliasing before temporal reconstruction.");
+    msaa.choices = ["1", "2", "4", "8", "16"]
+        .into_iter()
+        .map(|value| Choice {
+            value: value.into(),
+            name: if value == "1" { "Off".into() } else { format!("{value}x") },
+        })
+        .collect();
+    msaa.group = "rendering".into();
+
+    let mut anisotropy = spec(
+        "anisotropy",
+        "Anisotropic filtering",
+        "choice",
+        "auto".into(),
+        "Keeps textures sharp at oblique viewing angles.",
+    );
+    anisotropy.choices = ["auto", "1", "2", "4", "8", "16"]
+        .into_iter()
+        .map(|value| Choice {
+            value: value.into(),
+            name: match value {
+                "auto" => "Auto".into(),
+                "1" => "Off".into(),
+                _ => format!("{value}x"),
+            },
+        })
+        .collect();
+    anisotropy.group = "textures".into();
     vec![
-        spec(
-            "hardware_auto",
-            "Hardware auto tuning",
-            "bool",
-            true.into(),
-            "Detects this device before Play and chooses safe runtime quality automatically. RTX/Apple Silicon can use the Ultra path; weaker or unknown GPUs get a compatible balanced path. Verified ray tracing is enabled only when the detected backend can run it safely.",
-        ),
-        shadows,
-        spec(
-            "ray_tracing",
-            "Ray-traced sunlight",
-            "bool",
-            true.into(),
-            "Uses the native Metal ray-tracing path for static direct-sun visibility on Apple Silicon. M3 and newer Apple GPUs use hardware RT; M1/M2 use the compute fallback once when a level loads, then reuse the result during rendering.",
-        ),
-        spec("gtao", "Ambient occlusion", "bool", true.into(), "Soft shade in corners and under objects."),
-        quality,
-        spec(
-            "local_lights",
-            "Native dynamic lights",
-            "bool",
-            true.into(),
-            "Keeps the game's native projectile and explosion lights active.",
-        ),
-        spec(
-            "authored_object_lights",
-            "Additional lamp lights",
-            "bool",
-            false.into(),
-            "Adds the new class-bound lamp/object emitters. Leave this off for the older Enhanced lighting look.",
-        ),
-        volumetrics,
-        spec(
-            "bloom",
-            "Bloom",
-            "bool",
-            true.into(),
-            "Lets bright lamps, projectiles and emissive materials cast a soft optical glow before the HUD.",
-        ),
-        range(
+        group(
             spec(
-                "bloom_strength",
-                "Bloom strength",
-                "float",
-                0.35.into(),
-                "Controls how strongly bright world pixels spread into their surroundings.",
+                "hardware_auto",
+                "Hardware auto tuning",
+                "bool",
+                true.into(),
+                "Detects this device before Play and chooses safe runtime quality automatically. RTX/Apple Silicon can use the Ultra path; weaker or unknown GPUs get a compatible balanced path. Verified ray tracing is enabled only when the detected backend can run it safely.",
             ),
-            0.0,
-            1.5,
-            0.05,
+            "rendering",
         ),
-        advanced(range(
-            spec("bloom_radius", "Bloom radius", "float", 1.0.into(), "Scales the bloom sampling footprint."),
-            0.5,
-            2.5,
-            0.1,
-        )),
-        spec(
-            "offline_ultra_textures",
-            "Ultra textures before Play",
-            "bool",
-            true.into(),
-            "Pre-renders known game textures once at 8x up to a 4096-pixel edge, saves them as a persistent texture pack, and reuses that pack on later starts. This keeps 2x/4x/8x reconstruction out of the render loop.",
+        group(
+            range(
+                spec(
+                    "render_scale",
+                    "Render scale",
+                    "int",
+                    100.into(),
+                    "Internal world resolution as a percentage of the window. Temporal upscaling then reconstructs to the final output.",
+                ),
+                25.0,
+                400.0,
+                5.0,
+            ),
+            "rendering",
+        ),
+        msaa,
+        temporal,
+        group(
+            range(
+                spec(
+                    "temporal_sharpness",
+                    "Upscaling sharpening",
+                    "float",
+                    0.2.into(),
+                    "RCAS sharpening after temporal reconstruction.",
+                ),
+                0.0,
+                1.0,
+                0.05,
+            ),
+            "rendering",
         ),
         texture_filter,
-        temporal,
-        spec(
-            "agx_preview",
-            "Color Correction",
+        group(
+            spec(
+                "offline_ultra_textures",
+                "Ultra textures before Play",
+                "bool",
+                true.into(),
+                "Pre-renders known game textures once at 8x up to a 4096-pixel edge, saves them as a persistent texture pack, and reuses that pack on later starts. This keeps 2x/4x/8x reconstruction out of the render loop.",
+            ),
+            "textures",
+        ),
+        anisotropy,
+        shadows,
+        group(
+            spec(
+                "ray_tracing",
+                "Ray-traced sunlight",
+                "bool",
+                true.into(),
+                "Uses the native Metal ray-tracing path for static direct-sun visibility on Apple Silicon. M3 and newer Apple GPUs use hardware RT; M1/M2 use the compute fallback once when a level loads, then reuse the result during rendering.",
+            ),
+            "lighting",
+        ),
+        volumetric,
+        group(
+            spec(
+                "local_lights",
+                "Dynamic lights",
+                "bool",
+                true.into(),
+                "Lets native projectile/explosion lights and authored lamp/object emitters illuminate the world.",
+            ),
+            "lighting",
+        ),
+        group(
+            spec(
+                "authored_object_lights",
+                "Additional lamp lights",
+                "bool",
+                false.into(),
+                "Adds the class-bound lamp/object emitters. Leave this off for the older Enhanced lighting look.",
+            ),
+            "lighting",
+        ),
+        group(
+            range(
+                spec(
+                    "probe_gi_multiplier",
+                    "Global illumination strength",
+                    "float",
+                    1.0.into(),
+                    "Multiplies the baked indirect lighting without requiring a new bake.",
+                ),
+                0.0,
+                5.0,
+                0.05,
+            ),
+            "lighting",
+        ),
+        group(
+            spec(
+                "rim_light",
+                "Rim lighting",
+                "bool",
+                true.into(),
+                "Adds a restrained edge light to characters and objects so silhouettes read more clearly.",
+            ),
+            "lighting",
+        ),
+        group(
+            spec(
+                "bloom",
+                "Bloom",
+                "bool",
+                true.into(),
+                "Lets bright lamps, projectiles and emissive materials cast a soft optical glow before the HUD.",
+            ),
+            "post_processing",
+        ),
+        group(
+            range(
+                spec(
+                    "bloom_strength",
+                    "Bloom strength",
+                    "float",
+                    0.35.into(),
+                    "Controls how strongly bright weapon effects, explosions, lamps and emissive materials glow.",
+                ),
+                0.0,
+                1.0,
+                0.05,
+            ),
+            "post_processing",
+        ),
+        group(
+            range(
+                spec(
+                    "bloom_radius",
+                    "Bloom radius",
+                    "float",
+                    1.0.into(),
+                    "Controls the spread of bright world emission without changing the native-resolution HUD.",
+                ),
+                0.5,
+                2.0,
+                0.1,
+            ),
+            "post_processing",
+        ),
+        group(
+            spec(
+                "agx_preview",
+                "Color correction",
+                "bool",
+                true.into(),
+                "Balances colour and contrast for a softer, more natural image.",
+            ),
+            "color",
+        ),
+        group(
+            range(
+                spec("agx_exposure", "Exposure", "float", 0.25.into(), "Base exposure in photographic stops."),
+                -4.0,
+                4.0,
+                0.05,
+            ),
+            "color",
+        ),
+        group(
+            range(
+                spec("agx_brightness", "Brightness", "float", 0.5.into(), "Makes the image darker or brighter."),
+                0.0,
+                1.0,
+                0.01,
+            ),
+            "color",
+        ),
+        group(
+            spec("gtao", "Ambient occlusion", "bool", true.into(), "Soft shade in corners and under objects."),
+            "ambient_occlusion",
+        ),
+        quality,
+        group(
+            range(
+                spec(
+                    "gtao_radius",
+                    "Occlusion radius",
+                    "float",
+                    1.25.into(),
+                    "How far ambient occlusion searches around a surface point.",
+                ),
+                0.05,
+                8.0,
+                0.05,
+            ),
+            "ambient_occlusion",
+        ),
+        group(
+            range(
+                spec(
+                    "gtao_strength",
+                    "Occlusion strength",
+                    "float",
+                    1.0.into(),
+                    "How dark the ambient occlusion contribution becomes.",
+                ),
+                0.0,
+                3.0,
+                0.05,
+            ),
+            "ambient_occlusion",
+        ),
+        group(
+            spec("motion_blur", "Motion blur", "bool", true.into(), "Subtle motion blur to enhance animations."),
+            "motion",
+        ),
+        group(
+            range(
+                spec(
+                    "motion_blur_strength",
+                    "Motion blur strength",
+                    "float",
+                    0.5.into(),
+                    "Exposure strength of the motion reconstruction.",
+                ),
+                0.0,
+                1.0,
+                0.05,
+            ),
+            "motion",
+        ),
+        advanced(range(
+            spec("gtao_slices", "GTAO directions", "int", 4.into(), "Horizon-search directions."),
+            1.0,
+            12.0,
+            1.0,
+        )),
+        advanced(range(
+            spec("gtao_steps", "GTAO steps", "int", 6.into(), "Samples on each side of every GTAO direction."),
+            4.0,
+            24.0,
+            1.0,
+        )),
+        advanced(spec(
+            "gtao_half_resolution",
+            "Half-resolution GTAO",
             "bool",
             true.into(),
-            "Balances colour and contrast for a softer, more natural image, and lets you adjust brightness.",
-        ),
-        range(
-            spec("agx_brightness", "Brightness", "float", 0.5.into(), "Makes the image darker or brighter."),
+            "Evaluates GTAO at half resolution and upsamples it along depth edges.",
+        )),
+        advanced(spec(
+            "gtao_hi_z",
+            "Hierarchical-depth GTAO",
+            "bool",
+            false.into(),
+            "Uses hierarchical depth for longer-distance GTAO horizon samples.",
+        )),
+        advanced(range(
+            spec(
+                "rim_light_strength",
+                "Rim-light strength",
+                "float",
+                0.30.into(),
+                "Intensity of the enhanced edge light.",
+            ),
             0.0,
             1.0,
             0.01,
-        ),
-        spec("motion_blur", "Motion blur", "bool", true.into(), "Subtle motion blur to enhance animations."),
-        advanced(range(spec("temporal_sharpness", "Upscaling sharpening", "float", 0.2.into(), ""), 0.0, 1.0, 0.05)),
+        )),
+        advanced(range(
+            spec(
+                "rim_light_falloff",
+                "Rim-light falloff",
+                "float",
+                6.46.into(),
+                "Higher values make the lit edge narrower.",
+            ),
+            1.0,
+            8.0,
+            0.01,
+        )),
+        advanced(spec(
+            "rim_shadow_lift",
+            "Lift rim-light shadows",
+            "bool",
+            true.into(),
+            "Keeps rim-lit silhouettes readable in deep shadow.",
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_radius",
+                "Motion blur radius",
+                "int",
+                64.into(),
+                "Maximum motion-blur trail radius in display pixels.",
+            ),
+            1.0,
+            128.0,
+            1.0,
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_samples",
+                "Motion blur samples",
+                "int",
+                16.into(),
+                "Reconstruction samples used along each motion trail.",
+            ),
+            8.0,
+            64.0,
+            1.0,
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_min_motion",
+                "Motion blur threshold",
+                "float",
+                1.0.into(),
+                "Ignores exposed motion below this many display pixels.",
+            ),
+            0.1,
+            4.0,
+            0.1,
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_spread",
+                "Motion blur spread",
+                "float",
+                0.5.into(),
+                "Perpendicular trail allowance relative to motion length.",
+            ),
+            0.0,
+            1.0,
+            0.05,
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_depth_tolerance",
+                "Motion blur depth tolerance",
+                "float",
+                0.009.into(),
+                "Depth rejection threshold used to avoid bleeding across surfaces.",
+            ),
+            0.001,
+            0.05,
+            0.001,
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_cutscene_multiplier",
+                "Cutscene blur multiplier",
+                "float",
+                1.0.into(),
+                "Scales motion blur during real-time cutscenes.",
+            ),
+            0.0,
+            2.0,
+            0.05,
+        )),
+        advanced(range(
+            spec(
+                "probe_normal_bias",
+                "GI normal bias",
+                "float",
+                0.5.into(),
+                "Offsets GI receivers along the surface normal to reduce leaking.",
+            ),
+            0.0,
+            2.0,
+            0.05,
+        )),
+        advanced(range(
+            spec(
+                "probe_view_bias",
+                "GI view bias",
+                "float",
+                0.5.into(),
+                "Offsets GI sampling toward the camera to reduce surface artifacts.",
+            ),
+            0.0,
+            2.0,
+            0.05,
+        )),
     ]
 }
 
@@ -293,58 +646,116 @@ pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> En
             blocked: String::new(),
             settings,
             presets: vec![
-                Preset {
-                    id: "ultra-classic".into(),
-                    name: "Ultra / Classic Lighting".into(),
-                    values: [
-                        ("hardware_auto".into(), Value::Bool(true)),
-                        ("ray_tracing".into(), Value::Bool(true)),
-                        ("shadow_quality".into(), Value::from("high")),
-                        ("gtao".into(), Value::Bool(true)),
-                        ("gtao_quality".into(), Value::from("quality")),
-                        ("offline_ultra_textures".into(), Value::Bool(true)),
-                        ("texture_filter".into(), Value::from("normal")),
-                        ("temporal_quality".into(), Value::from("native-aa")),
-                        ("volumetric_quality".into(), Value::from("high")),
-                        ("local_lights".into(), Value::Bool(true)),
-                        ("authored_object_lights".into(), Value::Bool(false)),
-                        ("bloom".into(), Value::Bool(false)),
-                        ("bloom_strength".into(), Value::from(0.35)),
-                        ("bloom_radius".into(), Value::from(1.0)),
-                        ("agx_preview".into(), Value::Bool(true)),
-                        ("agx_brightness".into(), Value::from(0.5)),
-                        ("motion_blur".into(), Value::Bool(true)),
-                        ("temporal_sharpness".into(), Value::from(0.2)),
-                    ]
-                    .into_iter()
-                    .collect(),
-                },
-                Preset {
-                    id: "ultra".into(),
-                    name: "Ultra / Maximum".into(),
-                    values: [
-                        ("hardware_auto".into(), Value::Bool(true)),
-                        ("ray_tracing".into(), Value::Bool(true)),
-                        ("shadow_quality".into(), Value::from("high")),
-                        ("gtao".into(), Value::Bool(true)),
-                        ("gtao_quality".into(), Value::from("quality")),
-                        ("offline_ultra_textures".into(), Value::Bool(true)),
-                        ("texture_filter".into(), Value::from("normal")),
-                        ("temporal_quality".into(), Value::from("native-aa")),
-                        ("volumetric_quality".into(), Value::from("high")),
-                        ("local_lights".into(), Value::Bool(true)),
-                        ("authored_object_lights".into(), Value::Bool(true)),
-                        ("bloom".into(), Value::Bool(true)),
-                        ("bloom_strength".into(), Value::from(0.35)),
-                        ("bloom_radius".into(), Value::from(1.0)),
-                        ("agx_preview".into(), Value::Bool(true)),
-                        ("agx_brightness".into(), Value::from(0.5)),
-                        ("motion_blur".into(), Value::Bool(true)),
-                        ("temporal_sharpness".into(), Value::from(0.2)),
-                    ]
-                    .into_iter()
-                    .collect(),
-                },
+                preset(
+                    "ultra-classic",
+                    "Ultra / Classic Lighting",
+                    &[
+                        ("hardware_auto", true.into()),
+                        ("ray_tracing", true.into()),
+                        ("shadow_quality", "high".into()),
+                        ("gtao", true.into()),
+                        ("gtao_quality", "quality".into()),
+                        ("offline_ultra_textures", true.into()),
+                        ("texture_filter", "normal".into()),
+                        ("temporal_quality", "native-aa".into()),
+                        ("volumetric_quality", "high".into()),
+                        ("local_lights", true.into()),
+                        ("authored_object_lights", false.into()),
+                        ("bloom", false.into()),
+                        ("bloom_strength", 0.35.into()),
+                        ("bloom_radius", 1.0.into()),
+                        ("agx_preview", true.into()),
+                        ("agx_brightness", 0.5.into()),
+                        ("motion_blur", true.into()),
+                        ("temporal_sharpness", 0.2.into()),
+                    ],
+                ),
+                preset(
+                    "ultra",
+                    "Ultra / Maximum",
+                    &[
+                        ("hardware_auto", true.into()),
+                        ("ray_tracing", true.into()),
+                        ("shadow_quality", "high".into()),
+                        ("gtao", true.into()),
+                        ("gtao_quality", "quality".into()),
+                        ("offline_ultra_textures", true.into()),
+                        ("texture_filter", "normal".into()),
+                        ("temporal_quality", "native-aa".into()),
+                        ("volumetric_quality", "high".into()),
+                        ("local_lights", true.into()),
+                        ("authored_object_lights", true.into()),
+                        ("bloom", true.into()),
+                        ("bloom_strength", 0.35.into()),
+                        ("bloom_radius", 1.0.into()),
+                        ("agx_preview", true.into()),
+                        ("agx_brightness", 0.5.into()),
+                        ("motion_blur", true.into()),
+                        ("temporal_sharpness", 0.2.into()),
+                    ],
+                ),
+                preset(
+                    "performance",
+                    "Performance",
+                    &[
+                        ("render_scale", 85.into()),
+                        ("msaa", "1".into()),
+                        ("temporal_quality", "performance".into()),
+                        ("shadow_quality", "medium".into()),
+                        ("volumetric_quality", "low".into()),
+                        ("gtao_quality", "performance".into()),
+                        ("gtao_half_resolution", true.into()),
+                        ("motion_blur", false.into()),
+                    ],
+                ),
+                preset(
+                    "balanced",
+                    "Balanced",
+                    &[
+                        ("render_scale", 100.into()),
+                        ("msaa", "1".into()),
+                        ("temporal_quality", "quality".into()),
+                        ("shadow_quality", "high".into()),
+                        ("volumetric_quality", "medium".into()),
+                        ("gtao_quality", "quality".into()),
+                        ("gtao_half_resolution", true.into()),
+                        ("probe_gi_multiplier", 1.0.into()),
+                        ("bloom_strength", 0.35.into()),
+                    ],
+                ),
+                preset(
+                    "maximum",
+                    "Maximum",
+                    &[
+                        ("render_scale", 125.into()),
+                        ("msaa", "4".into()),
+                        ("temporal_quality", "native-aa".into()),
+                        ("shadow_quality", "high".into()),
+                        ("volumetric_quality", "high".into()),
+                        ("gtao_quality", "quality".into()),
+                        ("gtao_half_resolution", false.into()),
+                        ("gtao_slices", 8.into()),
+                        ("gtao_steps", 16.into()),
+                        ("anisotropy", "16".into()),
+                        ("probe_gi_multiplier", 1.0.into()),
+                    ],
+                ),
+                preset(
+                    "cinematic",
+                    "Cinematic",
+                    &[
+                        ("render_scale", 100.into()),
+                        ("temporal_quality", "quality".into()),
+                        ("volumetric_quality", "high".into()),
+                        ("bloom", true.into()),
+                        ("bloom_strength", 0.45.into()),
+                        ("bloom_radius", 1.2.into()),
+                        ("motion_blur", true.into()),
+                        ("motion_blur_strength", 0.65.into()),
+                        ("agx_preview", true.into()),
+                        ("agx_exposure", 0.25.into()),
+                    ],
+                ),
             ],
             hooks: Vec::new(),
             shared_hooks: Vec::new(),
@@ -417,11 +828,34 @@ mod tests {
         let all = settings();
         assert_eq!(
             all.iter().filter(|s| s.group == "advanced").map(|s| s.key.as_str()).collect::<Vec<_>>(),
-            vec!["bloom_radius", "temporal_sharpness"]
+            vec![
+                "gtao_slices",
+                "gtao_steps",
+                "gtao_half_resolution",
+                "gtao_hi_z",
+                "rim_light_strength",
+                "rim_light_falloff",
+                "rim_shadow_lift",
+                "motion_blur_radius",
+                "motion_blur_samples",
+                "motion_blur_min_motion",
+                "motion_blur_spread",
+                "motion_blur_depth_tolerance",
+                "motion_blur_cutscene_multiplier",
+                "probe_normal_bias",
+                "probe_view_bias",
+            ]
         );
-        assert!(all
-            .iter()
-            .all(|s| s.key != "enhanced_shadows" && (s.key == "motion_blur" || !s.key.starts_with("motion_blur_"))));
+        assert!(all.iter().all(|s| s.key != "enhanced_shadows"));
+        for hidden_debug in [
+            "probe_spheres",
+            "medial_axis_debug",
+            "ceiling_area_lights",
+            "environment_probe_debug",
+            "sun_direction_override",
+        ] {
+            assert!(all.iter().all(|s| s.key != hidden_debug));
+        }
         for version in ["pal", "ntsc"] {
             let file = settings_file(&home, "rac1", version);
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
@@ -455,43 +889,11 @@ mod tests {
         assert!(v.entry.settings.iter().all(|s| s.spec.key != "probe_lighting"));
         assert!(set_setting(&home, "rac1", "pal", "probe_lighting", &Value::Bool(false)).is_err());
         assert_eq!(value(&v, "texture_filter"), Value::from("edge-aware"));
-        assert_eq!(value(&v, "local_lights"), Value::Bool(true));
-        assert_eq!(value(&v, "authored_object_lights"), Value::Bool(false));
-        assert_eq!(value(&v, "volumetric_quality"), Value::from("high"));
         assert_eq!(value(&v, "temporal_quality"), Value::from("quality"));
         assert_eq!(value(&v, "shadow_quality"), Value::from("high"));
         assert_eq!(value(&v, "temporal_sharpness"), Value::from(0.2));
         assert_eq!(value(&v, "agx_preview"), Value::Bool(true));
-        assert_eq!(value(&v, "bloom"), Value::Bool(true));
-        assert_eq!(value(&v, "bloom_strength"), Value::from(0.35));
-        assert_eq!(value(&v, "bloom_radius"), Value::from(1.0));
         assert_eq!(value(&v, "motion_blur"), Value::Bool(true));
-
-        let classic = v.entry.presets.iter().find(|p| p.id == "ultra-classic").expect("classic ultra preset");
-        assert_eq!(classic.name, "Ultra / Classic Lighting");
-        assert_eq!(classic.values.get("authored_object_lights"), Some(&Value::Bool(false)));
-        assert_eq!(classic.values.get("local_lights"), Some(&Value::Bool(true)));
-        assert_eq!(classic.values.get("bloom"), Some(&Value::Bool(false)));
-        assert_eq!(classic.values.get("texture_filter"), Some(&Value::from("normal")));
-        for (key, preset_value) in &classic.values {
-            let spec = v.entry.settings.iter().find(|s| s.spec.key == *key).expect("classic preset setting exists");
-            assert_eq!(check_value(&spec.spec, preset_value), Some(preset_value.clone()), "{key}");
-        }
-
-        let ultra = v.entry.presets.iter().find(|p| p.id == "ultra").expect("ultra preset");
-        assert_eq!(ultra.name, "Ultra / Maximum");
-        assert_eq!(ultra.values.get("texture_filter"), Some(&Value::from("normal")));
-        assert_eq!(ultra.values.get("temporal_quality"), Some(&Value::from("native-aa")));
-        assert_eq!(ultra.values.get("volumetric_quality"), Some(&Value::from("high")));
-        assert_eq!(ultra.values.get("local_lights"), Some(&Value::Bool(true)));
-        assert_eq!(ultra.values.get("authored_object_lights"), Some(&Value::Bool(true)));
-        assert_eq!(ultra.values.get("bloom"), Some(&Value::Bool(true)));
-        assert_eq!(ultra.values.get("bloom_strength"), Some(&Value::from(0.35)));
-        assert_eq!(ultra.values.get("bloom_radius"), Some(&Value::from(1.0)));
-        for (key, preset_value) in &ultra.values {
-            let spec = v.entry.settings.iter().find(|s| s.spec.key == *key).expect("preset setting exists");
-            assert_eq!(check_value(&spec.spec, preset_value), Some(preset_value.clone()), "{key}");
-        }
 
         assert_eq!(value(&v, "agx_brightness"), Value::from(0.5));
         for brightness in [0.0, 0.5, 1.0] {

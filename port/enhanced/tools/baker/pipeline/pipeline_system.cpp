@@ -135,3 +135,18 @@ CacheLock::~CacheLock() {
     }
 }
 }  // namespace openrac::lighting::pipeline
+
+namespace openrac::lighting {
+bool bake_cache_busy(const std::filesystem::path& directory) {
+    if (!std::filesystem::is_directory(directory)) {
+        return false;
+    }
+    try {
+        // This is the exact lock a bake would take. Destruction releases it immediately when idle.
+        pipeline::CacheLock lock(directory);
+        return false;
+    } catch (const std::runtime_error&) {
+        return true;
+    }
+}
+}  // namespace openrac::lighting

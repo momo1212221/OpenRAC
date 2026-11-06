@@ -285,6 +285,13 @@ int main(int argc, char** argv) {
 
         const std::vector<std::string> arguments(argv + 1, argv + argc);
 
+        // The launcher asks this before offering another bake. It acquires and immediately releases
+        // the same OS lock as a real bake, so stale lock files do not look busy.
+        if (argc == 3 && std::string_view(argv[1]) == "--cache-status") {
+            std::cout << (bake_cache_busy(argv[2]) ? "busy" : "idle") << '\n';
+            return 0;
+        }
+
         // Launcher bakes own scheduling and publication directly, without a Python coordinator.
         if (std::find(arguments.begin(), arguments.end(), "--bake-all") != arguments.end()) {
             return run_bake_pipeline(arguments, std::cout);

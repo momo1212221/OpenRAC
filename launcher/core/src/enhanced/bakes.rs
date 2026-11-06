@@ -25,6 +25,8 @@ pub struct BakeStatus {
     pub failed: usize,
     /// Levels a stopped bake left part way: the next bake goes on from what they have.
     pub partial: usize,
+    // Another process currently owns the cache lock (for example a terminal-started bake).
+    pub busy: bool,
 }
 
 fn sha256(path: &Path) -> Option<String> {
@@ -163,12 +165,79 @@ fn prepared_ocean(level: &Path) -> bool {
 /// The bake status of the levels in `levels` against the bakes in `probes`, made by `baker`.
 pub fn bake_status(levels: &Path, probes: &Path, baker: &Path, profiles: &Path, version: &str) -> BakeStatus {
     let version = version.replace('/', "-");
-    bake_status_on(levels, probes, baker, SHIPS_BAKER, &|level| {
+    let mut status = bake_status_on(levels, probes, baker, SHIPS_BAKER, &|level| {
         if lighting_profile_needs_refresh(profiles, &version, level) {
             return None;
         }
         baker_profile(baker, level)
-    })
+    });
+    status.busy = bake_cache_busy(baker, probes);
+    status
+}
+
+/// Ask the native baker to test the exact cache lock it uses for a real bake. Unsupported or
+/// unavailable bakers simply report idle so older installations keep working.
+fn bake_cache_busy(baker: &Path, probes: &Path) -> bool {
+    if !probes.is_dir() {
+        return false;
+    }
+    // Unix can inspect the authoritative kernel lock directly, avoiding a helper process while the
+    // page polls. Other platforms ask a current native baker for the same lock state.
+    if let Some(state) = os_cache_busy(probes) {
+        return state;
+    }
+    if !baker.is_file() {
+        return false;
+    }
+    if let Some(state) = crate::detect::quiet(baker)
+        .arg("--cache-status")
+        .arg(probes)
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| match String::from_utf8_lossy(&out.stdout).trim() {
+            "busy" => Some(true),
+            "idle" => Some(false),
+            _ => None,
+        })
+    {
+        return state;
+    }
+    os_cache_busy(probes).unwrap_or(false)
+}
+
+/// Compatibility for an older baker that predates `--cache-status`: on Unix the launcher can
+/// probe the same advisory lock itself. The lock file is deliberately not deleted; an old stale
+/// file is harmless because only the kernel-held lock means busy.
+#[cfg(unix)]
+fn os_cache_busy(probes: &Path) -> Option<bool> {
+    use std::fs::OpenOptions;
+    use std::os::fd::AsRawFd;
+
+    unsafe extern "C" {
+        fn flock(fd: i32, operation: i32) -> i32;
+    }
+    const LOCK_EX: i32 = 2;
+    const LOCK_NB: i32 = 4;
+    const LOCK_UN: i32 = 8;
+
+    let path = probes.join("probe-bake.lock");
+    if !path.exists() {
+        return Some(false);
+    }
+    let file = OpenOptions::new().read(true).write(true).open(path).ok()?;
+    let fd = file.as_raw_fd();
+    let result = unsafe { flock(fd, LOCK_EX | LOCK_NB) };
+    if result != 0 {
+        return Some(true);
+    }
+    let _ = unsafe { flock(fd, LOCK_UN) };
+    Some(false)
+}
+
+#[cfg(not(unix))]
+fn os_cache_busy(_: &Path) -> Option<bool> {
+    None
 }
 
 // Predict the baker's tracked profile refresh without touching the export.
@@ -312,7 +381,10 @@ pub fn version_bake_status(config: &crate::config::Config, key: &str) -> BakeSta
 /// again; the levels and the settings are not touched. A folder that is not the bakes' (one that
 /// holds anything but level bakes and the bake's report) is refused rather than emptied.
 pub fn delete_bakes(config: &crate::config::Config, key: &str) -> Result<(), String> {
-    let (_, probes, _) = bake_folders(config, key)?;
+    let (_, probes, baker) = bake_folders(config, key)?;
+    if bake_cache_busy(&baker, &probes) {
+        return Err("lighting preparation is still running; its cache was not deleted".into());
+    }
     delete_bake_folder(&probes)
 }
 
@@ -345,6 +417,32 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_busy_status_tracks_the_kernel_lock_not_the_lock_files_presence() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+
+        unsafe extern "C" {
+            fn flock(fd: i32, operation: i32) -> i32;
+        }
+        const LOCK_EX: i32 = 2;
+        const LOCK_NB: i32 = 4;
+        const LOCK_UN: i32 = 8;
+
+        let root = temp("busy-lock");
+        let path = root.join("probe-bake.lock");
+        std::fs::write(&path, "0").unwrap();
+        assert_eq!(os_cache_busy(&root), Some(false), "a stale lock file is idle");
+
+        let file = OpenOptions::new().read(true).write(true).open(&path).unwrap();
+        assert_eq!(unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) }, 0);
+        assert_eq!(os_cache_busy(&root), Some(true), "a held OS lock is busy");
+        let _ = unsafe { flock(file.as_raw_fd(), LOCK_UN) };
+        assert_eq!(os_cache_busy(&root), Some(false));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

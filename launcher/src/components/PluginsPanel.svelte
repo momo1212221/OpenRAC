@@ -93,13 +93,13 @@
   }
 
   function bake() {
-    if (bakeAction && !bakeJob) void run({ kind: "version", key: v.key }, bakeAction);
+    if (bakeAction && !bakeJob && !enhanced?.bake.busy) void run({ kind: "version", key: v.key }, bakeAction);
   }
 
   /** Every bake of this version gone, after the player says yes. */
   async function deleteBakes() {
     const b = enhanced?.bake;
-    if (!b || bakeJob) return;
+    if (!b || bakeJob || b.busy) return;
     if (!(await ask(T.ENHANCED.removeAsk(b.ready + b.partial + b.failed), T.ENHANCED.removeYes))) return;
     try {
       enhanced = await api.enhancedDeleteBakes(v.game, v.name);
@@ -119,7 +119,7 @@
     }
     // Switched on: the lighting is baked for the levels that have none yet.
     const b = enhanced?.bake;
-    if (on && b && b.available && b.ready < b.levels) bake();
+    if (on && b && b.available && !b.busy && b.ready < b.levels) bake();
   }
 
   // The bake ended: its status again.
@@ -128,6 +128,18 @@
     const now = bakeJob !== null;
     if (wasBaking && !now) void loadEnhanced();
     wasBaking = now;
+  });
+
+  // A bake started in a terminal or another launcher is not in jobs.list. While its OS lock is
+  // held, keep the page current and turn it back into the normal controls as soon as the lock frees.
+  $effect(() => {
+    if (!enhanced?.bake.busy || bakeJob) return;
+    const timer = window.setInterval(() => {
+      void loadEnhanced();
+    }, 1200);
+    return () => {
+      window.clearInterval(timer);
+    };
   });
   let loaded = $state(false);
 
@@ -344,7 +356,16 @@
     onsave={(key, value) => saveSetting(mod, key, value)}
     onenable={(on) => void (isEnhanced(mod.id) ? setEnhanced(on) : setOn(mod, on))}
     builtIn={isEnhanced(mod.id) && enhanced
-      ? { bake: enhanced.bake, job: bakeJob, onbake: bake, ondelete: deleteBakes }
+      ? {
+          bake: enhanced.bake,
+          job: bakeJob,
+          game: v.game,
+          version: v.name,
+          versionView: v,
+          onbake: bake,
+          ondelete: deleteBakes,
+          onpack,
+        }
       : null}
     onupdate={() => void runUpdate(mod.id)}
     onpin={(pin) => void setPin(mod.id, pin)}
@@ -411,7 +432,13 @@
               <span class="name">{entry.name}</span>
               <span class="desc">{entry.description}</span>
             </span>
-            <span class={`badge ${badge.tone}`} title={badge.hint}><span class="dot"></span>{badge.text}</span>
+            {#if enhanced.bake.busy}
+              <span class="badge warn" title={T.ENHANCED.busy(enhanced.bake.ready, enhanced.bake.levels)}
+                ><span class="dot"></span>{T.ENHANCED.baking}</span
+              >
+            {:else}
+              <span class={`badge ${badge.tone}`} title={badge.hint}><span class="dot"></span>{badge.text}</span>
+            {/if}
             <span class="go">{T.PANEL.settings}<Icon name="next" size={16} /></span>
           </button>
         </li>

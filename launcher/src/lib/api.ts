@@ -303,7 +303,7 @@ export interface CloudSaveStatus {
   enabled: boolean;
   folder: string | null;
   cloudDir: string | null;
-  state: "disabled" | "empty" | "synced" | "local-changes" | "cloud-changes" | "conflict";
+  state: string;
   snapshots: number;
   heads: CloudSnapshotInfo[];
   latest: CloudSnapshotInfo | null;
@@ -314,7 +314,7 @@ export interface CloudSaveStatus {
 }
 
 export interface CloudSyncResult {
-  action: "none" | "uploaded" | "downloaded" | "conflict";
+  action: string;
   message: string;
   status: CloudSaveStatus;
 }
@@ -505,6 +505,20 @@ export const api = {
   /** Saves the pack as a .zip where the player chooses; `saved` is empty when they backed out. */
   texturePacksExport: (game: string, version: string) =>
     call<ExportedTexturePack>("texture_packs_export", { game, version }),
+  aiTextureBake: (
+    game: string,
+    version: string,
+    options: { mode: "faithful" | "balanced" | "enhanced"; preserveMicrodetail: boolean; preserveStars: boolean },
+  ) =>
+    call<{
+      processed: number;
+      model: string;
+      mode: string;
+      preservedMicrodetails: number;
+      preservedStars: number;
+      output: string;
+      backup: string;
+    }>("ai_texture_bake", { game, version, options }),
   enhancedView: (game: string, version: string) => call<EnhancedView | null>("enhanced_view", { game, version }),
   enhancedSetEnabled: (game: string, version: string, enabled: boolean) =>
     call<EnhancedView | null>("enhanced_set_enabled", { game, version, enabled }),
