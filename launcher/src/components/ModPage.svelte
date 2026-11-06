@@ -78,7 +78,7 @@
 
   const bakeProgress = $derived(builtIn?.job ? readProgress(builtIn.job.actionId, builtIn.job.lines) : null);
 
-  type AiTextureMode = "faithful" | "balanced" | "enhanced";
+  type AiAssetMode = "faithful" | "balanced" | "enhanced";
   let textureMessage = $state("");
   let textureReload = $state(0);
   let aiBusy = $state(false);
@@ -87,7 +87,7 @@
     return localStorage.getItem(`openrac.graphics.${key}`) ?? fallback;
   };
   const savedAiMode = aiPref("aiMode", "balanced");
-  let aiMode = $state<AiTextureMode>(
+  let aiMode = $state<AiAssetMode>(
     savedAiMode === "faithful" || savedAiMode === "enhanced" ? savedAiMode : "balanced",
   );
   let aiPreserveMicrodetail = $state(aiPref("preserveMicrodetail", "1") !== "0");
@@ -474,7 +474,7 @@
             value={aiMode}
             disabled={aiBusy}
             onchange={(e) => {
-              aiMode = e.currentTarget.value as AiTextureMode;
+              aiMode = e.currentTarget.value as AiAssetMode;
               rememberAi("aiMode", aiMode);
             }}
           >
