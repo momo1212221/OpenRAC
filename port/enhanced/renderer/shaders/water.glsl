@@ -106,7 +106,8 @@ vec3 water_direct_specular(vec3 p,vec3 n,vec3 eye,float roughness,float shadow,o
         vec3 delta=LOCAL_POSITION(i).xyz-p;
         float radius=LOCAL_POSITION(i).w,distance=length(delta);
         if(radius<=0. || distance>=radius || distance<1e-6) continue;
-        vec3 radiance=max(LOCAL_COLOUR(i).rgb,vec3(0))*LOCAL_ATTENUATION(distance,radius)*LOCAL_CONE(i,delta/distance);
+        vec3 radiance=max(LOCAL_COLOUR(i).rgb,vec3(0))*LOCAL_ATTENUATION(distance,radius)*LOCAL_CONE(i,delta/distance)
+            *LOCAL_VISIBILITY(p,i);
         irradiance+=radiance*float(max(dot(mp_vec3(n),mp_vec3(delta/distance)),mp_float(0)));
         result+=radiance*water_specular(n,eye,delta/distance,roughness);
     }

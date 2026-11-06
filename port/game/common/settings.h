@@ -139,9 +139,9 @@ struct Settings {
     bool agx_preview = true;                 // SDR-only AgX colour treatment experiment.
     float agx_exposure = 0.25f;              // Base exposure in stops, before AgX.
     float agx_brightness = 0.5f;             // 0..1 adds -0.8..+0.8 EV; midpoint is neutral.
-    bool bloom = true;                        // Bright world emission bleeds before native HUD.
-    float bloom_strength = 0.35f;             // Additive scene-linear halo strength.
-    float bloom_radius = 1.0f;                // Scales the fixed high-quality sampling footprint.
+    bool bloom = true;                        // Scene-linear glow before the native-resolution HUD.
+    float bloom_strength = 0.35f;             // 0..1 intensity of bright emissive neighbourhoods.
+    float bloom_radius = 1.0f;                // 0.5..2 spatial spread of the bounded bloom taps.
 
     float adjusted_agx_exposure() const { return agx_exposure + (agx_brightness - .5f) * 1.6f; }
 

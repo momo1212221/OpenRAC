@@ -375,9 +375,9 @@ void load(const std::filesystem::path& file) {
         } else if (key == "bloom") {
             known = parse_bool(value, s.bloom);
         } else if (key == "bloom_strength") {
-            known = parse_float(value, 0.0f, 1.5f, s.bloom_strength);
+            known = parse_float(value, 0.0f, 1.0f, s.bloom_strength);
         } else if (key == "bloom_radius") {
-            known = parse_float(value, 0.5f, 2.5f, s.bloom_radius);
+            known = parse_float(value, 0.5f, 2.0f, s.bloom_radius);
         } else if (key == "motion_blur") {
             known = parse_bool(value, s.motion_blur);
         } else if (key == "lily_momentum") {

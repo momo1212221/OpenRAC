@@ -15,7 +15,7 @@ class AgxPreview {
 public:
     // Releases preview-owned graphics resources on their owning context.
     ~AgxPreview();
-    // Applies optional bloom and bounded AgX exposure before the native-resolution HUD.
+    // Applies bounded EV exposure, optional AgX and scene-linear bloom; logs and disables on failure.
     void apply(
         renderer::FrameBuffer& output,
         float exposure,

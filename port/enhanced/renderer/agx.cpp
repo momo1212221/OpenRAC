@@ -42,9 +42,12 @@ void fullscreen_target(const renderer::FrameBuffer& output) {
 
 #if defined(OPENRAC_VULKAN)
 // Selects compute only when the existing output already supports storage, without reallocating it.
-bool direct_transform(renderer::FrameBuffer& output, float exposure) {
-    // Multisampled or compatibility targets retain their separate-source raster path.
-    if (!is_vulkan() || output.samples() != 1
+bool direct_transform(
+    renderer::FrameBuffer& output, float exposure, bool agx_enabled, float bloom_strength
+) {
+    // Bloom needs a separate source image, and an AgX-disabled frame still needs the raster pass.
+    // Multisampled or compatibility targets retain that separate-source raster path as well.
+    if (!agx_enabled || bloom_strength > 0.0f || !is_vulkan() || output.samples() != 1
         || !renderer::render_opt::enabled(renderer::render_opt::Opt::AgxDirectOutput)
         || !vkgl::storage_texture(output.colour_texture())) {
         return false;
@@ -144,17 +147,17 @@ void AgxPreview::apply(
     float bloom_radius
 ) {
     // Missing targets and disabled enhanced rendering retain their unmodified world colour.
-    bloom_strength = std::clamp(bloom_strength, 0.0f, 1.5f);
-    bloom_radius = std::clamp(bloom_radius, 0.5f, 2.5f);
     if (m_failed || !enhanced_rendering_available() || output.width() <= 0
-        || output.height() <= 0 || (!agx_enabled && bloom_strength <= 0)) {
+        || output.height() <= 0) {
         return;
     }
-    const stats::Scope timing("Post colour", stats::kGpu);
+    const stats::Scope timing("AgX", stats::kGpu);
     exposure = std::clamp(exposure, -kExposureLimit, kExposureLimit);
+    bloom_strength = std::clamp(bloom_strength, 0.0f, 1.0f);
+    bloom_radius = std::clamp(bloom_radius, 0.5f, 2.0f);
 #if defined(OPENRAC_VULKAN)
-    // Bloom samples neighbouring pixels, so only pure AgX can use the in-place storage path.
-    if (agx_enabled && bloom_strength <= 0 && direct_transform(output, exposure)) {
+    // The in-place path avoids a snapshot but cannot safely reconstruct neighbouring bloom texels.
+    if (direct_transform(output, exposure, agx_enabled, bloom_strength)) {
         fullscreen_target(output);
         stats::gauge("AgX image copies", 0);
         return;

@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // AgX matrices adapted from Filament be858f42ab95cf0ba6e224ac2dc3950bdb172080.
 // Exposure uses an analytical sigmoid and a 40% display-hue blend.
-// Bloom is a bounded scene-linear neighbourhood reconstruction before the native-resolution HUD.
 // See ../lighting/README.md and agx-LICENSE.txt for attribution and SDR limitations.
 #ifdef OPENRAC_AGX_COMPUTE
 layout(local_size_x=8, local_size_y=8) in;
@@ -41,7 +40,6 @@ float AgXSigmoid(float x)
     float t = 2.4*abs(x-pivotX)/scale;
     return pivotY + sign(x-pivotX)*scale*t/pow(1+pow(t,1.5),1/1.5);
 }
-
 vec3 AgXHSV(vec3 rgb)
 {
     float hi = max(rgb.r,max(rgb.g,rgb.b)), lo = min(rgb.r,min(rgb.g,rgb.b));
@@ -56,13 +54,11 @@ vec3 AgXHSV(vec3 rgb)
     }
     return vec3(h,hi > 1e-10 ? delta/hi : 0,hi);
 }
-
 vec3 AgXRGB(vec3 hsv)
 {
     vec3 hueWeights = clamp(abs(fract(hsv.x+vec3(0,2.0/3,1.0/3))*6-3)-1,0.0,1.0);
     return hsv.z*mix(vec3(1),hueWeights,hsv.y);
 }
-
 vec3 AgXDisplay(vec3 scene)
 {
     // Linear Rec.709/D65 -> linear Rec.2020/D65.
@@ -99,7 +95,7 @@ vec3 BloomTap(ivec2 pixel)
     pixel=clamp(pixel,ivec2(0),size-ivec2(1));
     vec3 linear=DecodeSRGB(texelFetch(tex_T0,pixel,0).rgb);
     float peak=max(linear.r,max(linear.g,linear.b));
-    // Smooth knee: ordinary surfaces contribute almost nothing, clipped emissive pixels remain strong.
+    // Smooth knee: ordinary surfaces contribute almost nothing; clipped emissive pixels remain strong.
     float gate=smoothstep(0.50,0.86,peak);
     return linear*gate*gate;
 }
@@ -110,7 +106,6 @@ vec3 BloomAt(ivec2 pixel)
     int nearRadius=max(1,int(round(2.0*bloom_radius)));
     int midRadius=max(2,int(round(5.0*bloom_radius)));
     int farRadius=max(3,int(round(10.0*bloom_radius)));
-
     vec3 result=BloomTap(pixel)*0.10;
     result+=0.075*(BloomTap(pixel+ivec2( nearRadius,0))
                   +BloomTap(pixel+ivec2(-nearRadius,0))
@@ -132,7 +127,7 @@ void main() {
 #ifdef OPENRAC_AGX_COMPUTE
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     if(any(greaterThanEqual(pixel,imageSize(target_colour)))) return;
-    // Each invocation reads only the texel it subsequently owns and writes; no filtering.
+    // Compute remains the in-place AgX-only path; bloom uses the separate-source raster fallback.
     vec4 source = texelFetch(tex_T0,pixel,0);
     vec3 linear = DecodeSRGB(source.rgb);
     vec4 result = vec4(AgXDisplay(linear * exp2(exposure_ev)), source.a);
