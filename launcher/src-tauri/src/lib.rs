@@ -1014,13 +1014,67 @@ async fn ai_texture_bake(
     let dump = texture_packs::folder(&home, &data, &game, &version, true, "")?;
     let pack = texture_packs::folder(&home, &data, &game, &version, false, "")?;
 
-    #[cfg(target_os = "macos")]
-    let (backend, models) = (
-        PathBuf::from("/Applications/Upscayl.app/Contents/Resources/bin/upscayl-bin"),
-        PathBuf::from("/Applications/Upscayl.app/Contents/Resources/models"),
-    );
-    #[cfg(not(target_os = "macos"))]
-    let (backend, models) = (PathBuf::from("upscayl-bin"), PathBuf::from("models"));
+    fn upscayl_paths() -> (PathBuf, PathBuf) {
+        #[cfg(target_os = "macos")]
+        {
+            return (
+                PathBuf::from("/Applications/Upscayl.app/Contents/Resources/bin/upscayl-bin"),
+                PathBuf::from("/Applications/Upscayl.app/Contents/Resources/models"),
+            );
+        }
+
+        #[cfg(windows)]
+        {
+            let mut roots = Vec::new();
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    roots.push(dir.to_path_buf());
+                    roots.push(dir.join("resources"));
+                    roots.push(dir.join("upscayl"));
+                }
+            }
+            if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                let local = PathBuf::from(local);
+                roots.push(local.join("Programs").join("Upscayl").join("resources"));
+                roots.push(local.join("Programs").join("upscayl").join("resources"));
+            }
+            for key in ["ProgramFiles", "ProgramFiles(x86)"] {
+                if let Some(base) = std::env::var_os(key) {
+                    let base = PathBuf::from(base);
+                    roots.push(base.join("Upscayl").join("resources"));
+                    roots.push(base.join("upscayl").join("resources"));
+                }
+            }
+            for root in roots {
+                let backend = if root.join("bin").join("upscayl-bin.exe").is_file() {
+                    root.join("bin").join("upscayl-bin.exe")
+                } else {
+                    root.join("upscayl-bin.exe")
+                };
+                let models = root.join("models");
+                if backend.is_file() && models.is_dir() {
+                    return (backend, models);
+                }
+            }
+            if let Some(paths) = std::env::var_os("PATH") {
+                for dir in std::env::split_paths(&paths) {
+                    let backend = dir.join("upscayl-bin.exe");
+                    if backend.is_file() {
+                        let models = dir.parent().map(|p| p.join("models")).unwrap_or_else(|| PathBuf::from("models"));
+                        return (backend, models);
+                    }
+                }
+            }
+            return (PathBuf::from("upscayl-bin.exe"), PathBuf::from("models"));
+        }
+
+        #[cfg(all(not(target_os = "macos"), not(windows)))]
+        {
+            (PathBuf::from("upscayl-bin"), PathBuf::from("models"))
+        }
+    }
+
+    let (backend, models) = upscayl_paths();
 
     let (model, mode) = match options.mode.as_str() {
         "faithful" => ("high-fidelity-4x", "faithful"),
