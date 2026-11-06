@@ -87,9 +87,7 @@
     return localStorage.getItem(`openrac.graphics.${key}`) ?? fallback;
   };
   const savedAiMode = aiPref("aiMode", "balanced");
-  let aiMode = $state<AiAssetMode>(
-    savedAiMode === "faithful" || savedAiMode === "enhanced" ? savedAiMode : "balanced",
-  );
+  let aiMode = $state<AiAssetMode>(savedAiMode === "faithful" || savedAiMode === "enhanced" ? savedAiMode : "balanced");
   let aiPreserveMicrodetail = $state(aiPref("preserveMicrodetail", "1") !== "0");
   let aiPreserveStars = $state(aiPref("preserveStars", "1") !== "0");
 
