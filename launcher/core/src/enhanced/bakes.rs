@@ -390,7 +390,7 @@ fn cloud_profile(text: &str) -> Value {
         }
     }
     atmosphere.insert("cloud_colour".into(), Value::Array(colour));
-    serde_json::json!({"atmosphere": atmosphere})
+    serde_json::json!({"version": 1, "atmosphere": atmosphere})
 }
 
 /// Freeze saved cloud choices into the version-wide profile consumed by both GI and rendering.
@@ -477,6 +477,7 @@ mod tests {
     #[test]
     fn cloud_preferences_resolve_to_one_version_wide_bake_profile() {
         let defaults = cloud_profile("");
+        assert_eq!(defaults["version"], 1);
         assert_eq!(defaults["atmosphere"]["cloud_enabled"], true);
         assert_eq!(defaults["atmosphere"]["cloud_resolution"], 64);
         let changed = cloud_profile("cloud_seed = 17\ncloud_density = 0.07\ncloud_red = 0.5\ncloud_enabled = 0\n");
@@ -486,6 +487,25 @@ mod tests {
         assert_eq!(changed["atmosphere"]["cloud_enabled"], false);
         assert_eq!(cloud_profile("volume = 25\n"), defaults);
         assert_eq!(cloud_profile("cloud_red = 0.97\n"), cloud_profile("cloud_red = 0.970000029\n"));
+    }
+
+    #[test]
+    #[ignore = "requires OPENRAC_TEST_BAKER pointing to the native baker"]
+    fn cloud_profile_is_accepted_by_native_baker() {
+        let baker = std::env::var_os("OPENRAC_TEST_BAKER").expect("OPENRAC_TEST_BAKER");
+        let root = tempfile::tempdir().unwrap();
+        let level = root.path().join("level_00");
+        std::fs::create_dir(&level).unwrap();
+        std::fs::write(
+            root.path().join("cloud-profile.json"),
+            serde_json::to_vec(&cloud_profile("cloud_seed = 17\n")).unwrap(),
+        )
+        .unwrap();
+        let output =
+            std::process::Command::new(baker).args(["--print-profile", "--level-dir"]).arg(level).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let resolved: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(resolved["atmosphere"]["cloud_seed"], 17);
     }
 
     #[test]

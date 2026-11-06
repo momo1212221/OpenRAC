@@ -79,10 +79,16 @@ class NativePipeline(unittest.TestCase):
 
     def test_native_flow_never_starts_python_for_normal_exports_and_reuses_cache(self):
         (self.levels[0]/'bake-inputs/gameplay.bin').unlink()
+        (self.exports/'cloud-profile.json').write_text(json.dumps(dict(version=1,
+            atmosphere=dict(cloud_seed=17, cloud_resolution=32))))
         self.run_bake()
         paths = [self.cache/f'level_{i:02}'/'sparse.orpg' for i in range(2)]
+        clouds = [self.cache/f'level_{i:02}'/'clouds.orpc' for i in range(2)]
+        self.assertTrue(all(path.stat().st_size > 56 for path in clouds))
+        cloud_times = [path.stat().st_mtime_ns for path in clouds]
         before = [p.stat().st_mtime_ns for p in paths]
         result = self.run_bake()
+        self.assertEqual(cloud_times, [path.stat().st_mtime_ns for path in clouds])
         self.assertEqual(before,[p.stat().st_mtime_ns for p in paths])
         self.assertEqual(result.stdout.count('up to date'),2)
         records = json.loads((self.cache/'bake-all-result.json').read_text())['levels']
