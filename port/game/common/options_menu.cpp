@@ -702,6 +702,10 @@ struct Made {
 };
 Made m;
 
+// Better Pause Menu owns its live Options-side widgets through the mod API.
+// Keep the port responsible only for constructing the native Video/mod rows; it must not
+// overwrite a mod's geometry or picture/hint screens every frame.
+
 // ---- Menu item mapping ----
 
 int count_items(gaddr items, gaddr* camera, gaddr* sound) {
@@ -794,6 +798,7 @@ Rows make_rows(gaddr camera, gaddr sound, int title_text, int row_text) {
 }
 
 void make(gaddr items) {
+    // A new level program owns new menu data; old guest addresses are no longer safe to restore.
     gaddr camera = 0, sound = 0;
     const int count = count_items(items, &camera, &sound);
     m = Made{};
