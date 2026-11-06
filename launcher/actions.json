@@ -447,7 +447,7 @@
         "args": [
           "--bake-all",
           "--levels-dir",
-          "{root}/assets/port/rac1/pal",
+          "{data}/port/pal",
           "--output-dir",
           "{data}/probes/pal",
           "--jobs",

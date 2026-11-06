@@ -222,6 +222,10 @@ const DEV = {
 /** A fork's branches with development builds, as the preview has them (updates.ts, devBranches). */
 export const MOCK_DEV_BRANCHES = ["develop", "feature-launcher-logo", "fix-pad-navigation"];
 
+let mockCloudFolder: string | null = null;
+let mockCloudSnapshots = 0;
+let mockCloudState = "empty";
+
 let config: Config = {
   // ?setup: a first start where no OpenRAC folder was found, so the welcome screen asks for one.
   root: new URLSearchParams(typeof location === "undefined" ? "" : location.search).has("setup")
@@ -2559,6 +2563,22 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
     }
     case "texture_packs_export":
       return delay({ saved: "~/Downloads/rac2-ntsc-texture-pack.zip", textures: mockTextures.packCount, leftOut: 3 });
+    case "ai_texture_bake": {
+      const options = (args.options ?? {}) as Record<string, unknown>;
+      const mode = typeof options.mode === "string" ? options.mode : "balanced";
+      const model =
+        mode === "faithful" ? "high-fidelity-4x" : mode === "enhanced" ? "ultrasharp-4x" : "ultramix-balanced-4x";
+      mockTextures.packCount = Math.max(mockTextures.packCount, 2521);
+      return delay({
+        processed: 2521,
+        model,
+        mode,
+        preservedMicrodetails: options.preserveMicrodetail === false ? 0 : 18420,
+        preservedStars: options.preserveStars === false ? 0 : 1376,
+        output: "/home/you/OpenRAC/texture_packs/rac1-pal",
+        backup: "/home/you/OpenRAC/texture_packs/rac1-pal.before-ai-demo",
+      });
+    }
     case "enhanced_view":
     case "enhanced_set_enabled":
     case "enhanced_set_setting":
@@ -2727,6 +2747,62 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
     case "open_game_folder":
       console.info(`[preview] ${command}`, args);
       return delay(null);
+    case "cloud_saves_config":
+      return delay({
+        folder: mockCloudFolder,
+        cloudDir: mockCloudFolder ? `${mockCloudFolder}/OpenRAC Cloud Saves/v1` : null,
+      });
+    case "cloud_saves_set_folder": {
+      mockCloudFolder = typeof args.folder === "string" && args.folder ? args.folder : null;
+      mockCloudState = mockCloudFolder ? "local-changes" : "empty";
+      return delay({
+        folder: mockCloudFolder,
+        cloudDir: mockCloudFolder ? `${mockCloudFolder}/OpenRAC Cloud Saves/v1` : null,
+      });
+    }
+    case "cloud_saves_status":
+      return delay({
+        enabled: !!mockCloudFolder,
+        folder: mockCloudFolder,
+        cloudDir: mockCloudFolder ? `${mockCloudFolder}/OpenRAC Cloud Saves/v1` : null,
+        state: mockCloudFolder ? mockCloudState : "disabled",
+        snapshots: mockCloudSnapshots,
+        heads: [],
+        latest: null,
+        localHasSaves: true,
+        localChanged: mockCloudState === "local-changes",
+        cloudChanged: mockCloudState === "cloud-changes",
+        conflict: mockCloudState === "conflict",
+      });
+    case "cloud_saves_sync": {
+      if (!mockCloudFolder) throw new Error("choose a cloud save folder first");
+      const strategy = typeof args.strategy === "string" ? args.strategy : "auto";
+      const action = mockCloudState === "conflict" && strategy === "auto" ? "conflict" : "uploaded";
+      if (action !== "conflict") {
+        mockCloudSnapshots = Math.max(1, mockCloudSnapshots + 1);
+        mockCloudState = "synced";
+      }
+      return delay({
+        action,
+        message:
+          action === "conflict"
+            ? "Both this device and the cloud changed. Choose which one to keep; neither was overwritten."
+            : "The local saves were added to the cloud folder.",
+        status: {
+          enabled: true,
+          folder: mockCloudFolder,
+          cloudDir: `${mockCloudFolder}/OpenRAC Cloud Saves/v1`,
+          state: mockCloudState,
+          snapshots: mockCloudSnapshots,
+          heads: [],
+          latest: null,
+          localHasSaves: true,
+          localChanged: false,
+          cloudChanged: false,
+          conflict: mockCloudState === "conflict",
+        },
+      });
+    }
     case "inspect_saves": {
       const serial = typeof args.serial === "string" ? args.serial : "SCES_509.16";
       return delay({

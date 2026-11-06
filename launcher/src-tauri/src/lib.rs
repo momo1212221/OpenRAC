@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 mod android;
+mod texture_ai;
 
 use openrac_launcher_core::actions::{Platform, Scope};
 use openrac_launcher_core::config::{self, Config};
@@ -25,8 +26,8 @@ use openrac_launcher_core::plugins::{self, Installed, PluginView};
 use openrac_launcher_core::remote;
 use openrac_launcher_core::reports::{self, ReportEntry};
 use openrac_launcher_core::reset;
-use openrac_launcher_core::{deeplink, index, index_apply, resolver};
-use serde::Serialize;
+use openrac_launcher_core::{cloud_saves, deeplink, index, index_apply, resolver};
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
@@ -608,6 +609,247 @@ async fn texture_packs_export(
     Ok(Exported { saved: reports::tidy(&dest.to_string_lossy(), reports::home().as_deref()), textures, left_out })
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AiTextureBakeOptions {
+    mode: String,
+    preserve_microdetail: bool,
+    preserve_stars: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiTextureBakeResult {
+    processed: usize,
+    model: String,
+    mode: String,
+    preserved_microdetails: usize,
+    preserved_stars: usize,
+    output: String,
+    backup: String,
+}
+
+/// Offline AI enhancement for a game's dumped static textures. The AI backend is deliberately
+/// external: the launcher invokes Upscayl's open-source NCNN backend, writes a complete staging
+/// pack, and swaps it in only after every batch succeeds.
+#[tauri::command]
+async fn ai_texture_bake(
+    state: State<'_, AppState>,
+    game: String,
+    version: String,
+    options: AiTextureBakeOptions,
+) -> Result<AiTextureBakeResult, String> {
+    use openrac_launcher_core::texture_packs;
+    let data = game_data_dir(&state, &game)?;
+    let home = openrac_launcher_core::saves::data_home();
+    let dump = texture_packs::folder(&home, &data, &game, &version, true, "")?;
+    let pack = texture_packs::folder(&home, &data, &game, &version, false, "")?;
+
+    #[cfg(target_os = "macos")]
+    let (backend, models) = (
+        PathBuf::from("/Applications/Upscayl.app/Contents/Resources/bin/upscayl-bin"),
+        PathBuf::from("/Applications/Upscayl.app/Contents/Resources/models"),
+    );
+    #[cfg(not(target_os = "macos"))]
+    let (backend, models) = (PathBuf::from("upscayl-bin"), PathBuf::from("models"));
+
+    let (model, mode) = match options.mode.as_str() {
+        "faithful" => ("high-fidelity-4x", "faithful"),
+        "balanced" => ("ultramix-balanced-4x", "balanced"),
+        "enhanced" => ("ultrasharp-4x", "enhanced"),
+        other => return Err(format!("Unknown AI texture mode: {other}")),
+    };
+    let preserve_microdetail = options.preserve_microdetail;
+    let preserve_stars = options.preserve_stars;
+    let label = format!("{game}/{version}");
+    tauri::async_runtime::spawn_blocking(move || {
+        if !backend.is_file() {
+            return Err("Upscayl AI backend is not installed. Install Upscayl, then try again.".to_string());
+        }
+        if !models.is_dir() {
+            return Err("Upscayl models folder is missing.".to_string());
+        }
+        if !models.join(format!("{model}.param")).is_file() || !models.join(format!("{model}.bin")).is_file() {
+            return Err(format!("Upscayl model {model} is not installed."));
+        }
+        if !dump.is_dir() {
+            return Err("No dumped textures yet. Save the game's textures once, then run AI pre-render.".to_string());
+        }
+
+        let parent = pack.parent().ok_or("texture pack has no parent folder")?;
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        let name = pack.file_name().and_then(|n| n.to_str()).ok_or("invalid texture pack folder")?;
+        let staging = parent.join(format!("{name}-ai-next"));
+        let _ = std::fs::remove_dir_all(&staging);
+        std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+
+        // Hashes the AI will replace. Existing extra pack assets (for example another agent's
+        // Ultra4K coverage) are preserved; only duplicate hash PNGs are omitted from the staging copy.
+        let mut ai_names = std::collections::HashSet::new();
+        let mut scan = vec![dump.clone()];
+        while let Some(dir) = scan.pop() {
+            for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let path = entry.path();
+                if path.is_dir() {
+                    scan.push(path);
+                } else if path
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .map(|x| x.eq_ignore_ascii_case("png"))
+                    .unwrap_or(false)
+                {
+                    ai_names.insert(entry.file_name());
+                }
+            }
+        }
+
+        if pack.is_dir() {
+            let mut copy = vec![(pack.clone(), staging.clone())];
+            while let Some((source, target)) = copy.pop() {
+                std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+                for entry in std::fs::read_dir(&source).map_err(|e| e.to_string())? {
+                    let entry = entry.map_err(|e| e.to_string())?;
+                    let source_path = entry.path();
+                    let target_path = target.join(entry.file_name());
+                    if source_path.is_dir() {
+                        copy.push((source_path, target_path));
+                    } else {
+                        let replace = source_path
+                            .extension()
+                            .and_then(|x| x.to_str())
+                            .map(|x| x.eq_ignore_ascii_case("png"))
+                            .unwrap_or(false)
+                            && ai_names.contains(&entry.file_name());
+                        if !replace {
+                            std::fs::copy(&source_path, &target_path).map_err(|e| e.to_string())?;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Batch each dump directory separately so the backend stays warm for hundreds of textures.
+        // Animated frame hashes stay individual replacements, preserving the game's original timing.
+        let ai_root = staging.join("AI");
+        let mut stack = vec![dump.clone()];
+        let mut batches = Vec::new();
+        while let Some(dir) = stack.pop() {
+            let rel = dir.strip_prefix(&dump).map_err(|e| e.to_string())?.to_path_buf();
+            let mut has_png = false;
+            for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .map(|x| x.eq_ignore_ascii_case("png"))
+                    .unwrap_or(false)
+                {
+                    has_png = true;
+                }
+            }
+            if has_png {
+                batches.push((dir, ai_root.join(rel)));
+            }
+        }
+        batches.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut detail_stats = texture_ai::DetailStats::default();
+        for (input, output) in &batches {
+            std::fs::create_dir_all(output).map_err(|e| e.to_string())?;
+            let status = std::process::Command::new(&backend)
+                .arg("-i")
+                .arg(input)
+                .arg("-o")
+                .arg(output)
+                .arg("-m")
+                .arg(&models)
+                .arg("-n")
+                .arg(model)
+                .arg("-s")
+                .arg("4")
+                .arg("-f")
+                .arg("png")
+                .status()
+                .map_err(|e| format!("could not start Upscayl: {e}"))?;
+            if !status.success() {
+                return Err(format!("Upscayl failed for {}", input.display()));
+            }
+
+            // Re-inject high-frequency information from the original. This is deliberately after
+            // the neural pass: the model can invent useful material detail, but cannot delete tiny
+            // source lights/stars that the game actually contained.
+            for entry in std::fs::read_dir(input).map_err(|e| e.to_string())? {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let source = entry.path();
+                if source.is_dir()
+                    || !source
+                        .extension()
+                        .and_then(|x| x.to_str())
+                        .is_some_and(|x| x.eq_ignore_ascii_case("png"))
+                {
+                    continue;
+                }
+                let enhanced = output.join(entry.file_name());
+                if !enhanced.is_file() {
+                    return Err(format!("Upscayl did not create {}", enhanced.display()));
+                }
+                let stats = texture_ai::postprocess(&source, &enhanced, mode, preserve_microdetail, preserve_stars)?;
+                detail_stats.microdetails += stats.microdetails;
+                detail_stats.stars += stats.stars;
+            }
+        }
+
+        let mut processed = 0usize;
+        let mut todo = vec![ai_root.clone()];
+        while let Some(dir) = todo.pop() {
+            for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+                let path = entry.map_err(|e| e.to_string())?.path();
+                if path.is_dir() {
+                    todo.push(path);
+                } else if path.extension().and_then(|x| x.to_str()) == Some("png") {
+                    processed += 1;
+                }
+            }
+        }
+        if processed == 0 {
+            return Err("Upscayl produced no textures; the existing pack was left untouched.".to_string());
+        }
+
+        let stamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs();
+        let backup = parent.join(format!("{name}.before-ai-{stamp}"));
+        if pack.exists() {
+            std::fs::rename(&pack, &backup).map_err(|e| format!("could not back up current pack: {e}"))?;
+        }
+        if let Err(e) = std::fs::rename(&staging, &pack) {
+            if backup.exists() {
+                let _ = std::fs::rename(&backup, &pack);
+            }
+            return Err(format!("could not activate AI pack: {e}"));
+        }
+
+        launcher_log::line(&format!(
+            "{label}: AI texture bake activated: {processed} texture(s), model {model}, mode {mode}, preserved {} microdetails and {} stars/tiny lights",
+            detail_stats.microdetails, detail_stats.stars
+        ));
+        Ok(AiTextureBakeResult {
+            processed,
+            model: model.to_string(),
+            mode: mode.to_string(),
+            preserved_microdetails: detail_stats.microdetails,
+            preserved_stars: detail_stats.stars,
+            output: pack.display().to_string(),
+            backup: if backup.exists() { backup.display().to_string() } else { String::new() },
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Deletes every lighting bake of a version (Enhanced graphics' "Delete the lighting"): the game
 /// keeps the original lighting until it is prepared again.
 #[tauri::command]
@@ -1121,6 +1363,45 @@ fn inspect_saves(serial: String) -> openrac_launcher_core::saves::GameSaveStatus
 #[tauri::command]
 fn backup_saves(serial: String, note: Option<String>) -> Result<openrac_launcher_core::saves::SaveBackupInfo, String> {
     openrac_launcher_core::saves::backup_saves(&serial, note.as_deref())
+}
+
+/// The folder-backed Cloud Saves provider selected on this device. The folder itself is the
+/// player's (OneDrive, Dropbox, iCloud Drive, Syncthing, a NAS, ...); OpenRAC hosts nothing.
+#[tauri::command]
+fn cloud_saves_config() -> cloud_saves::CloudConfigView {
+    cloud_saves::config()
+}
+
+#[tauri::command]
+fn cloud_saves_set_folder(folder: Option<String>) -> Result<cloud_saves::CloudConfigView, String> {
+    cloud_saves::set_folder(folder.as_deref())
+}
+
+#[tauri::command]
+fn cloud_saves_status(app: AppHandle, serial: String) -> Result<cloud_saves::CloudSaveStatus, String> {
+    cloud_saves::status(&serial, &launcher_version(&app))
+}
+
+/// Syncs one card. A restore is refused while a game has the card open; import_saves takes a local
+/// backup before replacing it. `auto` never resolves a conflict by itself.
+#[tauri::command]
+async fn cloud_saves_sync(
+    app: AppHandle,
+    serial: String,
+    strategy: Option<String>,
+) -> Result<cloud_saves::CloudSyncResult, String> {
+    let in_use = card_check(&app).await?;
+    let version = launcher_version(&app);
+    let strategy = cloud_saves::Strategy::parse(strategy.as_deref())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let card = openrac_launcher_core::saves::get_memcard_dir(&serial);
+        if let Some(game) = in_use(&card, &serial)? {
+            return Err(format!("{game} is running with this memory card: close it first"));
+        }
+        cloud_saves::sync(&serial, &version, strategy)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Whether the game runs with a memory card (the name to show when it does), for an edit or a
@@ -2435,6 +2716,10 @@ pub fn run() {
             set_discord_status,
             inspect_saves,
             backup_saves,
+            cloud_saves_config,
+            cloud_saves_set_folder,
+            cloud_saves_status,
+            cloud_saves_sync,
             restore_backup,
             import_pcsx2_saves,
             pcsx2_memcards_dir,
@@ -2465,6 +2750,7 @@ pub fn run() {
             texture_packs_preview,
             texture_packs_import,
             texture_packs_export,
+            ai_texture_bake,
             enhanced_set_setting,
             enhanced_delete_bakes,
             plugins_set_enabled,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bakeFailure } from "./bakeFailure";
+import { bakeCacheBusy, bakeFailure } from "./bakeFailure";
 
 const record = {
   version: 1,
@@ -35,5 +35,10 @@ describe("bake failure notices", () => {
       lines: [line("openrac-bake-error: " + JSON.stringify({ ...record, onclick: "bad" }))],
     });
     expect(failure).not.toHaveProperty("onclick");
+  });
+
+  it("recognises an already-running bake as a lock conflict, not lost progress", () => {
+    expect(bakeCacheBusy({ detail: "bake cache is busy or cannot be locked" })).toBe(true);
+    expect(bakeCacheBusy({ detail: "manifest format 3" })).toBe(false);
   });
 });

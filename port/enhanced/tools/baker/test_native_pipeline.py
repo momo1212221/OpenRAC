@@ -335,9 +335,16 @@ class NativePipeline(unittest.TestCase):
 
     def test_cache_lock_is_shared_with_the_legacy_python_flow(self):
         self.cache.mkdir()
+        status = lambda: subprocess.run(
+            [str(BAKER),'--cache-status',str(self.cache)],capture_output=True,text=True,timeout=10)
+        idle = status()
+        self.assertEqual((idle.returncode,idle.stdout.strip()),(0,'idle'),idle.stderr)
         with diagnostics.cache_lock(self.cache):
+            busy = status()
+            self.assertEqual((busy.returncode,busy.stdout.strip()),(0,'busy'),busy.stderr)
             result = self.run_bake(success=False)
         self.assertIn('busy',result.stdout)
+        self.assertEqual(status().stdout.strip(),'idle')
         self.run_bake()
 
     def test_invalid_controls_dry_run_and_recursive_outputs_do_not_modify_exports(self):

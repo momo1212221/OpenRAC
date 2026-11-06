@@ -260,6 +260,41 @@ export interface RunInputs {
   option?: string;
 }
 
+export type CloudSyncStrategy = "auto" | "use-local" | "use-cloud";
+
+export interface CloudConfigView {
+  folder: string | null;
+  cloudDir: string | null;
+}
+
+export interface CloudSnapshotInfo {
+  id: string;
+  parents: string[];
+  created: string;
+  device: string;
+  contentSha256: string;
+}
+
+export interface CloudSaveStatus {
+  enabled: boolean;
+  folder: string | null;
+  cloudDir: string | null;
+  state: string;
+  snapshots: number;
+  heads: CloudSnapshotInfo[];
+  latest: CloudSnapshotInfo | null;
+  localHasSaves: boolean;
+  localChanged: boolean;
+  cloudChanged: boolean;
+  conflict: boolean;
+}
+
+export interface CloudSyncResult {
+  action: string;
+  message: string;
+  status: CloudSaveStatus;
+}
+
 /** What a gameplay mod is: code the game loads (a library), Luau scripts the game runs sandboxed,
  *  or data only (docs/port/MODS.md, section 11). */
 export type ModKind = PluginView["kind"];
@@ -318,6 +353,11 @@ export const api = {
   setDiscordStatus: (status: DiscordStatus) => call<null>("set_discord_status", { status }),
   inspectSaves: (serial: string) => call<GameSaveStatus>("inspect_saves", { serial }),
   backupSaves: (serial: string, note?: string) => call<SaveBackupInfo>("backup_saves", { serial, note }),
+  cloudSavesConfig: () => call<CloudConfigView>("cloud_saves_config"),
+  cloudSavesSetFolder: (folder: string | null) => call<CloudConfigView>("cloud_saves_set_folder", { folder }),
+  cloudSavesStatus: (serial: string) => call<CloudSaveStatus>("cloud_saves_status", { serial }),
+  cloudSavesSync: (serial: string, strategy: CloudSyncStrategy = "auto") =>
+    call<CloudSyncResult>("cloud_saves_sync", { serial, strategy }),
   restoreBackup: (serial: string, backupName: string) => call<null>("restore_backup", { serial, backupName }),
   /** The game's saves copied in from a PCSX2 memory card (a card file, or a folder card's
    *  _pcsx2_superblock), after a backup of the card. */
@@ -426,6 +466,20 @@ export const api = {
   /** Saves the pack as a .zip where the player chooses; `saved` is empty when they backed out. */
   texturePacksExport: (game: string, version: string) =>
     call<ExportedTexturePack>("texture_packs_export", { game, version }),
+  aiTextureBake: (
+    game: string,
+    version: string,
+    options: { mode: "faithful" | "balanced" | "enhanced"; preserveMicrodetail: boolean; preserveStars: boolean },
+  ) =>
+    call<{
+      processed: number;
+      model: string;
+      mode: string;
+      preservedMicrodetails: number;
+      preservedStars: number;
+      output: string;
+      backup: string;
+    }>("ai_texture_bake", { game, version, options }),
   enhancedView: (game: string, version: string) => call<EnhancedView | null>("enhanced_view", { game, version }),
   enhancedSetEnabled: (game: string, version: string, enabled: boolean) =>
     call<EnhancedView | null>("enhanced_set_enabled", { game, version, enabled }),

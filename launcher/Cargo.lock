@@ -2615,6 +2615,7 @@ name = "openrac-launcher"
 version = "1.0.2"
 dependencies = [
  "openrac-launcher-core",
+ "png 0.18.1",
  "serde",
  "serde_json",
  "tauri",

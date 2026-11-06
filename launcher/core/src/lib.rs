@@ -41,6 +41,7 @@ pub mod android;
 pub mod appimage;
 pub mod catalog;
 pub mod chd;
+pub mod cloud_saves;
 pub mod config;
 pub mod controls;
 pub mod deeplink;
