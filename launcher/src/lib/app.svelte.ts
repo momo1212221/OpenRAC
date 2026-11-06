@@ -322,7 +322,9 @@ export async function start() {
       }
     }
     app.info = await api.appInfo();
-    if (app.info.noCompositing) stopSlides();
+    // WKWebView can leave the snapshot layer black after a page transition even while the
+    // live document and jobs keep updating. Use ordinary page changes on macOS.
+    if (app.info.noCompositing || app.info.platform === "macos") stopSlides();
     if (app.info.platform === "linux" && !app.info.noCompositing) watchFirstDraw();
     if (app.info.safeRenderingAfterCrash) {
       toast("The launcher crashed last time, so Safe rendering is now on (Settings, Advanced).");
