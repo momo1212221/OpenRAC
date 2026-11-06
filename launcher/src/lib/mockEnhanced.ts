@@ -19,6 +19,7 @@ export const mockEnhanced: EnhancedView = {
         id: "ultra-classic",
         name: "Ultra / Classic Lighting",
         values: {
+          hardware_auto: true,
           shadow_quality: "high",
           gtao: true,
           gtao_quality: "quality",
@@ -41,6 +42,7 @@ export const mockEnhanced: EnhancedView = {
         id: "ultra",
         name: "Ultra / Maximum",
         values: {
+          hardware_auto: true,
           shadow_quality: "high",
           gtao: true,
           gtao_quality: "quality",
@@ -61,6 +63,15 @@ export const mockEnhanced: EnhancedView = {
       },
     ],
     settings: [
+      {
+        key: "hardware_auto",
+        name: "Hardware auto tuning",
+        type: "bool",
+        default: true,
+        value: true,
+        description:
+          "Detects this device before Play and chooses safe runtime quality automatically. RTX/Apple Silicon can use the Ultra path; weaker or unknown GPUs get a compatible balanced path. It never enables unfinished ray tracing.",
+      },
       {
         key: "shadow_quality",
         name: "Shadow quality",

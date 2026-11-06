@@ -49,7 +49,7 @@ end up in a pack by themselves.
 
 ### Offline Ultra textures
 
-The macOS launcher can prepare Enhanced graphics' Ultra textures **before Play**. It combines the
+The launcher can prepare Enhanced graphics' Ultra textures **before Play** on macOS, Windows and Linux. It combines the
 static textures already exported with the levels and the textures previously seen by the runtime
 dump (including HUD/interface pictures), deduplicates them by the same texture hash the renderer
 uses, and writes generated replacements under `texture_packs/<game id>/Ultra4K/`. Generation is
@@ -60,8 +60,10 @@ source can reach 4096 pixels. This avoids turning thousands of tiny PS2 textures
 A fingerprint in `Ultra4K/openrac-ultra4k.json` makes later starts reuse the finished pack. Existing
 user/imported pack pictures outside `Ultra4K` always win and are never overwritten. When the source
 set changes, pictures whose source hash already exists are linked/copied from the previous build;
-only new hashes are resampled. A process-wide file lock prevents two current launchers from baking
-the same pack at once, and the previous complete pack remains in place until the new one is ready.
+only new hashes are resampled. macOS uses CoreGraphics through `sips` for the fast native offline
+resample; Windows and Linux use the launcher's built-in premultiplied-alpha CPU resampler, so no
+platform image utility is required. A process-wide file lock prevents two current launchers from
+baking the same pack at once, and the previous complete pack remains in place until the new one is ready.
 
 For Ratchet & Clank, the launcher also decodes the global HUD and every level's HUD banks directly
 from the player's disc before the Ultra build. Those pictures live under `port/<version>/offline-interface/`

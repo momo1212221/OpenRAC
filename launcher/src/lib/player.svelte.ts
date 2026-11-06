@@ -530,6 +530,11 @@ async function play(v: VersionView): Promise<void> {
     const { beforePlay } = await import("./modAutoUpdate.svelte");
     await beforePlay(v.key);
   }
+  const auto = await api.enhancedAutoConfigure(v.game, v.name);
+  if (auto.applied) {
+    const gpu = auto.graphics.gpus[0] ?? "this GPU";
+    toast(`Graphics auto-tuned for ${gpu}: ${auto.profile}.`);
+  }
   toast("Checking pre-rendered Ultra textures…");
   const ultra = await api.texturePacksPrepareUltra(v.game, v.name);
   if (ultra.enabled && !ultra.cached) {

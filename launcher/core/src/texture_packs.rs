@@ -541,16 +541,80 @@ fn ultra_dimensions(width: u32, height: u32) -> (u32, u32) {
     (((width as f64 * scale).round() as u32).max(1), ((height as f64 * scale).round() as u32).max(1))
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
+fn write_rgba_png(path: &Path, width: u32, height: u32, pixels: &[u8]) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut encoder = png::Encoder::new(file, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().map_err(|e| format!("{}: {e}", path.display()))?;
+    writer.write_image_data(pixels).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Portable fallback used when the OS has no native offline resampler. Interpolation happens in
+/// premultiplied-alpha space so transparent texture edges do not grow dark/coloured halos.
+#[cfg(any(not(target_os = "macos"), test))]
+fn resize_rgba(width: u32, height: u32, pixels: &[u8], out_width: u32, out_height: u32) -> Vec<u8> {
+    if width == out_width && height == out_height {
+        return pixels.to_vec();
+    }
+    let mut out = vec![0u8; out_width as usize * out_height as usize * 4];
+    let sx = width as f32 / out_width as f32;
+    let sy = height as f32 / out_height as f32;
+    let sample = |x: u32, y: u32| {
+        let at = ((y * width + x) * 4) as usize;
+        let a = pixels[at + 3] as f32 / 255.0;
+        [pixels[at] as f32 * a, pixels[at + 1] as f32 * a, pixels[at + 2] as f32 * a, pixels[at + 3] as f32]
+    };
+    for oy in 0..out_height {
+        let fy = ((oy as f32 + 0.5) * sy - 0.5).clamp(0.0, height.saturating_sub(1) as f32);
+        let y0 = fy.floor() as u32;
+        let y1 = (y0 + 1).min(height - 1);
+        let ty = fy - y0 as f32;
+        for ox in 0..out_width {
+            let fx = ((ox as f32 + 0.5) * sx - 0.5).clamp(0.0, width.saturating_sub(1) as f32);
+            let x0 = fx.floor() as u32;
+            let x1 = (x0 + 1).min(width - 1);
+            let tx = fx - x0 as f32;
+            let p00 = sample(x0, y0);
+            let p10 = sample(x1, y0);
+            let p01 = sample(x0, y1);
+            let p11 = sample(x1, y1);
+            let mut mixed = [0.0f32; 4];
+            for c in 0..4 {
+                let top = p00[c] + (p10[c] - p00[c]) * tx;
+                let bottom = p01[c] + (p11[c] - p01[c]) * tx;
+                mixed[c] = top + (bottom - top) * ty;
+            }
+            let at = ((oy * out_width + ox) * 4) as usize;
+            let alpha = mixed[3].clamp(0.0, 255.0);
+            if alpha > 0.001 {
+                let unpremultiply = 255.0 / alpha;
+                out[at] = (mixed[0] * unpremultiply).round().clamp(0.0, 255.0) as u8;
+                out[at + 1] = (mixed[1] * unpremultiply).round().clamp(0.0, 255.0) as u8;
+                out[at + 2] = (mixed[2] * unpremultiply).round().clamp(0.0, 255.0) as u8;
+            }
+            out[at + 3] = alpha.round() as u8;
+        }
+    }
+    out
+}
+
+#[cfg(any(not(target_os = "macos"), test))]
+fn portable_resample(input: &Path, output: &Path, width: u32, height: u32) -> Result<(), String> {
+    let (source_width, source_height, pixels) = png_rgba(input)?;
+    let resized = resize_rgba(source_width, source_height, &pixels, width, height);
+    write_rgba_png(output, width, height, &resized)
+}
+
 fn folder_bytes(root: &Path) -> u64 {
     png_files(root).into_iter().filter_map(|p| std::fs::metadata(p).ok().map(|m| m.len())).sum()
 }
 
-#[cfg(target_os = "macos")]
 struct UltraBuildLock {
     path: PathBuf,
 }
 
-#[cfg(target_os = "macos")]
 impl Drop for UltraBuildLock {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
@@ -560,7 +624,6 @@ impl Drop for UltraBuildLock {
 /// One Ultra build per game data folder, even when two launcher windows/agents point at it. A
 /// crashed process can leave a lock behind; after fifteen minutes it is considered stale. Normal
 /// builds refresh the lock's mtime before each expensive phase, so a live long build is not stolen.
-#[cfg(target_os = "macos")]
 fn acquire_ultra_lock(pack: &Path) -> Result<UltraBuildLock, String> {
     use std::io::ErrorKind;
     use std::time::{Duration, SystemTime};
@@ -591,7 +654,6 @@ fn acquire_ultra_lock(pack: &Path) -> Result<UltraBuildLock, String> {
     Err("another launcher is still preparing Ultra textures".into())
 }
 
-#[cfg(target_os = "macos")]
 fn touch_ultra_lock(lock: &UltraBuildLock) {
     // Rewriting the tiny file refreshes its modification time without changing lock ownership.
     let _ = std::fs::write(&lock.path, format!("{}\n", std::process::id()));
@@ -601,8 +663,8 @@ fn touch_ultra_lock(lock: &UltraBuildLock) {
 /// dumper (notably HUD/interface), into a persistent 8x pack capped at a 4096-pixel edge. The
 /// expensive resampling happens here, before Play. Existing user/imported pack pictures are never
 /// replaced: their hashes are omitted from Ultra4K.
-#[cfg(target_os = "macos")]
 pub fn prepare_ultra4k(data_home: &Path, data: &Path, game: &str, version: &str) -> Result<UltraTextureBuild, String> {
+    #[cfg(target_os = "macos")]
     use std::process::{Command, Stdio};
 
     let id = id(game, version)?;
@@ -698,25 +760,37 @@ pub fn prepare_ultra4k(data_home: &Path, data: &Path, game: &str, version: &str)
             groups.entry(ultra_dimensions(source.width, source.height)).or_default().push(staged);
         }
 
-        // sips uses CoreGraphics' native high-quality resampler and preserves alpha. Batching by
-        // source/output size avoids thousands of process launches; 128 paths stays well below
-        // macOS' argv limit.
         for ((width, height), files) in groups {
             touch_ultra_lock(&lock);
-            for batch in files.chunks(128) {
-                let status = Command::new("/usr/bin/sips")
-                    .arg("-z")
-                    .arg(height.to_string())
-                    .arg(width.to_string())
-                    .arg("--out")
-                    .arg(&output)
-                    .args(batch)
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::piped())
-                    .status()
-                    .map_err(|e| format!("cannot start macOS texture resampler: {e}"))?;
-                if !status.success() {
-                    return Err(format!("macOS texture resampler stopped with {status}"));
+            #[cfg(target_os = "macos")]
+            {
+                // CoreGraphics is considerably faster than the portable CPU fallback on Apple
+                // hardware. Batching also avoids thousands of process launches.
+                for batch in files.chunks(128) {
+                    let status = Command::new("/usr/bin/sips")
+                        .arg("-z")
+                        .arg(height.to_string())
+                        .arg(width.to_string())
+                        .arg("--out")
+                        .arg(&output)
+                        .args(batch)
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::piped())
+                        .status()
+                        .map_err(|e| format!("cannot start macOS texture resampler: {e}"))?;
+                    if !status.success() {
+                        return Err(format!("macOS texture resampler stopped with {status}"));
+                    }
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                // Windows/Linux builds have no dependency on a platform image utility: decode,
+                // resize and encode in-process so the same launcher bundle works everywhere.
+                for file in &files {
+                    let name = file.file_name().ok_or_else(|| format!("{} has no file name", file.display()))?;
+                    portable_resample(file, &output.join(name), width, height)?;
+                    touch_ultra_lock(&lock);
                 }
             }
         }
@@ -768,41 +842,6 @@ pub fn prepare_ultra4k(data_home: &Path, data: &Path, game: &str, version: &str)
         bytes,
         max_edge: ULTRA_MAX_EDGE,
         scale: ULTRA_SCALE,
-    })
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn prepare_ultra4k(data_home: &Path, data: &Path, game: &str, version: &str) -> Result<UltraTextureBuild, String> {
-    let id = id(game, version)?;
-    let settings = std::fs::read_to_string(settings_file(data_home, game, version)).unwrap_or_default();
-    if !read_switch(&settings, ULTRA_SWITCH).unwrap_or(true) {
-        return Ok(UltraTextureBuild::disabled());
-    }
-
-    // Windows/Linux consume a pre-rendered Ultra4K cache produced ahead of time. This keeps the
-    // expensive resampling completely out of gameplay and makes the same pack portable between
-    // macOS and Windows. The USB transfer contains this folder and its integrity stamp.
-    let pack = pack_dir(data, &id);
-    let ultra = pack.join(ULTRA_FOLDER);
-    let stamp = read_ultra_stamp(&pack).ok_or_else(|| {
-        format!(
-            "No pre-rendered Ultra4K cache was found at {}. Copy the prepared texture pack from the USB package first.",
-            ultra.display()
-        )
-    })?;
-    if !ultra.is_dir() {
-        return Err(format!("The Ultra4K cache folder is missing: {}", ultra.display()));
-    }
-
-    Ok(UltraTextureBuild {
-        enabled: true,
-        cached: true,
-        source_files: stamp.source_files,
-        textures: stamp.textures,
-        skipped_custom: stamp.skipped_custom,
-        bytes: stamp.bytes,
-        max_edge: stamp.max_edge,
-        scale: stamp.scale,
     })
 }
 
@@ -1274,6 +1313,22 @@ mod tests {
         }
         assert!(id("rac2", "ntsc").is_ok_and(|i| i == "rac2-ntsc"));
         assert!(id("../x", "ntsc").is_err());
+    }
+
+    #[test]
+    fn portable_resampler_writes_a_real_rgba_png() {
+        let t = tempfile::tempdir().unwrap();
+        let source = t.path().join("source.png");
+        let output = t.path().join("output.png");
+        let pixels = vec![255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 0];
+        write_rgba_png(&source, 2, 2, &pixels).unwrap();
+        portable_resample(&source, &output, 4, 4).unwrap();
+        let (w, h, rgba) = png_rgba(&output).unwrap();
+        assert_eq!((w, h), (4, 4));
+        assert_eq!(rgba.len(), 4 * 4 * 4);
+        assert_eq!(&rgba[..4], &[255, 0, 0, 255]);
+        assert_eq!(&rgba[(3 * 4)..(4 * 4)], &[0, 255, 0, 255]);
+        assert!(rgba.chunks_exact(4).any(|p| p[3] < 255));
     }
 
     #[test]

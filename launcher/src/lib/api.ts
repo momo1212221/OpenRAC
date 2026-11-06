@@ -216,6 +216,30 @@ export interface AppInfo {
   noCompositing: boolean;
   /** The last start's window crashed before it drew a click, and Safe rendering was turned on. */
   safeRenderingAfterCrash: boolean;
+  /** Hardware detected on this device and the safe renderer/profile recommendation. */
+  graphics: GraphicsCapabilities;
+}
+
+export interface GraphicsCapabilities {
+  architecture: string;
+  gpus: string[];
+  vendor: string;
+  nvidiaRtx: boolean;
+  amdGpu: boolean;
+  cudaAvailable: boolean;
+  appleSilicon: boolean;
+  rendererBackend: string;
+  computeBackend: string;
+  hardwareRayTracing: boolean;
+  rayTracingRendererReady: boolean;
+  offlineTextureBackend: string;
+  recommendedProfile: string;
+}
+
+export interface AutoGraphicsResult {
+  applied: boolean;
+  profile: string;
+  graphics: GraphicsCapabilities;
 }
 
 /** The games folder looked through (scan_discs, src-tauri/src/lib.rs). */
@@ -461,6 +485,8 @@ export const api = {
   texturePacksOpen: (game: string, version: string, dump: boolean, folder = "") =>
     call<null>("texture_packs_open", { game, version, dump, folder }),
   /** Builds/caches the persistent Ultra 4K texture pack before Play; a no-op when Enhanced is off. */
+  enhancedAutoConfigure: (game: string, version: string) =>
+    call<AutoGraphicsResult>("enhanced_auto_configure", { game, version }),
   texturePacksPrepareUltra: (game: string, version: string) =>
     call<{
       enabled: boolean;

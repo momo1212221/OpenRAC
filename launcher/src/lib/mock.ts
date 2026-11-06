@@ -2356,6 +2356,21 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
         // ?nocompositing: a Steam Deck's webview, without page slides.
         noCompositing: new URLSearchParams(typeof location === "undefined" ? "" : location.search).has("nocompositing"),
         safeRenderingAfterCrash: false,
+        graphics: {
+          architecture: "aarch64",
+          gpus: ["Apple M2"],
+          vendor: "apple",
+          nvidiaRtx: false,
+          amdGpu: false,
+          cudaAvailable: false,
+          appleSilicon: true,
+          rendererBackend: "vulkan-moltenvk",
+          computeBackend: "metal",
+          hardwareRayTracing: false,
+          rayTracingRendererReady: false,
+          offlineTextureBackend: "coregraphics",
+          recommendedProfile: "ultra-classic",
+        },
       });
     case "get_config":
       return delay<Config>({ ...config });
@@ -2554,6 +2569,26 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
         }
       }
       return delay<TexturePackView>({ ...mockTextures, id: `${String(args.game)}-${String(args.version)}` });
+    case "enhanced_auto_configure":
+      return delay({
+        applied: true,
+        profile: "ultra-classic",
+        graphics: {
+          architecture: "aarch64",
+          gpus: ["Apple M2"],
+          vendor: "apple",
+          nvidiaRtx: false,
+          amdGpu: false,
+          cudaAvailable: false,
+          appleSilicon: true,
+          rendererBackend: "vulkan-moltenvk",
+          computeBackend: "metal",
+          hardwareRayTracing: false,
+          rayTracingRendererReady: false,
+          offlineTextureBackend: "coregraphics",
+          recommendedProfile: "ultra-classic",
+        },
+      });
     case "texture_packs_prepare_ultra":
       if (!mockTextures.ultraEnabled) {
         return delay({

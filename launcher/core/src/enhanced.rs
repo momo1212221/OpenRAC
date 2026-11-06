@@ -143,6 +143,13 @@ pub fn settings() -> Vec<SettingSpec> {
         Choice { value: "performance".into(), name: "Performance".into() },
     ];
     vec![
+        spec(
+            "hardware_auto",
+            "Hardware auto tuning",
+            "bool",
+            true.into(),
+            "Detects this device before Play and chooses safe runtime quality automatically. RTX/Apple Silicon can use the Ultra path; weaker or unknown GPUs get a compatible balanced path. It never enables unfinished ray tracing.",
+        ),
         shadows,
         spec("gtao", "Ambient occlusion", "bool", true.into(), "Soft shade in corners and under objects."),
         quality,
@@ -283,6 +290,7 @@ pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> En
                     id: "ultra-classic".into(),
                     name: "Ultra / Classic Lighting".into(),
                     values: [
+                        ("hardware_auto".into(), Value::Bool(true)),
                         ("shadow_quality".into(), Value::from("high")),
                         ("gtao".into(), Value::Bool(true)),
                         ("gtao_quality".into(), Value::from("quality")),
@@ -307,6 +315,7 @@ pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> En
                     id: "ultra".into(),
                     name: "Ultra / Maximum".into(),
                     values: [
+                        ("hardware_auto".into(), Value::Bool(true)),
                         ("shadow_quality".into(), Value::from("high")),
                         ("gtao".into(), Value::Bool(true)),
                         ("gtao_quality".into(), Value::from("quality")),

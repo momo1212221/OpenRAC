@@ -67,6 +67,36 @@ struct AppInfo {
     /// The last start's window crashed before it drew a click, and this start turned Safe
     /// rendering on for it (Config::safe_rendering): the page says so once.
     safe_rendering_after_crash: bool,
+    /// Hardware/renderer capabilities detected on this machine. The renderer still performs its
+    /// own feature checks; this is the launcher's safe auto-tuning input.
+    graphics: GraphicsCapabilities,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphicsCapabilities {
+    architecture: String,
+    gpus: Vec<String>,
+    vendor: String,
+    nvidia_rtx: bool,
+    amd_gpu: bool,
+    cuda_available: bool,
+    apple_silicon: bool,
+    renderer_backend: String,
+    compute_backend: String,
+    hardware_ray_tracing: bool,
+    /// Kept false until OpenRAC's actual hardware-RT path is implemented and verified.
+    ray_tracing_renderer_ready: bool,
+    offline_texture_backend: String,
+    recommended_profile: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AutoGraphicsResult {
+    applied: bool,
+    profile: String,
+    graphics: GraphicsCapabilities,
 }
 
 #[derive(Serialize)]
@@ -118,6 +148,168 @@ fn switching_channel<R: tauri::Runtime>(
     source.kind() != update_source(app).kind()
 }
 
+fn collect_gpu_name(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(name) = map
+                .get("sppci_model")
+                .or_else(|| map.get("spdisplays_chipset_model"))
+                .or_else(|| map.get("_name"))
+                .and_then(serde_json::Value::as_str)
+            {
+                let lower = name.to_ascii_lowercase();
+                if (lower.contains("apple")
+                    || lower.contains("nvidia")
+                    || lower.contains("amd")
+                    || lower.contains("radeon")
+                    || lower.contains("intel"))
+                    && !out.iter().any(|v| v == name)
+                {
+                    out.push(name.to_string());
+                }
+            }
+            for child in map.values() {
+                collect_gpu_name(child, out);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for child in values {
+                collect_gpu_name(child, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn detected_gpu_names() -> Vec<String> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("system_profiler").args(["SPDisplaysDataType", "-json"]).output()
+        {
+            if output.status.success() {
+                if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    let mut names = Vec::new();
+                    collect_gpu_name(&value, &mut names);
+                    if !names.is_empty() {
+                        return names;
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                let names: Vec<String> = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                if !names.is_empty() {
+                    return names;
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(output) = std::process::Command::new("lspci").args(["-mm"]).output() {
+            if output.status.success() {
+                let names: Vec<String> = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .filter(|line| {
+                        let lower = line.to_ascii_lowercase();
+                        lower.contains("vga") || lower.contains("3d controller") || lower.contains("display controller")
+                    })
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                if !names.is_empty() {
+                    return names;
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+fn cuda_available() -> bool {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        return std::process::Command::new("nvidia-smi").arg("-L").output().is_ok_and(|output| output.status.success());
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        false
+    }
+}
+
+fn graphics_capabilities() -> GraphicsCapabilities {
+    let gpus = detected_gpu_names();
+    let joined = gpus.join(" ").to_ascii_lowercase();
+    let apple_silicon = cfg!(target_os = "macos") && cfg!(target_arch = "aarch64");
+    let nvidia_rtx = joined.contains("rtx")
+        && (joined.contains("nvidia") || joined.contains("geforce") || joined.contains("quadro"));
+    let apple_rt = apple_silicon && ["apple m3", "apple m4", "apple m5"].iter().any(|name| joined.contains(name));
+    let amd_gpu = joined.contains("amd") || joined.contains("radeon");
+    let cuda_available = (joined.contains("nvidia") || joined.contains("geforce") || nvidia_rtx) && cuda_available();
+    let vendor = if joined.contains("nvidia") || joined.contains("geforce") || nvidia_rtx {
+        "nvidia"
+    } else if amd_gpu {
+        "amd"
+    } else if joined.contains("intel") {
+        "intel"
+    } else if joined.contains("apple") || apple_silicon {
+        "apple"
+    } else {
+        "unknown"
+    };
+    // RX 6000/7000/9000 and Radeon Pro are treated as modern high-end Vulkan GPUs. Older or
+    // unknown AMD hardware still works, but starts from the safer balanced profile.
+    let amd_modern = amd_gpu
+        && ["rx 6", "rx 7", "rx 8", "rx 9", "radeon pro", "radeon rx 6", "radeon rx 7"]
+            .iter()
+            .any(|name| joined.contains(name));
+    let intel_arc = joined.contains("intel") && joined.contains("arc");
+    let strong = nvidia_rtx || apple_silicon || amd_modern || intel_arc;
+    let renderer_backend = if cfg!(target_os = "macos") { "vulkan-moltenvk" } else { "vulkan" };
+    let compute_backend = if cuda_available {
+        "cuda"
+    } else if amd_gpu || nvidia_rtx || intel_arc {
+        "vulkan"
+    } else if apple_silicon {
+        "metal"
+    } else {
+        "cpu"
+    };
+    GraphicsCapabilities {
+        architecture: std::env::consts::ARCH.to_string(),
+        gpus,
+        vendor: vendor.into(),
+        nvidia_rtx,
+        amd_gpu,
+        cuda_available,
+        apple_silicon,
+        renderer_backend: renderer_backend.into(),
+        compute_backend: compute_backend.into(),
+        hardware_ray_tracing: nvidia_rtx || apple_rt || amd_modern || intel_arc,
+        ray_tracing_renderer_ready: false,
+        offline_texture_backend: if cfg!(target_os = "macos") { "coregraphics" } else { "portable-cpu" }.into(),
+        recommended_profile: if strong { "ultra-classic" } else { "balanced" }.into(),
+    }
+}
+
 #[tauri::command]
 fn app_info(app: AppHandle, state: State<'_, AppState>) -> AppInfo {
     use openrac_launcher_core::update::Channel;
@@ -134,6 +326,7 @@ fn app_info(app: AppHandle, state: State<'_, AppState>) -> AppInfo {
         updates,
         no_compositing: cfg!(target_os = "linux") && std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_some(),
         safe_rendering_after_crash: SAFE_AFTER_CRASH.load(Ordering::Relaxed),
+        graphics: graphics_capabilities(),
     }
 }
 
@@ -460,6 +653,63 @@ fn game_data_dir(state: &State<'_, AppState>, game: &str) -> Result<PathBuf, Str
 }
 
 /// A game version's Texture packs section.
+/// Applies only settings whose cost depends strongly on the machine. It never enables Enhanced
+/// graphics by itself and never claims hardware RT is usable until the renderer has a verified RT
+/// path. The player can turn this off with Enhanced graphics -> Hardware auto tuning.
+#[tauri::command]
+fn enhanced_auto_configure(game: String, version: String) -> Result<AutoGraphicsResult, String> {
+    use openrac_launcher_core::{differences, enhanced};
+    let home = openrac_launcher_core::saves::data_home();
+    let file = differences::settings_file(&home, &game, &version);
+    let settings = std::fs::read_to_string(&file).unwrap_or_default();
+    let graphics = graphics_capabilities();
+    if !differences::read_switch(&settings, enhanced::SWITCH).unwrap_or(false)
+        || !differences::read_switch(&settings, "hardware_auto").unwrap_or(true)
+    {
+        return Ok(AutoGraphicsResult { applied: false, profile: "manual".into(), graphics });
+    }
+
+    let strong = graphics.recommended_profile == "ultra-classic";
+    let values: &[(&str, serde_json::Value)] = if strong {
+        &[
+            ("shadow_quality", serde_json::Value::String("high".into())),
+            ("gtao", serde_json::Value::Bool(true)),
+            ("gtao_quality", serde_json::Value::String("quality".into())),
+            ("offline_ultra_textures", serde_json::Value::Bool(true)),
+            ("texture_filter", serde_json::Value::String("normal".into())),
+            ("temporal_quality", serde_json::Value::String("native-aa".into())),
+            ("volumetric_quality", serde_json::Value::String("high".into())),
+            ("local_lights", serde_json::Value::Bool(true)),
+            ("authored_object_lights", serde_json::Value::Bool(false)),
+            ("bloom", serde_json::Value::Bool(false)),
+            ("agx_preview", serde_json::Value::Bool(true)),
+        ]
+    } else {
+        &[
+            ("shadow_quality", serde_json::Value::String("medium".into())),
+            ("gtao", serde_json::Value::Bool(true)),
+            ("gtao_quality", serde_json::Value::String("medium".into())),
+            ("offline_ultra_textures", serde_json::Value::Bool(true)),
+            ("texture_filter", serde_json::Value::String("normal".into())),
+            ("temporal_quality", serde_json::Value::String("quality".into())),
+            ("volumetric_quality", serde_json::Value::String("medium".into())),
+            ("local_lights", serde_json::Value::Bool(true)),
+            ("authored_object_lights", serde_json::Value::Bool(false)),
+            ("bloom", serde_json::Value::Bool(false)),
+            ("agx_preview", serde_json::Value::Bool(true)),
+        ]
+    };
+    for (key, value) in values {
+        enhanced::set_setting(&home, &game, &version, key, value)?;
+    }
+    let profile = if strong { "ultra-classic" } else { "balanced" };
+    launcher_log::line(&format!(
+        "{game}/{version}: hardware auto profile {profile}; GPU(s): {}",
+        if graphics.gpus.is_empty() { "unknown".into() } else { graphics.gpus.join(", ") }
+    ));
+    Ok(AutoGraphicsResult { applied: true, profile: profile.into(), graphics })
+}
+
 #[tauri::command]
 async fn texture_packs_view(
     state: State<'_, AppState>,
@@ -2616,6 +2866,7 @@ pub fn run() {
             plugins_list,
             enhanced_view,
             enhanced_set_enabled,
+            enhanced_auto_configure,
             texture_packs_view,
             texture_packs_set,
             texture_packs_open,
