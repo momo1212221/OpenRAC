@@ -88,12 +88,17 @@ All 19 levels take about 20 seconds and 800 MB to extract, several levels
 at a time, below normal priority so the computer stays usable. Options:
 
 - `--level N` (repeatable) exports only some levels.
-- `--jobs N` limits how many levels are exported at once: by default all but
-  an eighth of the CPU's threads (at least two kept free), or
-  `OPENRAC_EXTRACT_JOBS` when it is set (a number, or `all`). The launcher's
-  **Get the levels ready** reads the variable too: set it to `2` or `3` on a
-  computer that struggles while the levels are read.
+- `--jobs N` limits how many levels are exported at once. macOS defaults to
+  one level per fresh process, keeping decoded assets from several levels
+  out of memory at the same time. Other systems use all but an eighth of
+  the CPU's threads (at least two kept free). `OPENRAC_EXTRACT_JOBS` overrides
+  the default (a number, or `all`), including in the launcher.
+  While a level is being read, the details log reports activity every ten
+  seconds. The completed-level counter advances only when a level is done.
 - `--terrain-lod 2` uses the coarsest terrain.
+
+Level exports require at least 2 GiB free on the output drive before work
+starts. Existing levels stay in place until the replacement is complete.
 
 ## Regenerate
 

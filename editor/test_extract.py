@@ -8,7 +8,7 @@ import pickle
 import sys
 import tempfile
 import unittest
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor
 from unittest import mock
 
 import extract
@@ -49,7 +49,8 @@ class OutputTests(unittest.TestCase):
 
 class PoolTests(unittest.TestCase):
     def test_jobs_leave_threads_free_unless_told(self):
-        with mock.patch.dict(os.environ, {}, clear=False), mock.patch("os.cpu_count", return_value=8):
+        with mock.patch.dict(os.environ, {}, clear=False), mock.patch("os.cpu_count", return_value=8), \
+                mock.patch.object(sys, "platform", "linux"):
             os.environ.pop("OPENRAC_EXTRACT_JOBS", None)
             self.assertEqual(extract.default_jobs(), 6)
             for given, jobs in (("all", 8), ("3", 3), ("0", 6), ("many", 6)):
@@ -67,18 +68,66 @@ class PoolTests(unittest.TestCase):
             self.assertEqual(lower.called, lowered, command)
 
     def test_processes_where_python_has_them(self):
-        with worker_pool(2) as pool:
+        with mock.patch.object(sys, "platform", "linux"), worker_pool(2) as pool:
             self.assertIsInstance(pool, ProcessPoolExecutor)
 
     def test_processes_of_their_own_without_sem_open(self):
         # Android's CPython: building a process pool fails for want of sem_open.
         lacking = mock.Mock(side_effect=NotImplementedError("This platform lacks sem_open"))
-        with mock.patch.object(extract, "ProcessPoolExecutor", lacking):
+        with mock.patch.object(sys, "platform", "linux"), mock.patch.object(extract, "ProcessPoolExecutor", lacking):
             with worker_pool(8) as pool:
                 self.assertIsInstance(pool, extract.SubprocessPool)
                 # Only the level exports run there.
                 with self.assertRaises(RuntimeError):
                     pool.submit(sum, [1, 2]).result()
+
+    def test_low_disk_space_refuses_export_before_starting_workers(self):
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(extract.shutil, "disk_usage", return_value=mock.Mock(free=1024**3)), \
+                mock.patch.object(extract, "worker_pool") as workers:
+            out = Path(temp) / "new-levels"
+            with self.assertRaises(FormatError) as error:
+                extract.port(Path("disc.iso"), {}, [0], 0, 1, out)
+            self.assertEqual(error.exception.code, "disk-full")
+            workers.assert_not_called()
+            self.assertFalse(out.exists())
+
+    def test_export_space_check_accepts_two_gib_free(self):
+        with mock.patch.object(extract.shutil, "disk_usage", return_value=mock.Mock(free=2 * 1024**3)):
+            extract.require_export_space(Path("build/levels"))
+
+    def test_macos_defaults_to_one_fresh_worker_without_semaphores(self):
+        with mock.patch.dict(os.environ, {}, clear=False), mock.patch.object(sys, "platform", "darwin"), \
+                mock.patch.object(extract, "ProcessPoolExecutor") as shared_pool:
+            os.environ.pop("OPENRAC_EXTRACT_JOBS", None)
+            self.assertEqual(extract.default_jobs(), 1)
+            os.environ["OPENRAC_EXTRACT_JOBS"] = "2"
+            self.assertEqual(extract.default_jobs(), 2)
+            with worker_pool(1) as pool:
+                self.assertIsInstance(pool, extract.SubprocessPool)
+            shared_pool.assert_not_called()
+
+    def test_slow_export_reports_activity_without_claiming_a_level_is_done(self):
+        future = Future()
+        future.set_result({"level": 0})
+        out = io.StringIO()
+        with mock.patch.object(extract, "wait", side_effect=[(set(), {future}), ({future}, set())]), \
+                mock.patch.object(extract.time, "monotonic", side_effect=[0, 10]), \
+                mock.patch.object(sys, "stdout", out):
+            self.assertEqual(list(extract.completed_exports([future])), [future])
+        self.assertIn("0/1 complete; export still running (10s elapsed)", out.getvalue())
+        self.assertIn("openrac-progress: read 0/1", out.getvalue())
+        self.assertNotIn("read 1/1", out.getvalue())
+
+    def test_worker_failure_reports_the_signal_and_streams_diagnostics(self):
+        result = mock.Mock(returncode=-9, stdout=b"")
+        with mock.patch.object(extract.subprocess, "run", return_value=result) as run, \
+                mock.patch.object(sys, "stderr", io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, "level 03 was stopped by SIGKILL"):
+                extract.run_worker("export_port_level", ("disc.iso", {"id": 3}), {})
+        self.assertEqual(run.call_args.kwargs["stdout"], extract.subprocess.PIPE)
+        self.assertNotIn("capture_output", run.call_args.kwargs)
+        self.assertNotIn("stderr", run.call_args.kwargs)
 
     def test_every_submitted_export_may_run_in_its_own_process(self):
         # Android uses SubprocessPool, which runs only WORKER_FUNCTIONS.
