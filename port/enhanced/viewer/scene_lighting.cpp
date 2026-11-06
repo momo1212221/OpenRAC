@@ -116,7 +116,7 @@ void SceneLighting::prepare_deformation(
     const renderer::FrameInput& input, const scene::LevelScene& scene
 ) {
 #ifdef OPENRAC_LIGHT_AUTHORING
-    if (gl::enhanced_rendering_available()) {
+    if (input.authored_object_lights && gl::enhanced_rendering_available()) {
         const auto attached = m_object_lights.prepare(input.frame, scene.joint_palette());
         const auto applied = m_local_lights.set_attached_lights(attached);
         if (!applied) {
@@ -128,11 +128,20 @@ void SceneLighting::prepare_deformation(
         } else {
             m_attachment_error.clear();
         }
+    } else {
+        // Classic-lighting mode: keep the game's native point lights but remove the extra
+        // class-bound lamp/object emitters so the original Enhanced contrast is preserved.
+        (void)m_local_lights.set_attached_lights({});
+        m_attachment_error.clear();
     }
 #endif
 
     // Native lights also shade material fallbacks when probe GI is unavailable.
-    m_local_lights.prepare(input.frame, scene.point_lights(), gl::enhanced_rendering_available());
+    m_local_lights.prepare(
+        input.frame,
+        scene.point_lights(),
+        input.local_lights && gl::enhanced_rendering_available()
+    );
     m_water_float.prepare(input, &scene);
 }
 

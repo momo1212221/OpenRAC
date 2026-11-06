@@ -773,7 +773,9 @@ void TexturePool::bind_upscaled_texture_colours(
     const auto& image = m_entries[texture - 1].image;
     const unsigned cached =
         filter != TextureFilter::Normal && !m_entries[texture - 1].field
-            ? m_upscaled_texture_colours->prepare(source, image.width, image.height, wrap, m_frame)
+            ? m_upscaled_texture_colours->prepare(
+                  source, image.width, image.height, wrap, filter, m_frame
+              )
             : 0;
     // Cache creation uses its compute program. Restore the material before its uniforms.
     shader.use();

@@ -461,7 +461,9 @@ void enhanced_settings_window() {
     if (ImGui::CollapsingHeader("Image quality", ImGuiTreeNodeFlags_DefaultOpen)) {
         const char* texture_filters[] =
             {settings::name(renderer::TextureFilter::Normal),
-             settings::name(renderer::TextureFilter::EdgeAware)};
+             settings::name(renderer::TextureFilter::EdgeAware),
+             settings::name(renderer::TextureFilter::EdgeAware4x),
+             settings::name(renderer::TextureFilter::EdgeAware8x)};
         int texture_filter = static_cast<int>(graphics.texture_filter);
         if (combo(
                 "Texture upscaling",
@@ -657,6 +659,35 @@ void enhanced_settings_window() {
             graphics.agx_brightness = defaults.agx_brightness;
             changed = true;
         }
+
+        ImGui::SeparatorText("Local lights");
+        changed |= checkbox("Native local lights", &graphics.local_lights);
+        control_tip("Keeps the game's projectile/explosion point lights.");
+        changed |= checkbox("Additional lamp lights", &graphics.authored_object_lights);
+        control_tip("Adds class-bound lamp/object emitters. Disable for the classic Enhanced lighting look.");
+
+        ImGui::SeparatorText("Bloom");
+        changed |= checkbox("Bloom", &graphics.bloom);
+        control_tip("Spreads bright world emission before the native-resolution HUD.");
+        ImGui::BeginDisabled(!graphics.bloom);
+        changed |= slider_float(
+            "Bloom strength",
+            &graphics.bloom_strength,
+            0,
+            1.5f,
+            "%.2f",
+            ImGuiSliderFlags_AlwaysClamp
+        );
+        changed |= slider_float(
+            "Bloom radius",
+            &graphics.bloom_radius,
+            0.5f,
+            2.5f,
+            "%.2f",
+            ImGuiSliderFlags_AlwaysClamp
+        );
+        ImGui::EndDisabled();
+
         changed |= motion_blur_controls(graphics);
     }
     if (ImGui::CollapsingHeader("Materials & water")) {

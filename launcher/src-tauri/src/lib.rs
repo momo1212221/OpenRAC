@@ -25,7 +25,7 @@ use openrac_launcher_core::plugins::{self, Installed, PluginView};
 use openrac_launcher_core::remote;
 use openrac_launcher_core::reports::{self, ReportEntry};
 use openrac_launcher_core::reset;
-use openrac_launcher_core::{deeplink, index, index_apply, resolver};
+use openrac_launcher_core::{cloud_saves, deeplink, index, index_apply, resolver};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -483,6 +483,7 @@ async fn texture_packs_set(
     version: String,
     enabled: Option<bool>,
     dumping: Option<bool>,
+    ultra: Option<bool>,
 ) -> Result<openrac_launcher_core::texture_packs::View, String> {
     use openrac_launcher_core::texture_packs;
     let home = openrac_launcher_core::saves::data_home();
@@ -493,6 +494,11 @@ async fn texture_packs_set(
     if let Some(on) = dumping {
         texture_packs::set_dumping(&home, &game, &version, on)?;
         launcher_log::line(&format!("{game}/{version}: saving textures {}", if on { "on" } else { "off" }));
+    }
+    if let Some(on) = ultra {
+        let data = game_data_dir(&state, &game)?;
+        texture_packs::set_ultra_enabled(&home, &data, &game, &version, on)?;
+        launcher_log::line(&format!("{game}/{version}: offline Ultra textures {}", if on { "on" } else { "off" }));
     }
     texture_packs_view(state, game, version).await
 }
@@ -511,6 +517,114 @@ fn texture_packs_open(
     let home = openrac_launcher_core::saves::data_home();
     let dir = openrac_launcher_core::texture_packs::folder(&home, &data, &game, &version, dump, &folder)?;
     open_path_with_system(&app, &dir.to_string_lossy())
+}
+
+/// Extracts the HUD/interface pictures that can be decoded directly from a RAC1 disc. The Python
+/// tool is part of the same OpenRAC copy as the launcher and writes only derived pictures beside
+/// the already extracted port data. Its own stamp makes this a no-op on later starts.
+#[cfg(target_os = "macos")]
+fn prepare_offline_hud(
+    config: &Config,
+    data: &Path,
+    game: &str,
+    version: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    if game != "rac1" {
+        return Ok(None);
+    }
+    let iso = data.join("iso_data").join(game).join("disc.iso");
+    if !iso.is_file() {
+        return Ok(None);
+    }
+    let Some(root) = config.root.as_deref() else { return Ok(None) };
+    let Some(python) = config.python.as_deref() else { return Ok(None) };
+    let script = root.join("editor/offline_hud.py");
+    if !script.is_file() || !python.is_file() {
+        return Ok(None);
+    }
+    let out = data.join("port").join(version).join("offline-interface");
+    let result = std::process::Command::new(python)
+        .arg(&script)
+        .arg(&iso)
+        .arg(&out)
+        .arg(version)
+        .current_dir(root)
+        .output()
+        .map_err(|e| format!("cannot start offline HUD extractor: {e}"))?;
+    if !result.status.success() {
+        let error = String::from_utf8_lossy(&result.stderr).trim().to_string();
+        return Err(if error.is_empty() {
+            format!("offline HUD extractor stopped with {}", result.status)
+        } else {
+            error
+        });
+    }
+    let text = String::from_utf8_lossy(&result.stdout);
+    let line = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("{}");
+    serde_json::from_str(line).map(Some).map_err(|e| format!("offline HUD extractor returned unreadable status: {e}"))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn prepare_offline_hud(
+    _config: &Config,
+    _data: &Path,
+    _game: &str,
+    _version: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    Ok(None)
+}
+
+/// Ensures Enhanced graphics has a persistent pre-rendered Ultra texture pack before Play.
+/// Cached builds return immediately. The runtime upscaler and texture dumping are disabled so the
+/// expensive work never happens while the game is rendering.
+#[tauri::command]
+async fn texture_packs_prepare_ultra(
+    state: State<'_, AppState>,
+    game: String,
+    version: String,
+) -> Result<openrac_launcher_core::texture_packs::UltraTextureBuild, String> {
+    use openrac_launcher_core::{enhanced, texture_packs};
+    let home = openrac_launcher_core::saves::data_home();
+    let settings = std::fs::read_to_string(openrac_launcher_core::differences::settings_file(&home, &game, &version))
+        .unwrap_or_default();
+    let data = game_data_dir(&state, &game)?;
+    if enhanced::play_additions(&settings, &data, &version).is_none() {
+        return Ok(texture_packs::UltraTextureBuild::disabled());
+    }
+
+    let g = game.clone();
+    let v = version.clone();
+    let home_for_build = home.clone();
+    let data_for_build = data.clone();
+    let config_for_build = state.config.lock().unwrap().clone();
+    let (hud, result) = tauri::async_runtime::spawn_blocking(move || {
+        let hud = prepare_offline_hud(&config_for_build, &data_for_build, &g, &v)?;
+        let result = texture_packs::prepare_ultra4k(&home_for_build, &data_for_build, &g, &v)?;
+        Ok::<_, String>((hud, result))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if let Some(hud) = hud {
+        let count = hud.get("textures").and_then(serde_json::Value::as_u64).unwrap_or(0);
+        let cached = hud.get("cached").and_then(serde_json::Value::as_bool).unwrap_or(false);
+        launcher_log::line(&format!(
+            "{game}/{version}: offline HUD {}: {count} texture(s)",
+            if cached { "cached" } else { "extracted" }
+        ));
+    }
+    if result.enabled {
+        // Offline Ultra owns the enlargement. Keep only sampling/filtering work in the game itself.
+        enhanced::set_setting(&home, &game, &version, "texture_filter", &serde_json::Value::from("normal"))?;
+        texture_packs::set_enabled(&home, &game, &version, true)?;
+        texture_packs::set_dumping(&home, &game, &version, false)?;
+    }
+    launcher_log::line(&format!(
+        "{game}/{version}: Ultra textures {}: {} texture(s), {:.1} MiB",
+        if result.cached { "cached" } else { "prepared" },
+        result.textures,
+        result.bytes as f64 / (1024.0 * 1024.0)
+    ));
+    Ok(result)
 }
 
 /// What a pack's .zip holds, refused for another game's or one that is not a pack.
@@ -1121,6 +1235,45 @@ fn inspect_saves(serial: String) -> openrac_launcher_core::saves::GameSaveStatus
 #[tauri::command]
 fn backup_saves(serial: String, note: Option<String>) -> Result<openrac_launcher_core::saves::SaveBackupInfo, String> {
     openrac_launcher_core::saves::backup_saves(&serial, note.as_deref())
+}
+
+/// The folder-backed Cloud Saves provider selected on this device. The folder itself is the
+/// player's (OneDrive, Dropbox, iCloud Drive, Syncthing, a NAS, ...); OpenRAC hosts nothing.
+#[tauri::command]
+fn cloud_saves_config() -> cloud_saves::CloudConfigView {
+    cloud_saves::config()
+}
+
+#[tauri::command]
+fn cloud_saves_set_folder(folder: Option<String>) -> Result<cloud_saves::CloudConfigView, String> {
+    cloud_saves::set_folder(folder.as_deref())
+}
+
+#[tauri::command]
+fn cloud_saves_status(app: AppHandle, serial: String) -> Result<cloud_saves::CloudSaveStatus, String> {
+    cloud_saves::status(&serial, &launcher_version(&app))
+}
+
+/// Syncs one card. A restore is refused while a game has the card open; import_saves takes a local
+/// backup before replacing it. `auto` never resolves a conflict by itself.
+#[tauri::command]
+async fn cloud_saves_sync(
+    app: AppHandle,
+    serial: String,
+    strategy: Option<String>,
+) -> Result<cloud_saves::CloudSyncResult, String> {
+    let in_use = card_check(&app).await?;
+    let version = launcher_version(&app);
+    let strategy = cloud_saves::Strategy::parse(strategy.as_deref())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let card = openrac_launcher_core::saves::get_memcard_dir(&serial);
+        if let Some(game) = in_use(&card, &serial)? {
+            return Err(format!("{game} is running with this memory card: close it first"));
+        }
+        cloud_saves::sync(&serial, &version, strategy)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Whether the game runs with a memory card (the name to show when it does), for an edit or a
@@ -2435,6 +2588,10 @@ pub fn run() {
             set_discord_status,
             inspect_saves,
             backup_saves,
+            cloud_saves_config,
+            cloud_saves_set_folder,
+            cloud_saves_status,
+            cloud_saves_sync,
             restore_backup,
             import_pcsx2_saves,
             pcsx2_memcards_dir,
@@ -2462,6 +2619,7 @@ pub fn run() {
             texture_packs_view,
             texture_packs_set,
             texture_packs_open,
+            texture_packs_prepare_ultra,
             texture_packs_preview,
             texture_packs_import,
             texture_packs_export,
@@ -2554,6 +2712,23 @@ fn prepare_environment() {
     }
 }
 
+/// Development/test copies intentionally do not join the production single-instance group. On
+/// macOS the plugin keys its Unix socket only from the bundle identifier; copied .app bundles keep
+/// that identifier, so a running "... Test.app" used to make the real launcher exit immediately.
+#[cfg(desktop)]
+fn isolated_test_instance() -> bool {
+    if std::env::var_os("OPENRAC_ISOLATED_INSTANCE").is_some() {
+        return true;
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    exe.ancestors().any(|path| {
+        path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
+            && path.file_stem().is_some_and(|name| name.to_string_lossy().to_ascii_lowercase().contains("test"))
+    })
+}
+
 /// The launcher's plugins, registered in this order: one instance, the file dialogs, the system's
 /// opener, the launcher's own updates on a desktop, and on Android the app's own plugin
 /// (android.rs).
@@ -2567,14 +2742,18 @@ fn with_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wr
     // launcher's page (onOpenUrl); a link after `--`, as the launcher's own entries pass it, is
     // handed on here, by the same rule (forward_link).
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-        forward_link(app, &args);
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.unminimize();
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
-    }));
+    let builder = if isolated_test_instance() {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            forward_link(app, &args);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+    };
     let builder = builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())

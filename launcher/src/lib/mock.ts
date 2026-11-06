@@ -222,6 +222,10 @@ const DEV = {
 /** A fork's branches with development builds, as the preview has them (updates.ts, devBranches). */
 export const MOCK_DEV_BRANCHES = ["develop", "feature-launcher-logo", "fix-pad-navigation"];
 
+let mockCloudFolder: string | null = null;
+let mockCloudSnapshots = 0;
+let mockCloudState = "empty";
+
 let config: Config = {
   // ?setup: a first start where no OpenRAC folder was found, so the welcome screen asks for one.
   root: new URLSearchParams(typeof location === "undefined" ? "" : location.search).has("setup")
@@ -1752,11 +1756,28 @@ function samplePack(name: string): PackView {
 
 /** A game's texture pack and saved textures, as the preview pretends (`?notextures`: none yet). */
 const mockTextures: TexturePackView = query.has("notextures")
-  ? { id: "", enabled: true, dumping: false, packCount: 0, packAnimated: 0, pack: [], dumpCount: 0, dump: [] }
+  ? {
+      id: "",
+      enabled: true,
+      dumping: false,
+      ultraEnabled: true,
+      ultraReady: false,
+      ultraTextures: 0,
+      ultraBytes: 0,
+      packCount: 0,
+      packAnimated: 0,
+      pack: [],
+      dumpCount: 0,
+      dump: [],
+    }
   : {
       id: "",
       enabled: true,
       dumping: false,
+      ultraEnabled: true,
+      ultraReady: true,
+      ultraTextures: 4437,
+      ultraBytes: 1088757831,
       packCount: 38,
       packAnimated: 2,
       pack: [
@@ -2524,7 +2545,41 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
     case "texture_packs_set":
       if (typeof args.enabled === "boolean") mockTextures.enabled = args.enabled;
       if (typeof args.dumping === "boolean") mockTextures.dumping = args.dumping;
+      if (typeof args.ultra === "boolean") {
+        mockTextures.ultraEnabled = args.ultra;
+        if (!args.ultra) {
+          mockTextures.ultraReady = false;
+          mockTextures.ultraTextures = 0;
+          mockTextures.ultraBytes = 0;
+        }
+      }
       return delay<TexturePackView>({ ...mockTextures, id: `${String(args.game)}-${String(args.version)}` });
+    case "texture_packs_prepare_ultra":
+      if (!mockTextures.ultraEnabled) {
+        return delay({
+          enabled: false,
+          cached: true,
+          sourceFiles: 0,
+          textures: 0,
+          skippedCustom: 0,
+          bytes: 0,
+          maxEdge: 4096,
+          scale: 8,
+        });
+      }
+      mockTextures.ultraReady = true;
+      mockTextures.ultraTextures = 4437;
+      mockTextures.ultraBytes = 1088757831;
+      return delay({
+        enabled: true,
+        cached: false,
+        sourceFiles: 13051,
+        textures: 4437,
+        skippedCustom: 3516,
+        bytes: 1088757831,
+        maxEdge: 4096,
+        scale: 8,
+      });
     case "texture_packs_open":
       return delay(null);
     case "texture_packs_preview":
@@ -2727,6 +2782,62 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
     case "open_game_folder":
       console.info(`[preview] ${command}`, args);
       return delay(null);
+    case "cloud_saves_config":
+      return delay({
+        folder: mockCloudFolder,
+        cloudDir: mockCloudFolder ? `${mockCloudFolder}/OpenRAC Cloud Saves/v1` : null,
+      });
+    case "cloud_saves_set_folder": {
+      mockCloudFolder = typeof args.folder === "string" && args.folder ? args.folder : null;
+      mockCloudState = mockCloudFolder ? "local-changes" : "empty";
+      return delay({
+        folder: mockCloudFolder,
+        cloudDir: mockCloudFolder ? `${mockCloudFolder}/OpenRAC Cloud Saves/v1` : null,
+      });
+    }
+    case "cloud_saves_status":
+      return delay({
+        enabled: !!mockCloudFolder,
+        folder: mockCloudFolder,
+        cloudDir: mockCloudFolder ? `${mockCloudFolder}/OpenRAC Cloud Saves/v1` : null,
+        state: mockCloudFolder ? mockCloudState : "disabled",
+        snapshots: mockCloudSnapshots,
+        heads: [],
+        latest: null,
+        localHasSaves: true,
+        localChanged: mockCloudState === "local-changes",
+        cloudChanged: mockCloudState === "cloud-changes",
+        conflict: mockCloudState === "conflict",
+      });
+    case "cloud_saves_sync": {
+      if (!mockCloudFolder) throw new Error("choose a cloud save folder first");
+      const strategy = typeof args.strategy === "string" ? args.strategy : "auto";
+      const action = mockCloudState === "conflict" && strategy === "auto" ? "conflict" : "uploaded";
+      if (action !== "conflict") {
+        mockCloudSnapshots = Math.max(1, mockCloudSnapshots + 1);
+        mockCloudState = "synced";
+      }
+      return delay({
+        action,
+        message:
+          action === "conflict"
+            ? "Both this device and the cloud changed. Choose which one to keep; neither was overwritten."
+            : "The local saves were added to the cloud folder.",
+        status: {
+          enabled: true,
+          folder: mockCloudFolder,
+          cloudDir: `${mockCloudFolder}/OpenRAC Cloud Saves/v1`,
+          state: mockCloudState,
+          snapshots: mockCloudSnapshots,
+          heads: [],
+          latest: null,
+          localHasSaves: true,
+          localChanged: false,
+          cloudChanged: false,
+          conflict: mockCloudState === "conflict",
+        },
+      });
+    }
     case "inspect_saves": {
       const serial = typeof args.serial === "string" ? args.serial : "SCES_509.16";
       return delay({

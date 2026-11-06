@@ -24,7 +24,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::differences::{read_switch, read_value, settings_file, with_value, write_settings};
-use crate::plugins::{check_value, Choice, PluginView, SettingSpec, SettingView};
+use crate::plugins::{check_value, Choice, PluginView, Preset, SettingSpec, SettingView};
 
 mod bakes;
 pub use bakes::{bake_log, bake_status, delete_bakes, version_bake_status, BakeStatus};
@@ -104,14 +104,29 @@ pub fn settings() -> Vec<SettingSpec> {
     ];
     let mut texture_filter = spec(
         "texture_filter",
-        "Texture upscaling",
+        "Runtime texture upscaling",
         "choice",
         "edge-aware".into(),
-        "Enlarges world textures while keeping edges sharp.",
+        "Fallback live upscaling. Ultra / Maximum pre-renders an 8x, 4K-capped texture pack before Play and uses Normal here.",
     );
     texture_filter.choices = vec![
         Choice { value: "normal".into(), name: "Normal".into() },
         Choice { value: "edge-aware".into(), name: "Edge-aware (2x)".into() },
+        Choice { value: "edge-aware-4x".into(), name: "Edge-aware (4x)".into() },
+        Choice { value: "edge-aware-8x".into(), name: "Edge-aware (8x)".into() },
+    ];
+    let mut volumetrics = spec(
+        "volumetric_quality",
+        "Volumetric lighting",
+        "choice",
+        "high".into(),
+        "Participating-light/fog quality for beams, glow and atmospheric depth.",
+    );
+    volumetrics.choices = vec![
+        Choice { value: "off".into(), name: "Off".into() },
+        Choice { value: "low".into(), name: "Low".into() },
+        Choice { value: "medium".into(), name: "Medium".into() },
+        Choice { value: "high".into(), name: "High".into() },
     ];
     let mut temporal = spec(
         "temporal_quality",
@@ -131,6 +146,53 @@ pub fn settings() -> Vec<SettingSpec> {
         shadows,
         spec("gtao", "Ambient occlusion", "bool", true.into(), "Soft shade in corners and under objects."),
         quality,
+        spec(
+            "local_lights",
+            "Native dynamic lights",
+            "bool",
+            true.into(),
+            "Keeps the game's native projectile and explosion lights active.",
+        ),
+        spec(
+            "authored_object_lights",
+            "Additional lamp lights",
+            "bool",
+            false.into(),
+            "Adds the new class-bound lamp/object emitters. Leave this off for the older Enhanced lighting look.",
+        ),
+        volumetrics,
+        spec(
+            "bloom",
+            "Bloom",
+            "bool",
+            true.into(),
+            "Lets bright lamps, projectiles and emissive materials cast a soft optical glow before the HUD.",
+        ),
+        range(
+            spec(
+                "bloom_strength",
+                "Bloom strength",
+                "float",
+                0.35.into(),
+                "Controls how strongly bright world pixels spread into their surroundings.",
+            ),
+            0.0,
+            1.5,
+            0.05,
+        ),
+        advanced(range(
+            spec("bloom_radius", "Bloom radius", "float", 1.0.into(), "Scales the bloom sampling footprint."),
+            0.5,
+            2.5,
+            0.1,
+        )),
+        spec(
+            "offline_ultra_textures",
+            "Ultra textures before Play",
+            "bool",
+            true.into(),
+            "Pre-renders known game textures once at 8x up to a 4096-pixel edge, saves them as a persistent texture pack, and reuses that pack on later starts. This keeps 2x/4x/8x reconstruction out of the render loop.",
+        ),
         texture_filter,
         temporal,
         spec(
@@ -216,7 +278,56 @@ pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> En
             reason: String::new(),
             blocked: String::new(),
             settings,
-            presets: Vec::new(),
+            presets: vec![
+                Preset {
+                    id: "ultra-classic".into(),
+                    name: "Ultra / Classic Lighting".into(),
+                    values: [
+                        ("shadow_quality".into(), Value::from("high")),
+                        ("gtao".into(), Value::Bool(true)),
+                        ("gtao_quality".into(), Value::from("quality")),
+                        ("offline_ultra_textures".into(), Value::Bool(true)),
+                        ("texture_filter".into(), Value::from("normal")),
+                        ("temporal_quality".into(), Value::from("native-aa")),
+                        ("volumetric_quality".into(), Value::from("high")),
+                        ("local_lights".into(), Value::Bool(true)),
+                        ("authored_object_lights".into(), Value::Bool(false)),
+                        ("bloom".into(), Value::Bool(false)),
+                        ("bloom_strength".into(), Value::from(0.35)),
+                        ("bloom_radius".into(), Value::from(1.0)),
+                        ("agx_preview".into(), Value::Bool(true)),
+                        ("agx_brightness".into(), Value::from(0.5)),
+                        ("motion_blur".into(), Value::Bool(true)),
+                        ("temporal_sharpness".into(), Value::from(0.2)),
+                    ]
+                    .into_iter()
+                    .collect(),
+                },
+                Preset {
+                    id: "ultra".into(),
+                    name: "Ultra / Maximum".into(),
+                    values: [
+                        ("shadow_quality".into(), Value::from("high")),
+                        ("gtao".into(), Value::Bool(true)),
+                        ("gtao_quality".into(), Value::from("quality")),
+                        ("offline_ultra_textures".into(), Value::Bool(true)),
+                        ("texture_filter".into(), Value::from("normal")),
+                        ("temporal_quality".into(), Value::from("native-aa")),
+                        ("volumetric_quality".into(), Value::from("high")),
+                        ("local_lights".into(), Value::Bool(true)),
+                        ("authored_object_lights".into(), Value::Bool(true)),
+                        ("bloom".into(), Value::Bool(true)),
+                        ("bloom_strength".into(), Value::from(0.35)),
+                        ("bloom_radius".into(), Value::from(1.0)),
+                        ("agx_preview".into(), Value::Bool(true)),
+                        ("agx_brightness".into(), Value::from(0.5)),
+                        ("motion_blur".into(), Value::Bool(true)),
+                        ("temporal_sharpness".into(), Value::from(0.2)),
+                    ]
+                    .into_iter()
+                    .collect(),
+                },
+            ],
             hooks: Vec::new(),
             shared_hooks: Vec::new(),
             native: false,
@@ -288,7 +399,7 @@ mod tests {
         let all = settings();
         assert_eq!(
             all.iter().filter(|s| s.group == "advanced").map(|s| s.key.as_str()).collect::<Vec<_>>(),
-            vec!["temporal_sharpness"]
+            vec!["bloom_radius", "temporal_sharpness"]
         );
         assert!(all
             .iter()
@@ -326,11 +437,43 @@ mod tests {
         assert!(v.entry.settings.iter().all(|s| s.spec.key != "probe_lighting"));
         assert!(set_setting(&home, "rac1", "pal", "probe_lighting", &Value::Bool(false)).is_err());
         assert_eq!(value(&v, "texture_filter"), Value::from("edge-aware"));
+        assert_eq!(value(&v, "local_lights"), Value::Bool(true));
+        assert_eq!(value(&v, "authored_object_lights"), Value::Bool(false));
+        assert_eq!(value(&v, "volumetric_quality"), Value::from("high"));
         assert_eq!(value(&v, "temporal_quality"), Value::from("quality"));
         assert_eq!(value(&v, "shadow_quality"), Value::from("high"));
         assert_eq!(value(&v, "temporal_sharpness"), Value::from(0.2));
         assert_eq!(value(&v, "agx_preview"), Value::Bool(true));
+        assert_eq!(value(&v, "bloom"), Value::Bool(true));
+        assert_eq!(value(&v, "bloom_strength"), Value::from(0.35));
+        assert_eq!(value(&v, "bloom_radius"), Value::from(1.0));
         assert_eq!(value(&v, "motion_blur"), Value::Bool(true));
+
+        let classic = v.entry.presets.iter().find(|p| p.id == "ultra-classic").expect("classic ultra preset");
+        assert_eq!(classic.name, "Ultra / Classic Lighting");
+        assert_eq!(classic.values.get("authored_object_lights"), Some(&Value::Bool(false)));
+        assert_eq!(classic.values.get("local_lights"), Some(&Value::Bool(true)));
+        assert_eq!(classic.values.get("bloom"), Some(&Value::Bool(false)));
+        assert_eq!(classic.values.get("texture_filter"), Some(&Value::from("normal")));
+        for (key, preset_value) in &classic.values {
+            let spec = v.entry.settings.iter().find(|s| s.spec.key == *key).expect("classic preset setting exists");
+            assert_eq!(check_value(&spec.spec, preset_value), Some(preset_value.clone()), "{key}");
+        }
+
+        let ultra = v.entry.presets.iter().find(|p| p.id == "ultra").expect("ultra preset");
+        assert_eq!(ultra.name, "Ultra / Maximum");
+        assert_eq!(ultra.values.get("texture_filter"), Some(&Value::from("normal")));
+        assert_eq!(ultra.values.get("temporal_quality"), Some(&Value::from("native-aa")));
+        assert_eq!(ultra.values.get("volumetric_quality"), Some(&Value::from("high")));
+        assert_eq!(ultra.values.get("local_lights"), Some(&Value::Bool(true)));
+        assert_eq!(ultra.values.get("authored_object_lights"), Some(&Value::Bool(true)));
+        assert_eq!(ultra.values.get("bloom"), Some(&Value::Bool(true)));
+        assert_eq!(ultra.values.get("bloom_strength"), Some(&Value::from(0.35)));
+        assert_eq!(ultra.values.get("bloom_radius"), Some(&Value::from(1.0)));
+        for (key, preset_value) in &ultra.values {
+            let spec = v.entry.settings.iter().find(|s| s.spec.key == *key).expect("preset setting exists");
+            assert_eq!(check_value(&spec.spec, preset_value), Some(preset_value.clone()), "{key}");
+        }
 
         assert_eq!(value(&v, "agx_brightness"), Value::from(0.5));
         for brightness in [0.0, 0.5, 1.0] {

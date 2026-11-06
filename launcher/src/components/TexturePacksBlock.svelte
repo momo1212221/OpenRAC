@@ -65,10 +65,16 @@
     }
   }
 
-  const set = (change: { enabled?: boolean; dumping?: boolean }) =>
+  const set = (change: { enabled?: boolean; dumping?: boolean; ultra?: boolean }) =>
     work("set", async () => {
       view = await api.texturePacksSet(version.game, version.name, change);
-      if (change.dumping !== undefined) {
+      if (change.ultra !== undefined) {
+        toast(
+          change.ultra
+            ? "Ultra textures will be prepared before Play and reused afterwards."
+            : "Offline Ultra textures are off; the generated Ultra4K pack was removed.",
+        );
+      } else if (change.dumping !== undefined) {
         toast(
           change.dumping
             ? "The game saves its textures from your next Play."
@@ -108,6 +114,22 @@
       await load();
     });
 
+  const prepareUltra = () =>
+    work("ultra", async () => {
+      const done = await api.texturePacksPrepareUltra(version.game, version.name);
+      await load();
+      if (!done.enabled) {
+        toast("Turn Ultra textures before Play on first.", "error");
+        return;
+      }
+      const mib = Math.round(done.bytes / (1024 * 1024));
+      toast(
+        done.cached
+          ? `Ultra textures are already ready: ${grouped(done.textures)} textures (${grouped(mib)} MiB).`
+          : `Prepared ${grouped(done.textures)} Ultra textures (${grouped(mib)} MiB).`,
+      );
+    });
+
   const share = () =>
     work("share", async () => {
       const done = await api.texturePacksExport(version.game, version.name);
@@ -125,6 +147,49 @@
   {#if failed}
     <p class="muted"><Icon name="warn" size={14} /> {failed}</p>
   {:else if view}
+    <div class="ultra-card">
+      <div class="ultra-copy">
+        <h3>Ultra textures before Play</h3>
+        <p class="muted">
+          Pre-render known game textures once at 8×, up to 4K, save them as a permanent texture pack and reuse them.
+          Runtime 2×/4×/8× upscaling stays off while you play.
+        </p>
+        {#if view.ultraReady}
+          <p class="ultra-status">
+            <Icon name="check" size={14} />
+            {grouped(view.ultraTextures)} textures ready · {grouped(Math.round(view.ultraBytes / (1024 * 1024)))} MiB
+          </p>
+        {:else if view.ultraEnabled}
+          <p class="ultra-status muted">Not prepared yet. It will be built before Play, or you can prepare it now.</p>
+        {:else}
+          <p class="ultra-status muted">Off. No generated Ultra4K pack is used.</p>
+        {/if}
+      </div>
+      <div class="controls ultra-controls">
+        <label class="toggle">
+          <span>{view.ultraEnabled ? "On" : "Off"}</span>
+          <input
+            type="checkbox"
+            class="switch"
+            role="switch"
+            aria-label="Pre-render Ultra textures before Play"
+            checked={view.ultraEnabled}
+            disabled={busy !== null}
+            onchange={(e) => void set({ ultra: e.currentTarget.checked })}
+          />
+        </label>
+        <button
+          class="primary small"
+          disabled={busy !== null || !view.ultraEnabled}
+          onclick={() => void prepareUltra()}
+        >
+          {#if busy === "ultra"}<span class="spinner"></span>{/if}{view.ultraReady
+            ? "Check / rebuild now"
+            : "Prepare now"}
+        </button>
+      </div>
+    </div>
+
     <ol class="steps">
       <li>
         <div>
@@ -247,6 +312,45 @@
   }
   .lead {
     margin: 0;
+  }
+  .ultra-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px 16px;
+    margin: 8px 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--raised);
+  }
+  .ultra-copy {
+    min-width: 0;
+  }
+  .ultra-copy h3 {
+    margin: 0 0 4px;
+  }
+  .ultra-copy p {
+    margin: 0;
+  }
+  .ultra-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 7px !important;
+    font-size: 0.8125rem;
+  }
+  .ultra-controls {
+    flex-shrink: 0;
+  }
+  @media (max-width: 760px) {
+    .ultra-card {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .ultra-controls {
+      justify-content: flex-start;
+    }
   }
   .toggle {
     display: inline-flex;

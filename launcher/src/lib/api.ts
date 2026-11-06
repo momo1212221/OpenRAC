@@ -260,6 +260,41 @@ export interface RunInputs {
   option?: string;
 }
 
+export type CloudSyncStrategy = "auto" | "use-local" | "use-cloud";
+
+export interface CloudConfigView {
+  folder: string | null;
+  cloudDir: string | null;
+}
+
+export interface CloudSnapshotInfo {
+  id: string;
+  parents: string[];
+  created: string;
+  device: string;
+  contentSha256: string;
+}
+
+export interface CloudSaveStatus {
+  enabled: boolean;
+  folder: string | null;
+  cloudDir: string | null;
+  state: "disabled" | "empty" | "synced" | "local-changes" | "cloud-changes" | "conflict";
+  snapshots: number;
+  heads: CloudSnapshotInfo[];
+  latest: CloudSnapshotInfo | null;
+  localHasSaves: boolean;
+  localChanged: boolean;
+  cloudChanged: boolean;
+  conflict: boolean;
+}
+
+export interface CloudSyncResult {
+  action: "none" | "uploaded" | "downloaded" | "conflict";
+  message: string;
+  status: CloudSaveStatus;
+}
+
 /** What a gameplay mod is: code the game loads (a library), Luau scripts the game runs sandboxed,
  *  or data only (docs/port/MODS.md, section 11). */
 export type ModKind = PluginView["kind"];
@@ -318,6 +353,11 @@ export const api = {
   setDiscordStatus: (status: DiscordStatus) => call<null>("set_discord_status", { status }),
   inspectSaves: (serial: string) => call<GameSaveStatus>("inspect_saves", { serial }),
   backupSaves: (serial: string, note?: string) => call<SaveBackupInfo>("backup_saves", { serial, note }),
+  cloudSavesConfig: () => call<CloudConfigView>("cloud_saves_config"),
+  cloudSavesSetFolder: (folder: string | null) => call<CloudConfigView>("cloud_saves_set_folder", { folder }),
+  cloudSavesStatus: (serial: string) => call<CloudSaveStatus>("cloud_saves_status", { serial }),
+  cloudSavesSync: (serial: string, strategy: CloudSyncStrategy = "auto") =>
+    call<CloudSyncResult>("cloud_saves_sync", { serial, strategy }),
   restoreBackup: (serial: string, backupName: string) => call<null>("restore_backup", { serial, backupName }),
   /** The game's saves copied in from a PCSX2 memory card (a card file, or a folder card's
    *  _pcsx2_superblock), after a backup of the card. */
@@ -409,16 +449,29 @@ export const api = {
   /** A version's texture pack and the textures the game saved (core texture_packs.rs). */
   texturePacks: (game: string, version: string) => call<TexturePackView>("texture_packs_view", { game, version }),
   /** Switches the pack on or off, or saving the textures at the next Play. */
-  texturePacksSet: (game: string, version: string, change: { enabled?: boolean; dumping?: boolean }) =>
+  texturePacksSet: (game: string, version: string, change: { enabled?: boolean; dumping?: boolean; ultra?: boolean }) =>
     call<TexturePackView>("texture_packs_set", {
       game,
       version,
       enabled: change.enabled ?? null,
       dumping: change.dumping ?? null,
+      ultra: change.ultra ?? null,
     }),
   /** Opens a folder of the pack, or of the saved textures (`dump`); `folder` "" is the whole one. */
   texturePacksOpen: (game: string, version: string, dump: boolean, folder = "") =>
     call<null>("texture_packs_open", { game, version, dump, folder }),
+  /** Builds/caches the persistent Ultra 4K texture pack before Play; a no-op when Enhanced is off. */
+  texturePacksPrepareUltra: (game: string, version: string) =>
+    call<{
+      enabled: boolean;
+      cached: boolean;
+      sourceFiles: number;
+      textures: number;
+      skippedCustom: number;
+      bytes: number;
+      maxEdge: number;
+      scale: number;
+    }>("texture_packs_prepare_ultra", { game, version }),
   texturePacksPreview: (game: string, version: string, source: string) =>
     call<TexturePackPreview>("texture_packs_preview", { game, version, source }),
   texturePacksImport: (game: string, version: string, source: string, mode: TexturePackImportMode) =>

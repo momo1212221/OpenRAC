@@ -43,12 +43,17 @@ void Settings::reset_enhanced() {
     agx_preview = defaults.agx_preview;
     agx_exposure = defaults.agx_exposure;
     agx_brightness = defaults.agx_brightness;
+    bloom = defaults.bloom;
+    bloom_strength = defaults.bloom_strength;
+    bloom_radius = defaults.bloom_radius;
     motion_blur = defaults.motion_blur;
     motion_blur_settings = defaults.motion_blur_settings;
     motion_blur_strength = defaults.motion_blur_strength;
     lily_momentum = defaults.lily_momentum;
     temporal_sharpness = defaults.temporal_sharpness;
     texture_filter = defaults.texture_filter;
+    local_lights = defaults.local_lights;
+    authored_object_lights = defaults.authored_object_lights;
 }
 
 std::optional<std::array<float, 3>> Settings::sunlight_direction() const {
@@ -82,7 +87,8 @@ constexpr const char* kDisplayMode[] = {"windowed", "borderless"};
 constexpr const char* kAspect[] = {"4:3", "16:10", "16:9", "21:9", "32:9", "window", "custom"};
 constexpr const char* kHud[] = {"centre", "edges"};
 constexpr const char* kGtaoQuality[] = {"performance", "quality"};
-constexpr const char* kTextureFilter[] = {"normal", "edge-aware"};
+constexpr const char* kTextureFilter[] =
+    {"normal", "edge-aware", "edge-aware-4x", "edge-aware-8x"};
 constexpr const char* kVSync[] = {"off", "on", "adaptive"};
 
 std::string trimmed(const std::string& s) {
@@ -363,6 +369,12 @@ void load(const std::filesystem::path& file) {
             known = parse_float(value, -4.0f, 4.0f, s.agx_exposure);
         } else if (key == "agx_brightness") {
             known = parse_float(value, 0.0f, 1.0f, s.agx_brightness);
+        } else if (key == "bloom") {
+            known = parse_bool(value, s.bloom);
+        } else if (key == "bloom_strength") {
+            known = parse_float(value, 0.0f, 1.5f, s.bloom_strength);
+        } else if (key == "bloom_radius") {
+            known = parse_float(value, 0.5f, 2.5f, s.bloom_radius);
         } else if (key == "motion_blur") {
             known = parse_bool(value, s.motion_blur);
         } else if (key == "lily_momentum") {
@@ -385,6 +397,10 @@ void load(const std::filesystem::path& file) {
             known = parse_float(value, 0.0f, 1.0f, s.temporal_sharpness);
         } else if (key == "texture_filter") {
             known = parse(value, kTextureFilter, s.texture_filter);
+        } else if (key == "local_lights") {
+            known = parse_bool(value, s.local_lights);
+        } else if (key == "authored_object_lights") {
+            known = parse_bool(value, s.authored_object_lights);
         } else if (key == "anisotropy") {
             if (value == "auto") {
                 s.anisotropy = 0;
@@ -592,11 +608,15 @@ void save() {
         << "gtao_radius = " << s.gtao_settings.radius << "\n"
         << "gtao_strength = " << s.gtao_settings.strength << "\n"
         << "texture_filter = " << kTextureFilter[static_cast<int>(s.texture_filter)] << "\n"
+        << "local_lights = " << (s.local_lights ? 1 : 0) << "\n"
         << "temporal_quality = " << renderer::kTemporalKeys[static_cast<int>(s.temporal_quality)]
         << "\n"
         << "agx_preview = " << (s.agx_preview ? 1 : 0) << "\n"
         << "agx_exposure = " << s.agx_exposure << "\n"
         << "agx_brightness = " << s.agx_brightness << "\n"
+        << "bloom = " << (s.bloom ? 1 : 0) << "\n"
+        << "bloom_strength = " << s.bloom_strength << "\n"
+        << "bloom_radius = " << s.bloom_radius << "\n"
         << "motion_blur = " << (s.motion_blur ? 1 : 0) << "\n"
         << "lily_momentum = " << s.lily_momentum << "\n"
         << "motion_blur_strength = " << s.motion_blur_strength << "\n"
@@ -758,7 +778,8 @@ const char* name(VSync vsync) {
 }
 
 const char* name(renderer::TextureFilter filter) {
-    constexpr const char* names[] = {"Normal", "Edge-aware (2x)"};
+    constexpr const char* names[] =
+        {"Normal", "Edge-aware (2x)", "Edge-aware (4x)", "Edge-aware (8x)"};
     return names[std::clamp(static_cast<int>(filter), 0, static_cast<int>(std::size(names)) - 1)];
 }
 

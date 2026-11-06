@@ -47,6 +47,32 @@ The textures folder is `texture_dumps/<game id>/` in the launcher's data folder
 `~/.local/share/openrac`), not the pack's, so the game's own pictures never
 end up in a pack by themselves.
 
+### Offline Ultra textures
+
+The macOS launcher can prepare Enhanced graphics' Ultra textures **before Play**. It combines the
+static textures already exported with the levels and the textures previously seen by the runtime
+dump (including HUD/interface pictures), deduplicates them by the same texture hash the renderer
+uses, and writes generated replacements under `texture_packs/<game id>/Ultra4K/`. Generation is
+8x with a 4096-pixel longest-edge cap, so a 128x128 source becomes 1024x1024 while a 512-pixel
+source can reach 4096 pixels. This avoids turning thousands of tiny PS2 textures into wasteful
+4096x4096 images.
+
+A fingerprint in `Ultra4K/openrac-ultra4k.json` makes later starts reuse the finished pack. Existing
+user/imported pack pictures outside `Ultra4K` always win and are never overwritten. When the source
+set changes, pictures whose source hash already exists are linked/copied from the previous build;
+only new hashes are resampled. A process-wide file lock prevents two current launchers from baking
+the same pack at once, and the previous complete pack remains in place until the new one is ready.
+
+For Ratchet & Clank, the launcher also decodes the global HUD and every level's HUD banks directly
+from the player's disc before the Ultra build. Those pictures live under `port/<version>/offline-interface/`
+and have their own disc-identity stamp, so HUD/icons that have never appeared during play can still
+be prepared ahead of time. Runtime dumps remain an additional source for menus, fonts, effects and
+other 2D pictures that the static HUD banks do not describe.
+
+When this pre-rendered pack is prepared, the launcher switches runtime texture upscaling to `normal`
+and turns texture dumping off before starting the game, so no 2x/4x/8x reconstruction work runs in
+the render loop.
+
 ## Making one by hand
 
 1. Dump the textures: start the game with

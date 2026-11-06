@@ -138,6 +138,9 @@ struct Settings {
     bool agx_preview = true;                 // SDR-only AgX colour treatment experiment.
     float agx_exposure = 0.25f;              // Base exposure in stops, before AgX.
     float agx_brightness = 0.5f;             // 0..1 adds -0.8..+0.8 EV; midpoint is neutral.
+    bool bloom = true;                        // Bright world emission bleeds before native HUD.
+    float bloom_strength = 0.35f;             // Additive scene-linear halo strength.
+    float bloom_radius = 1.0f;                // Scales the fixed high-quality sampling footprint.
 
     float adjusted_agx_exposure() const { return agx_exposure + (agx_brightness - .5f) * 1.6f; }
 
@@ -147,6 +150,8 @@ struct Settings {
     float motion_blur_strength = 0.5f;       // Exposure strength in [0, 1].
     float temporal_sharpness = 0.2f;         // AMD RCAS strength in [0, 1].
     renderer::TextureFilter texture_filter = renderer::TextureFilter::EdgeAware;
+    bool local_lights = true;  // Native projectiles/explosions from the game.
+    bool authored_object_lights = false;  // Extra lamp/object emitters layered on top of the original look.
     int anisotropy = 0;  // 0: mode default; otherwise 1 (off), 2, 4, 8, 16
     // Scenery detail: false draws every tie and shrub, however far (the port's default); true,
     // "Original", leaves out the ties and shrubs beyond the game's draw distances (a low-end option,

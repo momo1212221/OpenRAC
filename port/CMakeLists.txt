@@ -45,7 +45,7 @@ if(OPENRAC_ENHANCED_RENDERING)
 endif()
 
 # The general Object Viewer is ready; additive object-light authoring remains opt-in work in progress.
-option(OPENRAC_LIGHT_AUTHORING "Compile experimental object-light authoring and attached light profiles" OFF)
+option(OPENRAC_LIGHT_AUTHORING "Compile experimental object-light authoring and attached light profiles" ON)
 if(OPENRAC_LIGHT_AUTHORING)
   add_compile_definitions(OPENRAC_LIGHT_AUTHORING=1)
 endif()

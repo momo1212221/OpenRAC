@@ -136,17 +136,25 @@ bool AgxPreview::prepare(const renderer::FrameBuffer& output, std::string& error
     return true;
 }
 
-void AgxPreview::apply(renderer::FrameBuffer& output, float exposure) {
+void AgxPreview::apply(
+    renderer::FrameBuffer& output,
+    float exposure,
+    bool agx_enabled,
+    float bloom_strength,
+    float bloom_radius
+) {
     // Missing targets and disabled enhanced rendering retain their unmodified world colour.
+    bloom_strength = std::clamp(bloom_strength, 0.0f, 1.5f);
+    bloom_radius = std::clamp(bloom_radius, 0.5f, 2.5f);
     if (m_failed || !enhanced_rendering_available() || output.width() <= 0
-        || output.height() <= 0) {
+        || output.height() <= 0 || (!agx_enabled && bloom_strength <= 0)) {
         return;
     }
-    const stats::Scope timing("AgX", stats::kGpu);
+    const stats::Scope timing("Post colour", stats::kGpu);
     exposure = std::clamp(exposure, -kExposureLimit, kExposureLimit);
 #if defined(OPENRAC_VULKAN)
-    // The in-place path avoids a snapshot but restores the raster fallback's HUD postconditions.
-    if (direct_transform(output, exposure)) {
+    // Bloom samples neighbouring pixels, so only pure AgX can use the in-place storage path.
+    if (agx_enabled && bloom_strength <= 0 && direct_transform(output, exposure)) {
         fullscreen_target(output);
         stats::gauge("AgX image copies", 0);
         return;
@@ -172,6 +180,9 @@ void AgxPreview::apply(renderer::FrameBuffer& output, float exposure) {
     glBindVertexArray(m_vao);
     m_shader.use();
     glUniform1f(m_shader.uniform("exposure_ev"), exposure);
+    glUniform1i(m_shader.uniform("agx_enabled"), agx_enabled ? 1 : 0);
+    glUniform1f(m_shader.uniform("bloom_strength"), bloom_strength);
+    glUniform1f(m_shader.uniform("bloom_radius"), bloom_radius);
     glBindTexture(GL_TEXTURE_2D, m_copy.colour_texture());
     const auto drawn = raster_transform(output, m_copy.colour_texture());
     glBindVertexArray(0);

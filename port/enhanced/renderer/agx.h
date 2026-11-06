@@ -15,8 +15,14 @@ class AgxPreview {
 public:
     // Releases preview-owned graphics resources on their owning context.
     ~AgxPreview();
-    // Applies bounded EV exposure and tone mapping; logs and disables the preview on failure.
-    void apply(renderer::FrameBuffer& output, float exposure);
+    // Applies optional bloom and bounded AgX exposure before the native-resolution HUD.
+    void apply(
+        renderer::FrameBuffer& output,
+        float exposure,
+        bool agx_enabled = true,
+        float bloom_strength = 0.0f,
+        float bloom_radius = 1.0f
+    );
     // Releases cached resources and allows a later initialization attempt.
     void release();
 

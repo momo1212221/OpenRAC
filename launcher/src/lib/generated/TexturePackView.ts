@@ -4,19 +4,27 @@ import type { TextureFolder } from "./TextureFolder";
 /**
  * The Texture packs section of a game's page.
  */
-export type TexturePackView = { 
+export type TexturePackView = {
 /**
  * The port's id of the version: `rac2-ntsc`.
  */
-id: string, 
+id: string,
 /**
  * The `texture_pack` setting.
  */
-enabled: boolean, 
+enabled: boolean,
 /**
  * Whether the next Play saves the textures.
  */
-dumping: boolean, packCount: number, 
+dumping: boolean,
+/**
+ * Whether the launcher prepares/reuses the persistent Ultra4K pack before Play.
+ */
+ultraEnabled: boolean,
+/**
+ * Whether a completed Ultra4K pack is present for the current sources.
+ */
+ultraReady: boolean, ultraTextures: number, ultraBytes: number, packCount: number,
 /**
  * Of those, the animated ones (a folder of frames or a GIF named by the texture).
  */

@@ -4,6 +4,7 @@
   // note. File names, sizes and the card's folder name are a contributor's details: a chip and
   // tooltips with developer tools on.
   import Icon from "$components/Icon.svelte";
+  import CloudSavesBlock from "$components/CloudSavesBlock.svelte";
   import { api, ask, pickSavesFile, type GameSaveStatus, type SaveBackupInfo, type VersionView } from "$lib/api";
   import { app, toast } from "$lib/app.svelte";
   import { grouped, size } from "$lib/format";
@@ -281,6 +282,8 @@
       {/if}
     </div>
   {/if}
+
+  <CloudSavesBlock serial={version.serial} onrestored={loadStatus} />
 </section>
 
 <style>

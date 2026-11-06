@@ -2,7 +2,7 @@
 // tile and the game's page, so the main button says and does the same thing in both.
 import type { ActionView, GameView, VersionView } from "./api";
 import type { IconName } from "$components/Icon.svelte";
-import { onAndroid, pickFolder, pickIso } from "./api";
+import { api, onAndroid, pickFolder, pickIso } from "./api";
 import {
   acceptWarning,
   app,
@@ -529,6 +529,12 @@ async function play(v: VersionView): Promise<void> {
   if (app.config?.playWithMods) {
     const { beforePlay } = await import("./modAutoUpdate.svelte");
     await beforePlay(v.key);
+  }
+  toast("Checking pre-rendered Ultra textures…");
+  const ultra = await api.texturePacksPrepareUltra(v.game, v.name);
+  if (ultra.enabled && !ultra.cached) {
+    const mib = Math.round(ultra.bytes / (1024 * 1024));
+    toast(`Ultra textures ready: ${ultra.textures.toLocaleString()} pre-rendered (${mib.toLocaleString()} MiB).`);
   }
   showLaunch(v.game, v.title);
   const modded = app.config?.playWithMods ? action(fresh, "play-edited") : undefined;

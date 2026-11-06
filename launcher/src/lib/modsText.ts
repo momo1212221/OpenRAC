@@ -155,7 +155,7 @@ export const ENHANCED = {
       ? "1 level was stopped part way: preparing goes on from there."
       : `${n} levels were stopped part way: preparing goes on from there.`,
   prepare: "Prepare lighting",
-  goOn: "Go on preparing",
+  goOn: "Resume from checkpoint",
   again: "Prepare again",
   remove: "Delete the lighting",
   removeAsk: (levels: number) =>
