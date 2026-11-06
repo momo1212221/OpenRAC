@@ -2665,6 +2665,15 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
         backup: "/home/you/OpenRAC/texture_packs/rac1-pal.before-ai-demo",
       });
     }
+    case "ai_mesh_bake":
+      return delay({
+        available: true,
+        discovered: 684,
+        processed: 612,
+        backend: "openrac-mesh-ai",
+        output: "/home/you/OpenRAC/mods/pal",
+        backup: "/home/you/OpenRAC/ai_assets/pal/backups/before-mesh-ai-demo",
+      });
     case "enhanced_view":
     case "enhanced_set_enabled":
     case "enhanced_set_setting":

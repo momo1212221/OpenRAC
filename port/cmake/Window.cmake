@@ -515,6 +515,8 @@ openrac_embed_shaders(openrac_enhanced_viewer enhanced_viewer openrac::lighting
   "${CMAKE_CURRENT_SOURCE_DIR}/enhanced/viewer/shaders/probe_spheres.frag"
 )
 target_link_libraries(openrac_enhanced_viewer PUBLIC openrac_scene_renderer openrac_probe_scene)
+openrac_add_test(ray_traced_sun SOURCES tests/ray_traced_sun_test.cpp INCLUDES . LIBS openrac_enhanced_viewer openrac_platform)
+set_tests_properties(ray_traced_sun PROPERTIES SKIP_RETURN_CODE 77)
 if(APPLE)
   target_sources(openrac_enhanced_viewer PRIVATE enhanced/renderer/ray_traced_sun.mm)
   target_link_libraries(openrac_enhanced_viewer PRIVATE "-framework Metal")
