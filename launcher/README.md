@@ -226,7 +226,7 @@ You need:
 
 - Node 20+;
 - Yarn, the version in `package.json`, through Corepack (`corepack enable`);
-- Rust stable. On Windows, use Rust's MSVC toolchain. If your default is GNU,
+- Rust stable, version 1.90 or newer. On Windows, use Rust's MSVC toolchain. If your default is GNU,
   run `rustup override set stable-x86_64-pc-windows-msvc` in this folder.
 - On Linux, Tauri's system libraries. On Debian and Ubuntu:
   `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev`. Other

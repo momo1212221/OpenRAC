@@ -147,6 +147,18 @@ void source_files(Hash& hash, const std::filesystem::path& root, const char* lab
     }
 }
 
+void cloud_profile_source(Hash& hash, const std::filesystem::path& directory) {
+    const auto root = directory.parent_path();
+    const auto path = root / "cloud-profile.json";
+    hash.u32(0x434C4401u);
+    const bool present = std::filesystem::is_regular_file(path);
+    hash.u32(present ? 1u : 0u);
+
+    if (present) {
+        source_file(hash, root, path);
+    }
+}
+
 // Adds one fixture triangle in the stored transport field order.
 void triangle_hash(Hash& hash, const BakeTriangle& triangle) {
     for (auto p : triangle.vertices) {
@@ -258,6 +270,7 @@ std::uint64_t probe_input_hash(const std::filesystem::path& directory) {
 
     Hash hash;
     source_files(hash, directory, "base");
+    cloud_profile_source(hash, directory);
 
     // Coastlines affect placement, while the transport scene hash deliberately retains otherwise valid GI.
     if (std::filesystem::exists(directory / "water.bin")) {
@@ -327,6 +340,7 @@ std::uint64_t probe_scene_hash(
     // products. File identity is stable across baker and game FP modes.
     if (!level.dir.empty()) {
         source_files(hash, level.dir, "base");
+        cloud_profile_source(hash, level.dir);
 
         if (!level.overrides.empty() && level.overrides != level.dir) {
             source_files(hash, level.overrides, "override");
@@ -360,8 +374,11 @@ std::uint64_t probe_bake_settings_hash(const ProbeGrid& grid, const BakeSettings
     hash.f32(settings.sky_intensity);
     hash.f32(settings.sky_weight);
     const auto& atmosphere = settings.atmosphere;
-    hash.u32(0x41544D01u);  // ATM1: static cloud/fog field is part of GI transport.
+    hash.u32(0x41544D02u);  // ATM1: static cloud/fog field is part of GI transport.
     hash.u32(atmosphere.enabled ? 1u : 0u);
+    hash.u32(CloudField::version);
+    hash.u32(atmosphere.cloud_enabled ? 1u : 0u);
+    hash.u32(atmosphere.cloud_resolution);
     hash.f32(atmosphere.fog_density);
     hash.floats(atmosphere.fog_colour);
     hash.f32(atmosphere.fog_base);

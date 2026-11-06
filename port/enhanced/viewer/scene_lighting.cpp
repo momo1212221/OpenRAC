@@ -37,10 +37,12 @@ std::string hero_shader(std::string source, const char* fur_source, bool fragmen
         );
         source.insert(source.find('\n') + 1, hero_only_source(fur_source));
         source.insert(source.find('\n') + 1, hero_only_source(shaders::fur_shell_glsl));
+
         if (fragment) {
             source.insert(source.find('\n') + 1, "#define OPENRAC_FUR_FRAGMENT 1\n");
         }
     }
+
     return source;
 }
 
@@ -48,11 +50,14 @@ std::string hero_shader(std::string source, const char* fur_source, bool fragmen
 std::string hero_fragment(std::string source) {
     if (gl::is_vulkan() && gl::enhanced_rendering_available()) {
         const auto surface = source.find("vec3 probe_surface(");
+
         // Material response shares existing lighting helpers and never changes coverage or depth.
         if (surface != std::string::npos) {
             source.insert(surface, shaders::foliage_glsl);
         }
+
         const auto fur_surface = source.find("vec3 probe_surface(");
+
         if (fur_surface != std::string::npos) {
             source.insert(
                 fur_surface,
@@ -60,8 +65,10 @@ std::string hero_fragment(std::string source) {
                     + hero_only_source(shaders::fur_environment_glsl)
             );
         }
+
         source.insert(source.find('\n') + 1, hero_only_source(shaders::fur_detail_glsl));
     }
+
     return hero_shader(std::move(source), shaders::fur_glsl, true);
 }
 }  // namespace
@@ -105,6 +112,7 @@ void SceneLighting::bind_surface_layer(const renderer::Shader& shader, int layer
         m_wetness.bind(shader);
         m_fur.bind(shader);
     }
+
     m_fur.bind_shell(shader, layer);
 }
 
@@ -119,10 +127,12 @@ void SceneLighting::prepare_deformation(
     if (input.authored_object_lights && gl::enhanced_rendering_available()) {
         const auto attached = m_object_lights.prepare(input.frame, scene.joint_palette());
         const auto applied = m_local_lights.set_attached_lights(attached);
+
         if (!applied) {
             if (m_attachment_error != applied.error().message) {
                 log::error("object lights: {}", applied.error().message);
             }
+
             m_attachment_error = applied.error().message;
             (void)m_local_lights.set_attached_lights({});
         } else {
@@ -138,9 +148,7 @@ void SceneLighting::prepare_deformation(
 
     // Native lights also shade material fallbacks when probe GI is unavailable.
     m_local_lights.prepare(
-        input.frame,
-        scene.point_lights(),
-        input.local_lights && gl::enhanced_rendering_available()
+        input.frame, scene.point_lights(), input.local_lights && gl::enhanced_rendering_available()
     );
     m_water_float.prepare(input, &scene);
 }
@@ -176,6 +184,7 @@ std::string SceneLighting::atmosphere_source() const {
     if (!gl::is_vulkan() || !gl::enhanced_rendering_available()) {
         return {};
     }
+
     return "#define OPENRAC_EFFECT_ATMOSPHERE 1\n" + enhanced::Atmosphere::sampling_source();
 }
 
@@ -193,6 +202,7 @@ void SceneLighting::bind_surface_material(
         gl::glUniform1i(
             shader.uniform("material_fallback"), response ? response->fallback_channels : 0
         );
+
         // Catalog families override the legacy foliage adapter only when explicitly authored.
         if (response && response->family_override) {
             gl::glUniform1f(
@@ -207,6 +217,7 @@ void SceneLighting::bind_surface_material(
                 std::bit_cast<std::int32_t>(response->foliage[1])
             );
         }
+
         if (response) {
             // Inherited values reset the preceding material's overrides within the same shader run.
             m_fur.bind_material(shader, response->fur_override ? response->fur : m_default_fur);
@@ -222,9 +233,11 @@ void SceneLighting::bind_material(
 ) const {
     bind_surface_material(shader, model, slot, source);
     const auto location = shader.uniform("object_reflection_enabled");
+
     if (location < 0) {
         return;
     }
+
     const auto* response = m_material_overrides ? m_materials.response(model, slot) : nullptr;
     // Explicit optics can use the original reflective colour when no probes are available.
     constexpr int kAuthoredReflection = 2;
@@ -232,10 +245,12 @@ void SceneLighting::bind_material(
     const bool enabled =
         m_material_overrides && source.metal && (active() || reflection == kAuthoredReflection);
     gl::glUniform1i(location, enabled ? reflection : 0);
+
     // Only reflective packets consume these uniforms.
     if (!source.metal) {
         return;
     }
+
     const auto found = m_reflection_classes.find(model);
     const int class_id = found != m_reflection_classes.end() ? found->second : -1;
     const auto material =
@@ -303,41 +318,55 @@ void SceneLighting::load(const scene::LevelData& level) {
 
     m_reflection_classes.clear();
     std::vector<enhanced::ReflectionSubject> subjects;
+
     for (const auto& [class_id, entry] : level.moby_classes) {
         const auto [model, stand_in] = entry;
+
         if (stand_in) {
             continue;
         }
+
         m_reflection_classes[model] = class_id;
+
         if (model >= level.models.size()) {
             continue;
         }
+
         const auto& source = level.models[model];
         const bool chrome =
             std::any_of(source.primitives.begin(), source.primitives.end(), [&](const auto& p) {
                 return level.materials[static_cast<std::size_t>(p.material)].metal;
             });
+
         if (chrome) {
             const auto name = class_id == 87 ? "Clank" : class_id == 71 ? "Wrench" : source.name;
             subjects.push_back({class_id, name, {}});
         }
     }
+
     enhanced::set_reflection_subjects(std::move(subjects));
     m_probes.load(level);
+
     // Foliage is optional: bad material authoring must not disable unrelated enhanced lighting.
     if (gl::enhanced_rendering_available()) {
         const auto foliage = m_foliage.load(level);
+
         if (!foliage) {
             log::warn("foliage materials: {}", foliage.error().message);
         }
+
         log::info("foliage materials: {} reviewed textures matched", m_foliage.size());
     }
+
     // Material resolution is CPU-only and completes before any colour draw can use the cache.
     const auto materials = m_materials.load(level);
+
     if (!materials) {
         log::warn("material overrides: {}", log::tidy(materials.error().message));
     }
+
     const auto editor = m_materials.editor();
+
     if (editor && editor->bindings) {
         log::info(
             "material overrides: {} bindings, {} foliage",
@@ -345,10 +374,28 @@ void SceneLighting::load(const scene::LevelData& level) {
             editor->foliage_bindings
         );
     }
+
     m_wetness.load(level);
     m_fur.load(level, enhanced::fur_profile(level.game));
     m_water_float.load();
-    m_atmosphere.load();
+
+    try {
+        const auto profile = load_level_bake_profile(level.dir, level.overrides);
+        const auto parameters = cloud_parameters(profile.activation.bake.atmosphere);
+        auto name = level.dir.filename();
+
+        if (name.empty()) {
+            name = level.dir.parent_path().filename();
+        }
+
+        const auto cache = probe_root().empty() || name.empty()
+                               ? std::filesystem::path{}
+                               : probe_root() / name / "clouds.orpc";
+        m_atmosphere.load(cache, parameters);
+    } catch (const std::exception& error) {
+        log::warn("clouds: {}; original sky retained", error.what());
+        m_atmosphere.load();
+    }
 }
 
 void SceneLighting::release() {

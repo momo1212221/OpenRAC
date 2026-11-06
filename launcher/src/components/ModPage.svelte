@@ -127,6 +127,11 @@
     }
   }
 
+  async function prepareCloudsAndLighting() {
+    await saver.flush();
+    if (saver.state !== "failed") builtIn?.onbake();
+  }
+
   // ---- Saving as the player goes ----
 
   /** What the saver holds and does, copied on each of its changes so the page draws them. */
@@ -168,6 +173,7 @@
 
   function enhancedParent(key: string): string | null {
     if (mod.id !== "enhanced-graphics") return null;
+    if (key.startsWith("cloud_") && key !== "cloud_enabled") return "cloud_enabled";
     if (key === "agx_exposure" || key === "agx_brightness") return "agx_preview";
     if (key === "bloom_strength" || key === "bloom_radius") return "bloom";
     if (
@@ -396,7 +402,11 @@
     {@const job = builtIn.job}
     <section class="panel bake" aria-labelledby={`${mod.id}-bake`}>
       <div class="bake-text">
-        <h3 id={`${mod.id}-bake`}>{T.ENHANCED.lightingTitle}</h3>
+        <h3 id={`${mod.id}-bake`}>Prepare clouds and lighting</h3>
+        <p class="muted small-print">
+          Cloud shapes are prepared once and loaded from disk during play. Changes in the Clouds section require
+          preparation again and a level reload. Lighting uses the same prepared field.
+        </p>
         <p class="muted" role="status">
           {#if job}
             {phaseLabel(job)}{bakeProgress?.percent != null
@@ -434,7 +444,7 @@
       {#if !job && !bake.busy && (bake.available || bake.ready + bake.partial + bake.failed > 0)}
         <div class="bake-actions">
           {#if bake.available}
-            <button class:ghost={bake.ready >= bake.levels} onclick={builtIn.onbake}
+            <button class:ghost={bake.ready >= bake.levels} onclick={() => void prepareCloudsAndLighting()}
               ><Icon name="refresh" size={16} />{bake.ready >= bake.levels
                 ? T.ENHANCED.again
                 : bake.partial

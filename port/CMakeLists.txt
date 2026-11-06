@@ -145,6 +145,7 @@ openrac_add_test(hdr INCLUDES .)
 openrac_add_test(frame_counter INCLUDES .)
 openrac_add_test(render_worker SOURCES tests/render_worker_test.cpp
   game/common/frontend/render_worker.cpp INCLUDES . LIBS openrac_common Threads::Threads)
+openrac_add_test(cloud_field SOURCES enhanced/tests/cloud_field_test.cpp INCLUDES .)
 openrac_add_test(settings SOURCES tests/settings_test.cpp game/common/settings.cpp
                           LIBS openrac_common)
 # Texture packs: names by hash, replacement, the dump (renderer/texture_pack.h).

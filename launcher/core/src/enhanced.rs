@@ -27,7 +27,7 @@ use crate::differences::{read_switch, read_value, settings_file, with_value, wri
 use crate::plugins::{check_value, Choice, PluginView, Preset, SettingSpec, SettingView};
 
 mod bakes;
-pub use bakes::{bake_log, bake_status, delete_bakes, version_bake_status, BakeStatus};
+pub use bakes::{bake_log, bake_status, delete_bakes, sync_cloud_profile, version_bake_status, BakeStatus};
 
 /// The entry's id on the Mods tab (`?mod=enhanced-graphics`).
 pub const ID: &str = "enhanced-graphics";
@@ -257,6 +257,17 @@ pub fn settings() -> Vec<SettingSpec> {
             "lighting",
         ),
         volumetric,
+        group(spec("cloud_enabled", "Prepared clouds", "bool", true.into(), "Enable static clouds. Prepare clouds and lighting after changing any cloud setting."), "clouds"),
+        group(range(spec("cloud_resolution", "Cloud preparation quality", "int", 64.into(), "Higher values store a more detailed cloud field; preparation takes longer."), 32.0, 128.0, 16.0), "clouds"),
+        group(range(spec("cloud_coverage", "Cloud coverage threshold", "float", 0.58.into(), "Lower values fill more of the sky."), 0.0, 0.99, 0.01), "clouds"),
+        group(range(spec("cloud_density", "Cloud density", "float", 0.018.into(), "Opacity of the prepared cloud layer."), 0.0, 1.0, 0.001), "clouds"),
+        group(range(spec("cloud_base", "Cloud base height", "float", 90.0.into(), "World-space height of the cloud layer."), -100000.0, 100000.0, 1.0), "clouds"),
+        group(range(spec("cloud_thickness", "Cloud layer thickness", "float", 50.0.into(), "Vertical extent of the prepared clouds."), 0.01, 2000.0, 0.01), "clouds"),
+        group(range(spec("cloud_scale", "Cloud pattern scale", "float", 0.035.into(), "Smaller values produce broader cloud formations."), 1e-05, 1.0, 0.00001), "clouds"),
+        group(range(spec("cloud_seed", "Cloud variation", "int", 1.into(), "A fixed variation number; identical settings reproduce the same clouds."), 0.0, 65535.0, 1.0), "clouds"),
+        group(range(spec("cloud_red", "Cloud red", "float", 0.95.into(), "Linear cloud colour. Prepare again after changing it."), 0.0, 4.0, 0.01), "clouds"),
+        group(range(spec("cloud_green", "Cloud green", "float", 0.97.into(), "Linear cloud colour. Prepare again after changing it."), 0.0, 4.0, 0.01), "clouds"),
+        group(range(spec("cloud_blue", "Cloud blue", "float", 1.0.into(), "Linear cloud colour. Prepare again after changing it."), 0.0, 4.0, 0.01), "clouds"),
         group(
             spec(
                 "local_lights",
@@ -589,11 +600,17 @@ fn read_setting(text: &str, spec: &SettingSpec) -> Value {
     let value = match (spec.kind.as_str(), raw) {
         ("bool", _) => read_switch(text, &spec.key).map(Value::Bool),
         ("int", Some(v)) => v.parse::<i64>().ok().map(Value::from),
+        ("float", Some(v)) if spec.key.starts_with("cloud_") => {
+            v.parse::<f32>().ok().and_then(|v| v.to_string().parse::<f64>().ok()).map(Value::from)
+        }
         ("float", Some(v)) => v.parse::<f64>().ok().map(Value::from),
         ("choice", Some(v)) => Some(Value::String(v)),
         _ => None,
     };
-    value.and_then(|v| check_value(spec, &v)).unwrap_or_else(|| spec.default.clone())
+    value
+        .and_then(|v| check_value(spec, &v))
+        .filter(|v| spec.key != "cloud_resolution" || v.as_i64().is_some_and(|n| n % 16 == 0))
+        .unwrap_or_else(|| spec.default.clone())
 }
 
 /// A value as the port reads it: 1|0, a plain number, a choice's name.
@@ -780,6 +797,9 @@ pub fn set_setting(data_home: &Path, game: &str, version: &str, key: &str, value
     let all = settings();
     let spec = all.iter().find(|s| s.key == key).ok_or_else(|| format!("{key} is not an enhanced graphics setting"))?;
     let value = check_value(spec, value).ok_or_else(|| format!("{} cannot be {value}", spec.name))?;
+    if key == "cloud_resolution" && value.as_i64().is_none_or(|n| n % 16 != 0) {
+        return Err("Cloud preparation quality must be a multiple of 16".into());
+    }
     let file = settings_file(data_home, game, version);
     let text = std::fs::read_to_string(&file).unwrap_or_default();
     let text = if key == "shadow_quality" {
@@ -793,6 +813,14 @@ pub fn set_setting(data_home: &Path, game: &str, version: &str, key: &str, value
         }
     } else {
         with_value(&text, key, &written(&value))
+    };
+    let text = if key == "cloud_enabled"
+        && value == Value::Bool(true)
+        && read_value(&text, "volumetric_quality").as_deref().unwrap_or("off") == "off"
+    {
+        with_value(&text, "volumetric_quality", "medium")
+    } else {
+        text
     };
     write_settings(&file, &text)
 }
@@ -820,6 +848,25 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn cloud_settings_are_saved_validated_and_enable_the_atmosphere_grid() {
+        let home = temp("cloud-settings");
+        set_setting(&home, "rac1", "pal", "cloud_enabled", &true.into()).unwrap();
+        set_setting(&home, "rac1", "pal", "cloud_seed", &42.into()).unwrap();
+        assert!(set_setting(&home, "rac1", "pal", "cloud_resolution", &33.into()).is_err());
+        assert!(set_setting(&home, "rac1", "pal", "cloud_density", &(-1.0).into()).is_err());
+        let text = std::fs::read_to_string(settings_file(&home, "rac1", "pal")).unwrap();
+        assert_eq!(read_switch(&text, "cloud_enabled"), Some(true));
+        assert_eq!(read_value(&text, "cloud_seed").as_deref(), Some("42"));
+        assert_eq!(read_value(&text, "volumetric_quality").as_deref(), Some("medium"));
+        let all = settings();
+        let red = all.iter().find(|s| s.key == "cloud_red").unwrap();
+        assert_eq!(read_setting("cloud_red = 0.949999988\n", red), red.default);
+        let coverage = all.iter().find(|s| s.key == "cloud_coverage").unwrap();
+        assert_eq!(read_setting("cloud_coverage = 0.990000010\n", coverage), Value::from(0.99));
+        let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]

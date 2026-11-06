@@ -10,8 +10,9 @@ uniform vec4 atmosphere_fog,atmosphere_colour;
 uniform vec4 atmosphere_height; // density, base Z, falloff, far
 uniform vec4 atmosphere_scatter; // haze multiplier, sunlight strength, g, shadow jitter size
 uniform vec4 atmosphere_cloud; // coverage, density, base Z, thickness
-uniform vec4 atmosphere_cloud_shape; // world scale, deterministic seed, reserved, reserved
+uniform vec4 atmosphere_cloud_shape; // world scale, prepared resolution, atlas columns, reserved
 uniform vec3 atmosphere_cloud_colour;
+uniform sampler2D atmosphere_cloud_cache;
 uniform vec4 atmosphere_centres[8],atmosphere_media[8];
 uniform int atmosphere_volume_count;
 float authored_transmission(float depth) {
@@ -19,20 +20,22 @@ float authored_transmission(float depth) {
     return clamp(clamp(depth*1024.*atmosphere_fog.x+atmosphere_fog.y,
                       atmosphere_fog.z,atmosphere_fog.w)/255.,1e-4,1.);
 }
-float cloud_noise(vec3 p) {
-    float s=atmosphere_cloud_shape.x, seed=atmosphere_cloud_shape.y*.61803398875;
-    float a=.5+.5*sin((p.x+seed*37.)*s+sin((p.y-seed*53.)*s*.83));
-    float b=.5+.5*sin((p.y+seed*19.)*s*1.71+sin((p.x+p.z+seed*11.)*s*1.13));
-    return clamp(.65*a+.35*b,0.,1.);
-}
+// Prepared atlas: slices are tiled in 2D; even maximum detail fits a 1024x1024 texture.
+// Only interpolation happens here; the procedural cloud field is generated before Play.
 float cloud_medium(vec3 p) {
-    if(atmosphere_cloud.y<=0.) return 0.;
-    float thickness=max(.01,atmosphere_cloud.w);
-    float z=(p.z-atmosphere_cloud.z)/thickness;
-    float vertical=smoothstep(0.,.16,z)*(1.-smoothstep(.72,1.,z));
-    float threshold=clamp(atmosphere_cloud.x,0.,.99);
-    float shape=smoothstep(threshold,min(1.,threshold+.22),cloud_noise(p));
-    return atmosphere_cloud.y*vertical*shape;
+    int n=int(atmosphere_cloud_shape.y), depth=n/2, columns=int(atmosphere_cloud_shape.z);
+    float h=(p.z-atmosphere_cloud.z)/max(.01,atmosphere_cloud.w);
+    if(n==0 || atmosphere_cloud.y<=0. || h<=0. || h>=1.) return 0.;
+    vec3 q=vec3(fract(p.xy*atmosphere_cloud_shape.x/6.28318530718),h)*vec3(n,n,depth)-.5;
+    ivec3 cell=ivec3(floor(q));vec3 f=fract(q);
+    float density=0.;
+    for(int z=0;z<2;++z) for(int y=0;y<2;++y) for(int x=0;x<2;++x) {
+        ivec3 i=cell+ivec3(x,y,z);
+        i.xy=(i.xy+ivec2(n))%n;i.z=clamp(i.z,0,depth-1);
+        vec3 w=mix(vec3(1)-f,f,vec3(x,y,z));
+        density+=texelFetch(atmosphere_cloud_cache,ivec2(i.x+(i.z%columns)*n,i.y+(i.z/columns)*n),0).r*w.x*w.y*w.z;
+    }
+    return atmosphere_cloud.y*density;
 }
 void main() {
     ivec2 xy=ivec2(gl_GlobalInvocationID.xy);

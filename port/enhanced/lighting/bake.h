@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 
+#include "enhanced/lighting/cloud_field.h"
 #include "enhanced/lighting/probes.h"
 
 namespace openrac::lighting {
@@ -112,6 +113,9 @@ struct BakeTraversalSettings {
 };
 
 struct BakeAtmosphereSettings {
+    bool cloud_enabled = true;
+    unsigned cloud_resolution = 64;
+    std::shared_ptr<const CloudField> cloud_field;
     bool enabled = true;
     float fog_density = .00022f;
     Float3 fog_colour{.65f, .70f, .75f};
@@ -126,6 +130,20 @@ struct BakeAtmosphereSettings {
     float cloud_scale = .035f;
     std::uint32_t cloud_seed = 1;
 };
+
+inline CloudParameters cloud_parameters(const BakeAtmosphereSettings& a) {
+    return {
+        a.enabled && a.cloud_enabled,
+        a.cloud_resolution,
+        a.cloud_coverage,
+        a.cloud_density,
+        a.cloud_base,
+        a.cloud_thickness,
+        a.cloud_scale,
+        a.cloud_seed,
+        a.cloud_colour
+    };
+}
 
 struct BakeSettings {
     ProbeTextureFormat texture_format = ProbeTextureFormat::R11G11B10;  // Offline storage policy.

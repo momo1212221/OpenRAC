@@ -56,3 +56,12 @@ implementation is connected to the same runtime feature.
 Auto tuning may reduce quality to keep a machine compatible, but it must not enable an unsupported
 feature. The same fork should remain launchable on x86_64 systems without CUDA and on ARM systems;
 GPU-specific acceleration is an optional fast path, not a requirement.
+
+## Prepared clouds
+
+Enhanced graphics → Clouds saves cloud coverage, density, height, thickness,
+pattern scale, variation, colour and preparation detail. **Prepare clouds and
+lighting** builds a persistent cloud volume and GI together before Play. Changing
+cloud choices requires preparation again; the next level load reads the result.
+Volumetric lighting must be enabled to display the cloud layer. Turning prepared
+clouds on selects Medium volumetrics if the saved setting was Off.

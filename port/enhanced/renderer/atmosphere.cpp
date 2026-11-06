@@ -29,6 +29,7 @@ namespace {
 std::mutex settings_mutex;
 AtmosphereSettings settings;
 constexpr unsigned kAtmosphereUnit = 24;
+constexpr unsigned kCloudUnit = 31;  // Separate from water poses/ocean maps at unit 25.
 
 float finite(float value, float low, float high, float fallback) {
     return std::isfinite(value) ? std::clamp(value, low, high) : fallback;
@@ -50,16 +51,6 @@ void set_atmosphere_settings(AtmosphereSettings value) {
     value.sun_strength = finite(value.sun_strength, 0, 1, .15f);
     value.jitter_size = finite(value.jitter_size, 0, 1, 1);
     value.anisotropy = finite(value.anisotropy, -.8f, .8f, .3f);
-    value.cloud_coverage = finite(value.cloud_coverage, 0, .99f, defaults.cloud_coverage);
-    value.cloud_density = finite(value.cloud_density, 0, 1, defaults.cloud_density);
-    value.cloud_base = finite(value.cloud_base, -100000, 100000, defaults.cloud_base);
-    value.cloud_thickness = finite(value.cloud_thickness, .01f, 2000, defaults.cloud_thickness);
-    value.cloud_scale = finite(value.cloud_scale, .00001f, 10, defaults.cloud_scale);
-    value.cloud_seed = finite(value.cloud_seed, 0, 65535, defaults.cloud_seed);
-
-    for (float& c : value.cloud_colour) {
-        c = finite(c, 0, 4, 1);
-    }
 
     for (auto& volume : value.volumes) {
         for (int k = 0; k < 3; ++k) {
@@ -94,12 +85,49 @@ std::string Atmosphere::fragment_source(std::string source) {
     return source;
 }
 
-void Atmosphere::load() {
+void Atmosphere::load(
+    const std::filesystem::path& cloud_cache, const lighting::CloudParameters& clouds
+) {
     release();
 
     if (!is_vulkan() || !enhanced_rendering_available()) {
         return;
     }
+
+    m_cloud_parameters = clouds;
+    std::vector<std::uint8_t> atlas(4, 0);
+    int width = 1, height = 1;
+
+    if (!cloud_cache.empty() && clouds.enabled) {
+        try {
+            const auto field = lighting::CloudField::load(cloud_cache, clouds);
+            const auto size = field.atlas_size();
+            auto prepared = field.atlas_rgba();
+            atlas.swap(prepared);
+            width = int(size[0]);
+            height = int(size[1]);
+            m_cloud_resolution = clouds.resolution;
+            log::info(
+                "clouds: loaded prepared {}x{}x{} field",
+                clouds.resolution,
+                clouds.resolution,
+                clouds.resolution / 2
+            );
+        } catch (const std::exception& error) {
+            log::warn("clouds: {}; original sky retained", error.what());
+        }
+    }
+
+    glGenTextures(1, &m_cloud_texture);
+    glActiveTexture(GL_TEXTURE0 + kCloudUnit);
+    glBindTexture(GL_TEXTURE_2D, m_cloud_texture);
+    glTexImage2D(
+        GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, atlas.data()
+    );
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     const std::array<float, 16> empty{};
     glGenBuffers(1, &m_buffer);
@@ -135,6 +163,12 @@ void Atmosphere::release() {
     }
 
     m_sky.release();
+
+    if (m_cloud_texture) {
+        glDeleteTextures(1, &m_cloud_texture);
+    }
+
+    m_cloud_texture = m_cloud_resolution = 0;
 
     if (m_texture) {
         glDeleteTextures(1, &m_texture);
@@ -311,22 +345,31 @@ void Atmosphere::prepare(
     );
     glUniform4f(
         compute.uniform("atmosphere_cloud"),
-        controls.cloud_coverage,
-        controls.cloud_density,
-        controls.cloud_base,
-        controls.cloud_thickness
+        m_cloud_parameters.coverage,
+        m_cloud_parameters.enabled ? m_cloud_parameters.density : 0.f,
+        m_cloud_parameters.base,
+        m_cloud_parameters.thickness
     );
     glUniform4f(
-        compute.uniform("atmosphere_cloud_shape"), controls.cloud_scale, controls.cloud_seed, 0, 0
+        compute.uniform("atmosphere_cloud_shape"),
+        m_cloud_parameters.scale,
+        float(m_cloud_resolution),
+        std::ceil(std::sqrt(float(m_cloud_resolution / 2))),
+        0
     );
     glUniform3f(
         compute.uniform("atmosphere_cloud_colour"),
-        controls.cloud_colour[0],
-        controls.cloud_colour[1],
-        controls.cloud_colour[2]
+        m_cloud_parameters.colour[0],
+        m_cloud_parameters.colour[1],
+        m_cloud_parameters.colour[2]
     );
+    glUniform1i(compute.uniform("atmosphere_cloud_cache"), kCloudUnit);
+    glActiveTexture(GL_TEXTURE0 + kCloudUnit);
+    glBindTexture(GL_TEXTURE_2D, m_cloud_texture);
     glUniform1i(compute.uniform("atmosphere_volume_count"), volume_count);
-    m_sky_active = controls.height_density > 0 || controls.cloud_density > 0 || volume_count > 0;
+    m_sky_active = controls.height_density > 0
+                   || (m_cloud_resolution > 0 && m_cloud_parameters.density > 0)
+                   || volume_count > 0;
     glUniform4fv(compute.uniform("atmosphere_centres[0]"), 8, centres.data());
     glUniform4fv(compute.uniform("atmosphere_media[0]"), 8, media.data());
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, m_buffer);

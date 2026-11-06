@@ -46,9 +46,11 @@ int main(int argc, char** argv) {
         unused.release();
     }
     const bool profile = argc > 1 && std::string_view(argv[1]) == "--profile";
+
     if (profile && !profiling::wait_for_connection(std::chrono::seconds(15))) {
         return 1;
     }
+
     const auto low = renderer::volumetric_grid(renderer::VolumetricQuality::Low, 1920, 1080);
     const auto medium = renderer::volumetric_grid(renderer::VolumetricQuality::Medium, 1920, 1080);
     const auto high = renderer::volumetric_grid(renderer::VolumetricQuality::High, 1920, 1080);
@@ -72,15 +74,18 @@ int main(int argc, char** argv) {
     enhanced::set_atmosphere_settings({});
     test::GlContext context;
     std::string error;
+
     if (!context.open(error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return test::kSkip;
     }
+
     if (!is_vulkan() || !enhanced_rendering_available()) {
         const std::string original = "#version 410 core\nvoid main(){}";
         CHECK(enhanced::Atmosphere::fragment_source(original) == original);
         return test::result();
     }
+
     enhanced::Atmosphere atmosphere;
     atmosphere.load();
     scene::LevelScene scene;
@@ -105,11 +110,13 @@ void main(){
     uint bits=floatBitsToUint(value[test_channel]);
     result=vec4(float(bits&255u),float((bits>>8)&255u),float((bits>>16)&255u),float(bits>>24))/255.;
 })");
+
     if (!read.build("atmosphere readback", renderer::shaders::gtao_vert, fragment, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         CHECK(false);
         return test::result();
     }
+
     unsigned vao = 0;
     glGenVertexArrays(1, &vao);
     const auto sample = [&](float depth, int sky) {
@@ -125,6 +132,7 @@ void main(){
         glUniform1f(read.uniform("test_depth"), depth);
         glUniform1i(read.uniform("test_sky"), sky);
         glBindVertexArray(vao);
+
         for (int c = 0; c < 4; ++c) {
             glUniform1i(read.uniform("test_channel"), c);
             glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -137,9 +145,12 @@ void main(){
             result[c] = std::bit_cast<float>(bits);
             CHECK(std::isfinite(result[c]));
         }
+
         return result;
     };
     options = {};
+    options.height_density =
+        0;  // Isolate authored haze from the runtime's thin default height fog.
     options.sun_strength = 0;
     options.distance = 100;
     const std::array<float, 4> colour{.4f, .5f, .6f, 1};
@@ -165,11 +176,14 @@ void main(){
     // compiler orders the folded and unfolded arithmetic its own way (NVIDIA: up to 10 ulps).
     const auto same = [](const std::array<float, 4>& a, const std::array<float, 4>& b) {
         bool close = true;
+
         for (std::size_t c = 0; c < a.size(); ++c) {
             close = close && std::abs(a[c] - b[c]) <= 1e-6f;
         }
+
         return close;
     };
+
     for (float depth : {0.f, .01f, 3.3f, 37.f, 80.f}) {
         const auto actual = sample(depth, false);
         renderer::render_opt::set(renderer::render_opt::Opt::ShaderVariants, false);
@@ -180,26 +194,32 @@ void main(){
         CHECK(same(sample(depth, false), actual));
         const float expected = 1 - depth / 100;
         CHECK(std::abs(actual[3] - expected) < .012f);
+
         for (int c = 0; c < 3; ++c) {
             CHECK(std::abs(actual[c] - colour[c] * (1 - actual[3])) < 2e-5f);
         }
+
         const auto sky = sample(depth, true);
         CHECK(sky[3] == 1 && sky[0] == 0 && sky[1] == 0 && sky[2] == 0);
     }
+
     // Homogeneous height fog + authored haze multiply transmission; their source is integrated once.
     options.height_density = .02f;
     options.height_falloff = 0;
     enhanced::set_atmosphere_settings(options);
     atmosphere.prepare(scene, input, target, colour, fog, true);
+
     for (float depth : {.001f, 1.2f, 17.3f, 59.f}) {
         const auto combined = sample(depth, false), local = sample(depth, true);
         const float expected = std::exp(-.02f * depth);
         CHECK(std::abs(local[3] - expected) < 2e-5f);
         CHECK(std::abs(combined[3] - (1 - depth / 100) * expected) < .012f);
+
         for (int c = 0; c < 3; ++c) {
             CHECK(std::abs(combined[c] - colour[c] * (1 - combined[3])) < 3e-5f);
         }
     }
+
     // Sky composition applies fog-only transport once and preserves destination alpha.
     glBindFramebuffer(GL_FRAMEBUFFER, frame.id());
     glViewport(0, 0, target.width, target.height);
@@ -208,6 +228,7 @@ void main(){
     glClear(GL_COLOR_BUFFER_BIT);
     atmosphere.draw_sky(target);
     const auto sky_pixels = frame.read_rgba();
+
     for (int c = 0; c < 3; ++c) {
         const float expected = colour[c] + (.8f - colour[c]) * std::exp(-2.f);
         CHECK(
@@ -215,11 +236,14 @@ void main(){
             <= 2
         );
     }
+
     CHECK(sky_pixels[(32 * 64 + 32) * 4 + 3] == 153);
     const auto endpoint = sample(options.distance, 1), sky_endpoint = sample(options.distance, 3);
+
     for (int c = 0; c < 4; ++c) {
         CHECK(std::abs(endpoint[c] - sky_endpoint[c]) < 2e-6f);
     }
+
     // Column light culling must retain a light crossed later along the ray, while
     // rejecting distant/behind-camera lights without altering transport.
     options.haze = 0;
@@ -232,15 +256,18 @@ void main(){
     atmosphere.prepare(scene, input, target, colour, fog, true);
     const auto lit = sample(60, false);
     double light_integral = 0;
+
     for (int i = 0; i < 20000; ++i) {
         const double distance = (i + .5) * 60. / 20000;
         const double attenuation = std::max(0., 1. - std::abs(distance - 40.) / 10.);
         light_integral += .02 * std::exp(-.02 * distance) * attenuation * 60. / 20000;
     }
+
     for (int c = 0; c < 3; ++c) {
         const double expected = colour[c] * (1. - std::exp(-1.2) + light_integral);
         CHECK(std::abs(lit[c] - expected) < .003);
     }
+
     point_lights[8] = point_lights[9] = point_lights[10] = 1000;
     point_lights[12] = 1000;
     point_lights[15] = 10;
@@ -250,9 +277,11 @@ void main(){
     scene.set_point_lights(point_lights);
     atmosphere.prepare(scene, input, target, colour, fog, true);
     const auto culled = sample(60, false);
+
     for (int c = 0; c < 4; ++c) {
         CHECK(std::abs(lit[c] - culled[c]) < 1e-6f);
     }
+
     scene.set_point_lights({});
     // A small sphere between coarse slice centres still contributes its optical thickness.
     options.height_density = 0;
@@ -310,6 +339,7 @@ void main(){
     input.camera.view = renderer::look_along(input.camera.position, {0, 1, 0}, {0, 0, 1});
     atmosphere.prepare(scene, input, target, colour, fog, true);
     CHECK(std::abs(sample(17.3f, true)[3] - std::exp(-.02f * 17.3f)) < 2e-5f);
+
     // Switching quality updates both allocation size and the consumer's slice mapping.
     for (auto quality :
          {renderer::VolumetricQuality::High,
@@ -318,12 +348,50 @@ void main(){
           renderer::VolumetricQuality::Medium}) {
         input.volumetric_quality = quality;
         atmosphere.prepare(scene, input, target, colour, fog, true);
+
         if (quality == renderer::VolumetricQuality::Off) {
             CHECK(std::abs(sample(17.3f, 2)[0] - .2f) < 1e-6f);
         } else {
             CHECK(std::abs(sample(17.3f, true)[3] - std::exp(-.02f * 17.3f)) < 2e-5f);
         }
     }
+
+    // A prepared constant cloud field must be consumed by the GPU, not regenerated at draw time.
+    const auto saved_options = options;
+    options = {};
+    options.haze = options.height_density = options.sun_strength = 0;
+    options.distance = 100;
+    enhanced::set_atmosphere_settings(options);
+    lighting::CloudParameters clouds;
+    clouds.resolution = 32;
+    clouds.base = -1000;
+    clouds.thickness = 2000;
+    clouds.density = .01f;
+    clouds.colour = {1, 0, 0};
+    auto prepared = lighting::CloudField::generate(clouds);
+    std::fill(prepared.cells.begin(), prepared.cells.end(), std::uint8_t(255));
+    const auto cache =
+        std::filesystem::temp_directory_path()
+        / ("openrac-gpu-clouds-"
+           + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".orpc");
+    prepared.save(cache);
+    atmosphere.load(cache, clouds);
+    atmosphere.prepare(scene, input, target, colour, fog, true);
+    const auto cloud_sample = sample(17.3f, true);
+    const float cloud_transmission = std::exp(-clouds.density * 17.3f);
+    CHECK(std::abs(cloud_sample[3] - cloud_transmission) < 3e-5f);
+    CHECK(std::abs(cloud_sample[0] - (1 - cloud_transmission)) < 3e-5f);
+    CHECK(std::abs(cloud_sample[1]) < 1e-6f && std::abs(cloud_sample[2]) < 1e-6f);
+    ++clouds.seed;
+    atmosphere.load(cache, clouds);  // A stale cache must retain the original sky.
+    atmosphere.prepare(scene, input, target, colour, fog, true);
+    CHECK(sample(17.3f, true)[3] == 1);
+    std::filesystem::remove(cache);
+    atmosphere.load();
+    options = saved_options;
+    enhanced::set_atmosphere_settings(options);
+    atmosphere.prepare(scene, input, target, colour, fog, true);
+
     // Compile the actual effect adapter with the core particle shader.
     lighting::use_scene_lighting(scene);
     renderer::Renderer renderer;
@@ -335,11 +403,14 @@ void main(){
         enhanced::atmosphere_material(scene)
     );
     const bool effect_ready = effects.init(state, error);
+
     if (!effect_ready) {
         std::fprintf(stderr, "%s\n", error.c_str());
     }
+
     CHECK(effect_ready);
     effects.release();
+
     // Optional synthetic GPU workload: production compute, surface lookup and sky composition.
     // No scene shadows are available here; this is not a substitute for an in-game capture.
     if (profile) {
@@ -355,6 +426,7 @@ void main(){
         options.volumes[0].colour_density = {.4f, .5f, .6f, .02f};
         enhanced::set_atmosphere_settings(options);
         std::array<float, 64> points{};
+
         for (int i = 0; i < 8; ++i) {
             points[i * 8] = .3f;
             points[i * 8 + 1] = .2f;
@@ -363,6 +435,7 @@ void main(){
             points[i * 8 + 6] = -50;
             points[i * 8 + 7] = 20;
         }
+
         scene.set_point_lights(points);
         renderer::Shader surface;
         CHECK(surface.build(
@@ -414,8 +487,10 @@ void main(){
         const std::array names{
             "atmosphere benchmark low", "atmosphere benchmark medium", "atmosphere benchmark high"
         };
+
         for (std::size_t tier = 0; tier < qualities.size(); ++tier) {
             input.volumetric_quality = qualities[tier];
+
             for (int iteration = 0; iteration < 600; ++iteration) {
                 {
                     const stats::Scope scope(names[tier], stats::kGpu);
@@ -431,6 +506,7 @@ void main(){
                         const stats::Scope lookup("atmosphere surface lookup", stats::kGpu);
                         glDrawArrays(GL_TRIANGLES, 0, 3);
                     }
+
                     // Alternate order to avoid giving either path a consistent cache advantage.
                     if (iteration % 2 == 0) {
                         draw_reference_sky();
@@ -446,6 +522,7 @@ void main(){
             }
         }
     }
+
     enhanced::set_atmosphere_settings({});
     glDeleteVertexArrays(1, &vao);
     CHECK(glGetError() == GL_NO_ERROR);

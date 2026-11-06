@@ -92,61 +92,6 @@ BounceSurface bounce_surface(
     };
 }
 
-float smoothstep01(float edge0, float edge1, float x) {
-    if (edge1 <= edge0) {
-        return x >= edge1 ? 1.0f : 0.0f;
-    }
-
-    const float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
-
-float cloud_noise(Float3 p, const BakeAtmosphereSettings& a) {
-    const float seed = static_cast<float>(a.cloud_seed) * .61803398875f;
-    const float s = a.cloud_scale;
-    const float x =
-        .5f + .5f * std::sin((p[0] + seed * 37) * s + std::sin((p[1] - seed * 53) * s * .83f));
-    const float y =
-        .5f
-        + .5f
-              * std::sin(
-                  (p[1] + seed * 19) * s * 1.71f + std::sin((p[0] + p[2] + seed * 11) * s * 1.13f)
-              );
-    return std::clamp(.65f * x + .35f * y, 0.0f, 1.0f);
-}
-
-struct MediumPoint {
-    float density = 0;
-    Float3 colour{};
-};
-
-MediumPoint medium_at(Float3 p, const BakeAtmosphereSettings& a) {
-    if (!a.enabled) {
-        return {};
-    }
-
-    const float fog =
-        a.fog_density
-        * std::exp(std::clamp(-a.fog_falloff * std::max(0.0f, p[2] - a.fog_base), -80.0f, 0.0f));
-    const float z = (p[2] - a.cloud_base) / std::max(.01f, a.cloud_thickness);
-    const float vertical = smoothstep01(0, .16f, z) * (1 - smoothstep01(.72f, 1, z));
-    const float cloud =
-        a.cloud_density * vertical
-        * smoothstep01(
-            a.cloud_coverage, std::min(.999f, a.cloud_coverage + .22f), cloud_noise(p, a)
-        );
-    MediumPoint out;
-    out.density = fog + cloud;
-
-    if (out.density > 0) {
-        for (unsigned c = 0; c < 3; ++c) {
-            out.colour[c] = (fog * a.fog_colour[c] + cloud * a.cloud_colour[c]) / out.density;
-        }
-    }
-
-    return out;
-}
-
 struct MediumTransport {
     float transmission = 1;
     Float3 colour{};
@@ -174,12 +119,22 @@ MediumTransport medium_transport(
 
     for (unsigned i = 0; i < kSteps; ++i) {
         const auto p = add(origin, mul(direction, (float(i) + .5f) * ds));
-        const auto medium = medium_at(p, a);
-        optical += medium.density * ds;
+        const float fog =
+            a.fog_density
+            * std::exp(std::clamp(-a.fog_falloff * std::max(0.f, p[2] - a.fog_base), -80.f, 0.f));
+        optical += fog * ds;
 
         for (unsigned c = 0; c < 3; ++c) {
-            weighted[c] += medium.colour[c] * medium.density * ds;
+            weighted[c] += a.fog_colour[c] * fog * ds;
         }
+    }
+
+    const float cloud =
+        a.cloud_field ? a.cloud_field->optical_depth(origin, direction, length) : 0.f;
+    optical += cloud;
+
+    for (unsigned c = 0; c < 3; ++c) {
+        weighted[c] += a.cloud_colour[c] * cloud;
     }
 
     out.transmission = std::exp(-std::min(optical, 80.0f));
@@ -336,10 +291,10 @@ Float3 radiance(
 
     // The final depth can escape to the sky without adding another surface bounce.
     for (std::uint32_t bounce = 0; bounce <= settings.bounces; ++bounce) {
-        const Float3 origin{hit.ray.org_x, hit.ray.org_y, hit.ray.org_z};
+        const Float3 medium_origin{hit.ray.org_x, hit.ray.org_y, hit.ray.org_z};
         const float medium_distance =
             hit.hit.geomID == RTC_INVALID_GEOMETRY_ID ? settings.atmosphere.distance : hit.ray.tfar;
-        lighting.transmit(origin, direction, medium_distance);
+        lighting.transmit(medium_origin, direction, medium_distance);
         const auto emission = segment_emission(acceleration, settings, hit, direction_pdf);
 
         // Emission is accepted at the terminal depth without another diffuse bounce.

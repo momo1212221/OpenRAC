@@ -48,10 +48,11 @@ fn baker_profile(baker: &Path, level: &Path) -> Option<String> {
         baker.to_path_buf(),
         level.to_path_buf(),
         format!(
-            "{:?} {:?} {:?}",
+            "{:?} {:?} {:?} {:?}",
             file(baker),
             file(&level.join("probe-bake.json")),
-            file(&level.join("manifest.json"))
+            file(&level.join("manifest.json")),
+            file(&level.parent().unwrap_or(level).join("cloud-profile.json"))
         ),
     );
     if let Some(known) = CACHE.lock().unwrap().get_or_insert_with(HashMap::new).get(&key) {
@@ -83,6 +84,11 @@ fn verified_bake(baked: &Path, reflections: bool) -> bool {
         return false;
     };
     if result["verified"] != Value::Bool(true) {
+        return false;
+    }
+    let stamp = std::fs::read_to_string(baked.join(STAMP)).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    let requires_clouds = stamp.as_ref().is_some_and(|s| s["profile"]["atmosphere"]["cloud_algorithm"].is_number());
+    if requires_clouds && !std::fs::metadata(baked.join("clouds.orpc")).is_ok_and(|m| m.is_file() && m.len() >= 56) {
         return false;
     }
     if result["empty"] == Value::Bool(true) {
@@ -365,6 +371,54 @@ fn bake_folders(config: &crate::config::Config, key: &str) -> Result<(PathBuf, P
     }
 }
 
+fn cloud_profile(text: &str) -> Value {
+    let mut atmosphere = serde_json::Map::new();
+    let mut colour = vec![Value::Null; 3];
+    for spec in super::settings().iter().filter(|s| s.key.starts_with("cloud_")) {
+        let mut value = super::read_setting(&text, spec);
+        // Canonical f32 values keep the cache stable when the native port rewrites its INI.
+        if spec.kind == "float" {
+            value = Value::from(value.as_f64().unwrap_or_default() as f32 as f64);
+        }
+        match spec.key.as_str() {
+            "cloud_red" => colour[0] = value,
+            "cloud_green" => colour[1] = value,
+            "cloud_blue" => colour[2] = value,
+            key => {
+                atmosphere.insert(key.into(), value);
+            }
+        }
+    }
+    atmosphere.insert("cloud_colour".into(), Value::Array(colour));
+    serde_json::json!({"atmosphere": atmosphere})
+}
+
+/// Freeze saved cloud choices into the version-wide profile consumed by both GI and rendering.
+/// Writing the same profile is a no-op, preserving semantic cache reuse and in-flight reads.
+pub fn sync_cloud_profile(config: &crate::config::Config, key: &str, home: &Path) -> Result<(), String> {
+    let Some((game, version)) = key.split_once('/') else {
+        return Err("invalid game version".into());
+    };
+    let Ok((levels, probes, baker)) = bake_folders(config, key) else {
+        return Ok(());
+    };
+    if !levels.is_dir() {
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(crate::differences::settings_file(home, game, version)).unwrap_or_default();
+    let profile = cloud_profile(&text);
+    let path = levels.join("cloud-profile.json");
+    let previous = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    if previous.as_ref() == Some(&profile) {
+        return Ok(());
+    }
+    if bake_cache_busy(&baker, &probes) {
+        return Err("Wait for lighting preparation to finish before changing cloud settings".into());
+    }
+    let text = serde_json::to_string_pretty(&profile).map_err(|e| e.to_string())? + "\n";
+    crate::differences::write_settings(&path, &text)
+}
+
 /// The bake status of a version (`rac1/pal`) from its probe-bake action's folders and baker.
 pub fn version_bake_status(config: &crate::config::Config, key: &str) -> BakeStatus {
     match bake_folders(config, key) {
@@ -420,6 +474,20 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn cloud_preferences_resolve_to_one_version_wide_bake_profile() {
+        let defaults = cloud_profile("");
+        assert_eq!(defaults["atmosphere"]["cloud_enabled"], true);
+        assert_eq!(defaults["atmosphere"]["cloud_resolution"], 64);
+        let changed = cloud_profile("cloud_seed = 17\ncloud_density = 0.07\ncloud_red = 0.5\ncloud_enabled = 0\n");
+        assert_eq!(changed["atmosphere"]["cloud_seed"], 17);
+        assert!((changed["atmosphere"]["cloud_density"].as_f64().unwrap() - 0.07).abs() < 1e-7);
+        assert_eq!(changed["atmosphere"]["cloud_colour"][0], 0.5);
+        assert_eq!(changed["atmosphere"]["cloud_enabled"], false);
+        assert_eq!(cloud_profile("volume = 25\n"), defaults);
+        assert_eq!(cloud_profile("cloud_red = 0.97\n"), cloud_profile("cloud_red = 0.970000029\n"));
+    }
+
     #[test]
     fn unix_busy_status_tracks_the_kernel_lock_not_the_lock_files_presence() {
         use std::fs::OpenOptions;

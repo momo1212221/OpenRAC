@@ -4,8 +4,8 @@ Enhanced Vulkan rendering uses one camera-aligned transport grid for authored ae
 height fog and up to eight spherical local fog volumes. Original graphics, OpenGL, unbaked
 lighting, shader failures and grids exceeding device buffer limits retain the original fog path.
 Selecting a smaller supported tier can restore volumetrics without a reload. Enhanced Settings
-exposes quality and tuning controls and a reset button; quality is saved as `volumetric_quality`, while other tuning is
-session-only. The offline probe baker now resolves the same static fog/cloud field before GI, so atmosphere changes invalidate and rebuild probe lighting instead of being composited after it.
+exposes quality and tuning controls and a reset button; quality is saved as `volumetric_quality`, while height/local-fog tuning is
+session-only. Cloud preparation choices are saved separately. The offline probe baker now resolves the same static fog/cloud field before GI, so atmosphere changes invalidate and rebuild probe lighting instead of being composited after it.
 
 Surfaces, water and particles share medium integration and depth-addressable transport. A
 separate fog-only result composes height and local fog over the already shaded sky.
@@ -125,3 +125,32 @@ lights behind/outside the ray, empty transport and sky draws, sparse local-volum
 agreement between the original and specialised sky endpoint lookup. Lifecycle checks cover
 unused objects before graphics initialisation; a simulated device limit checks original-fog
 fallback for an oversized grid and immediate recovery on a smaller tier.
+
+## Prepared clouds
+
+The launcher exposes a **Clouds** group in Enhanced graphics: enable, preparation
+resolution (32–128, steps of 16), coverage threshold, density, base height,
+thickness, pattern scale, seed and linear RGB colour. The native Enhanced menu
+also saves these choices under Experimental → Atmosphere and fog → Prepared clouds.
+They are preparation preferences, not a live procedural preview.
+
+Use **Prepare clouds and lighting** after changing them. The launcher flushes
+pending saves and writes `cloud-profile.json` beside the exported level folders.
+This version-wide profile overrides cloud defaults in each level's `probe-bake.json`.
+Both the baker and runtime resolve it through the same profile loader. Changes
+invalidate the semantic bake identity; unchanged settings reuse the cache.
+
+Before GI transport, the baker freezes a deterministic world-space cloud volume.
+The same quantized, trilinearly sampled field attenuates GI and sunlight and is
+published as `clouds.orpc` beside the level's probes. The cache includes its
+parameters, format version and checksum. It is published with the lighting only
+after successful preparation. A missing, stale or damaged cloud cache retains the
+original sky and reports that preparation is needed; it never silently generates
+procedural clouds during play.
+
+At level load, the renderer uploads the prepared volume as a 2D slice atlas,
+compatible with Vulkan/MoltenVK without a 3D-texture extension. Frames interpolate
+that volume in the existing view-dependent atmosphere pass. Shape generation and
+GI are offline; camera-dependent compositing and illumination still run on the GPU.
+The field repeats smoothly horizontally and stays within its configured height
+layer. Reload a level after preparation to load the new cloud cache.

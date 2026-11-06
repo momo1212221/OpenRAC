@@ -171,6 +171,10 @@ void run_level(
 
         const auto work = options.output / ('.' + name + ".partial");
         prepare_work(options, work, identity);
+        events.line(id, "Bake stage: Pre-render static clouds");
+        const auto cloud_profile = profile(level.path, options);
+        CloudField::generate(cloud_parameters(cloud_profile.activation.bake.atmosphere))
+            .save(work / "clouds.orpc");
         int status = 1;
         // Close all per-level streams before Windows directory publication.
         {
@@ -192,6 +196,12 @@ void run_level(
         if (status == 3) {
             empty_result(options, level.path, work);
         }
+
+        // Refuse publication if cloud choices changed while GI was being prepared.
+        const auto final_clouds = profile(level.path, options);
+        (void)CloudField::load(
+            work / "clouds.orpc", cloud_parameters(final_clouds.activation.bake.atmosphere)
+        );
 
         // Generated interiors may refresh source identity; commit only the final prepared snapshot.
         save(work / "openrac-bake.json", stamp(options, level.path, sources.verified));

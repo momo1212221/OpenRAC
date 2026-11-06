@@ -102,6 +102,22 @@ bool current(const std::filesystem::path& output, const json::Value& identity) {
         }
 
         const auto result = bake_json::document(output / "bake-result.json");
+        const auto& a = identity["profile"]["atmosphere"];
+        CloudParameters clouds;
+        clouds.enabled = a["enabled"].boolean() && a["cloud_enabled"].boolean();
+        clouds.resolution = unsigned(a["cloud_resolution"].number());
+        clouds.coverage = float(a["cloud_coverage"].number());
+        clouds.density = float(a["cloud_density"].number());
+        clouds.base = float(a["cloud_base"].number());
+        clouds.thickness = float(a["cloud_thickness"].number());
+        clouds.scale = float(a["cloud_scale"].number());
+        clouds.seed = unsigned(a["cloud_seed"].number());
+
+        for (unsigned c = 0; c < 3; ++c) {
+            clouds.colour[c] = float(a["cloud_colour"][c].number());
+        }
+
+        (void)CloudField::load(output / "clouds.orpc", clouds);
 
         // A retained partial result must never count as completed lighting.
         if (!result["verified"].boolean()) {

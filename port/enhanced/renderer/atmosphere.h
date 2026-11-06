@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 
+#include "enhanced/lighting/cloud_field.h"
 #include "renderer/effects.h"
 #include "renderer/shader.h"
 
@@ -31,13 +32,6 @@ struct AtmosphereSettings {
     float sun_strength = .65f;
     float anisotropy = .70f;
     float jitter_size = 1.0f;  // Fraction of the froxel used for sun-shadow jitter.
-    float cloud_coverage = .58f;
-    float cloud_density = .018f;
-    std::array<float, 3> cloud_colour{.95f, .97f, 1.0f};
-    float cloud_base = 90;
-    float cloud_thickness = 50;
-    float cloud_scale = .035f;
-    float cloud_seed = 1;
     std::array<AtmosphereVolume, 8> volumes{};
 };
 
@@ -52,7 +46,9 @@ public:
     Atmosphere& operator=(const Atmosphere&) = delete;
     static std::string fragment_source(std::string source);
     static std::string sampling_source();
-    void load();
+    void load(
+        const std::filesystem::path& cloud_cache = {}, const lighting::CloudParameters& clouds = {}
+    );
     void prepare(
         const scene::LevelScene&,
         const renderer::FrameInput&,
@@ -69,6 +65,8 @@ private:
     std::array<renderer::Shader, 2> m_compute;
     renderer::Shader m_sky;
     unsigned m_buffer = 0, m_texture = 0, m_vao = 0, m_dummy_depth = 0;
+    unsigned m_cloud_texture = 0, m_cloud_resolution = 0;
+    lighting::CloudParameters m_cloud_parameters;
     int m_width = 0, m_height = 0, m_slices = 0;
     bool m_active = false, m_failed = false, m_sky_active = false;
     renderer::Mat4 m_view = renderer::identity();

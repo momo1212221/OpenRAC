@@ -529,6 +529,15 @@ fn run_action(
 ) -> Result<Started, String> {
     let config = state.config.lock().unwrap().clone();
     let inputs = openrac_launcher_core::actions::Inputs { level, path, option };
+    if id == openrac_launcher_core::enhanced::BAKE_ACTION || library::is_play(&config, &scope, &id) {
+        if let Scope::Version(key) = &scope {
+            openrac_launcher_core::enhanced::sync_cloud_profile(
+                &config,
+                key,
+                &openrac_launcher_core::saves::data_home(),
+            )?;
+        }
+    }
     let plan = library::plan(&config, &scope, &id, &inputs)?;
     let is_play = library::is_play(&config, &scope, &id);
 
@@ -1318,8 +1327,18 @@ async fn enhanced_set_setting(
 ) -> Result<Option<openrac_launcher_core::enhanced::EnhancedView>, String> {
     let home = openrac_launcher_core::saves::data_home();
     let (g, v) = (game.clone(), version.clone());
+    let config = state.config.lock().unwrap().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        openrac_launcher_core::enhanced::set_setting(&home, &g, &v, &key, &value)
+        let version_key = format!("{g}/{v}");
+        if key.starts_with("cloud_") && openrac_launcher_core::enhanced::version_bake_status(&config, &version_key).busy
+        {
+            return Err("Wait for lighting preparation to finish before changing clouds".into());
+        }
+        openrac_launcher_core::enhanced::set_setting(&home, &g, &v, &key, &value)?;
+        if key.starts_with("cloud_") {
+            openrac_launcher_core::enhanced::sync_cloud_profile(&config, &version_key, &home)?;
+        }
+        Ok::<(), String>(())
     })
     .await
     .map_err(|e| e.to_string())??;

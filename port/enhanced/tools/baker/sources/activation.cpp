@@ -294,7 +294,19 @@ void apply_profile(const std::filesystem::path& path, LevelBakeProfile& profile)
         }
 
         for (const auto& [key, field] : value.members()) {
-            if (key == "enabled") {
+            if (key == "cloud_enabled") {
+                if (field.type() != json::Value::Type::Bool) {
+                    fail("atmosphere.cloud_enabled requires a boolean");
+                }
+
+                result.cloud_enabled = field.boolean();
+            } else if (key == "cloud_resolution") {
+                result.cloud_resolution = integer(field, 32, 128);
+
+                if (result.cloud_resolution % 16) {
+                    fail("cloud_resolution requires a multiple of 16");
+                }
+            } else if (key == "enabled") {
                 if (field.type() != json::Value::Type::Bool) {
                     fail("atmosphere.enabled requires a boolean");
                 }
@@ -451,6 +463,11 @@ LevelBakeProfile load_level_bake_profile(
     if (!overrides.empty()) {
         apply_profile(overrides / "probe-bake.json", profile);
     }
+
+    // Version-wide player cloud preferences override authored defaults and native mod profiles.
+    apply_profile(directory.parent_path() / "cloud-profile.json", profile);
+    auto& atmosphere = profile.activation.bake.atmosphere;
+    CloudField::validate(cloud_parameters(atmosphere));
 
     // Scene strategy has no playable-floor graph for local reflection capture placement.
     if (profile.strategy == BakeStrategy::Scene) {
