@@ -722,6 +722,8 @@ private:
     std::size_t m_palette_rows = 0;  // the palette texture's height now
     unsigned m_vertices = 0;
     unsigned m_indices = 0;
+    unsigned m_rt_sun_buffer = 0;     // R32F visibility, parallel to LevelData::vertices.
+    unsigned m_rt_sun_texture = 0;    // Texture-buffer view of m_rt_sun_buffer.
     unsigned m_palette = 0;           // RGBA32F texture, four texels per matrix
     unsigned m_lights = 0;            // RGBA8 texture, the ties' lit colours
     std::vector<float> m_light_sets;  // the level's 16 directional light sets (LevelData)

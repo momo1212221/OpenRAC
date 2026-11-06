@@ -12,6 +12,7 @@ in vec2 v_uv;
 in vec4 v_colour;
 in vec3 v_normal;
 in vec3 v_world_position;
+in float v_rt_sun_visibility;
 in vec4 v_probe_multiplier;
 flat in vec4 v_probe_selector;
 flat in int v_lit;
@@ -261,16 +262,16 @@ vec3 probe_surface(vec4 texel, vec3 original) {
         cached_surface = false;
         cached_coverage = sample_probe_irradiance(v_world_position, n,
             probe_surface_bias(n, transpose(mat3(view)) * (-eye_position)), cached_lighting.rgb);
-        cached_lighting.a = sun_shadow_visibility(v_world_position, n, n);
+        cached_lighting.a = min(sun_shadow_visibility(v_world_position, n, n), v_rt_sun_visibility);
         hero_visibility = hero_shadow_visibility(v_world_position, n);
     }
 #endif
     if (!hero_shadow_applies(n)) {
         hero_visibility = 1.0;
     }
-    float sun_visibility = cached_lighting.a;
+    float sun_visibility = min(cached_lighting.a, v_rt_sun_visibility);
 #else
-    float sun_visibility = sun_shadow_visibility(v_world_position, n, n);
+    float sun_visibility = min(sun_shadow_visibility(v_world_position, n, n), v_rt_sun_visibility);
     float hero_visibility = hero_shadow_visibility(v_world_position, n);
 #endif
     // Either projection casts a normal shadow in sunlight, including beyond cascade coverage.

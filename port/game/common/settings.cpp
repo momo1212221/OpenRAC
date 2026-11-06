@@ -21,6 +21,7 @@ void Settings::reset_enhanced() {
     const Settings defaults;
     enhanced_graphics = defaults.enhanced_graphics;
     enhanced_shadows = defaults.enhanced_shadows;
+    ray_tracing = defaults.ray_tracing;
     shadow_quality = defaults.shadow_quality;
     volumetric_quality = defaults.volumetric_quality;
     rim_light = defaults.rim_light;
@@ -307,6 +308,8 @@ void load(const std::filesystem::path& file) {
             known = parse(value, renderer::kShadowQualityKeys, s.shadow_quality);
         } else if (key == "enhanced_shadows") {
             known = parse_bool(value, s.enhanced_shadows);
+        } else if (key == "ray_tracing") {
+            known = parse_bool(value, s.ray_tracing);
         } else if (key == "rim_light") {
             known = parse_bool(value, s.rim_light);
         } else if (key == "texture_pack") {
@@ -582,6 +585,7 @@ void save() {
         << "shadow_quality = " << renderer::kShadowQualityKeys[static_cast<int>(s.shadow_quality)]
         << "\n"
         << "enhanced_shadows = " << (s.enhanced_shadows ? 1 : 0) << "\n"
+        << "ray_tracing = " << (s.ray_tracing ? 1 : 0) << "\n"
         << "rim_light = " << (s.rim_light ? 1 : 0) << "\n"
         << "texture_pack = " << (s.texture_pack ? 1 : 0) << "\n"
         << "rim_shadow_lift = " << (s.rim_shadow_lift ? 1 : 0) << "\n"

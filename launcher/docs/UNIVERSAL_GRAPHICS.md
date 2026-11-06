@@ -38,10 +38,18 @@ use Metal/Core ML, and every platform retains the CPU fallback.
 
 ## Ray tracing
 
-Hardware ray-tracing capability is detected separately from renderer readiness. RTX, modern Radeon,
-Intel Arc and supported Apple Silicon can be marked hardware-RT capable, but the launcher keeps
-`rayTracingRendererReady = false` until OpenRAC's actual hardware-RT renderer path is implemented and
-verified. Auto tuning therefore never enables an unfinished RT path.
+Hardware ray-tracing capability is detected separately from renderer readiness. On macOS, OpenRAC
+uses a native Metal side path at level load: it builds an acceleration structure from opaque static
+terrain/tie/shrub geometry, traces direct-sun visibility for terrain receivers, and feeds that
+visibility back into the existing Vulkan/MoltenVK renderer. This avoids depending on Vulkan KHR RT
+extensions on macOS and adds no per-frame acceleration-structure rebuild.
+
+Apple M3 and newer GPUs expose hardware-accelerated ray tracing. M1/M2 execute the same Metal ray
+queries through the compute fallback. Because this pass runs once when the level loads and stores its
+visibility result, both paths are enabled automatically on Apple Silicon without adding a per-frame
+ray-tracing workload. The existing cascaded shadows and probe GI remain in place and combine with the
+ray visibility. Windows/Linux keep renderer readiness false until their Vulkan ray-query
+implementation is connected to the same runtime feature.
 
 ## Compatibility rule
 

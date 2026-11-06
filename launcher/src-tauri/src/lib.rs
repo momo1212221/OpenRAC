@@ -85,7 +85,8 @@ struct GraphicsCapabilities {
     renderer_backend: String,
     compute_backend: String,
     hardware_ray_tracing: bool,
-    /// Kept false until OpenRAC's actual hardware-RT path is implemented and verified.
+    /// The native Mac Metal RT path is compiled and verified on Apple Silicon. Other platforms
+    /// remain false until their runtime ray-query path is wired into the renderer.
     ray_tracing_renderer_ready: bool,
     offline_texture_backend: String,
     recommended_profile: String,
@@ -261,7 +262,8 @@ fn graphics_capabilities() -> GraphicsCapabilities {
     let apple_silicon = cfg!(target_os = "macos") && cfg!(target_arch = "aarch64");
     let nvidia_rtx = joined.contains("rtx")
         && (joined.contains("nvidia") || joined.contains("geforce") || joined.contains("quadro"));
-    let apple_rt = apple_silicon && ["apple m3", "apple m4", "apple m5"].iter().any(|name| joined.contains(name));
+    let apple_rt =
+        apple_silicon && joined.contains("apple m") && !joined.contains("apple m1") && !joined.contains("apple m2");
     let amd_gpu = joined.contains("amd") || joined.contains("radeon");
     let cuda_available = (joined.contains("nvidia") || joined.contains("geforce") || nvidia_rtx) && cuda_available();
     let vendor = if joined.contains("nvidia") || joined.contains("geforce") || nvidia_rtx {
@@ -304,7 +306,7 @@ fn graphics_capabilities() -> GraphicsCapabilities {
         renderer_backend: renderer_backend.into(),
         compute_backend: compute_backend.into(),
         hardware_ray_tracing: nvidia_rtx || apple_rt || amd_modern || intel_arc,
-        ray_tracing_renderer_ready: false,
+        ray_tracing_renderer_ready: cfg!(target_os = "macos") && apple_silicon,
         offline_texture_backend: if cfg!(target_os = "macos") { "coregraphics" } else { "portable-cpu" }.into(),
         recommended_profile: if strong { "ultra-classic" } else { "balanced" }.into(),
     }
@@ -654,8 +656,8 @@ fn game_data_dir(state: &State<'_, AppState>, game: &str) -> Result<PathBuf, Str
 
 /// A game version's Texture packs section.
 /// Applies only settings whose cost depends strongly on the machine. It never enables Enhanced
-/// graphics by itself and never claims hardware RT is usable until the renderer has a verified RT
-/// path. The player can turn this off with Enhanced graphics -> Hardware auto tuning.
+/// graphics by itself. Ray tracing is enabled only when both hardware RT and a verified renderer
+/// path are present. The player can turn this off with Enhanced graphics -> Hardware auto tuning.
 #[tauri::command]
 fn enhanced_auto_configure(game: String, version: String) -> Result<AutoGraphicsResult, String> {
     use openrac_launcher_core::{differences, enhanced};
@@ -702,6 +704,9 @@ fn enhanced_auto_configure(game: String, version: String) -> Result<AutoGraphics
     for (key, value) in values {
         enhanced::set_setting(&home, &game, &version, key, value)?;
     }
+    let ray_tracing =
+        graphics.ray_tracing_renderer_ready && (graphics.hardware_ray_tracing || graphics.vendor == "apple");
+    enhanced::set_setting(&home, &game, &version, "ray_tracing", &serde_json::Value::Bool(ray_tracing))?;
     let profile = if strong { "ultra-classic" } else { "balanced" };
     launcher_log::line(&format!(
         "{game}/{version}: hardware auto profile {profile}; GPU(s): {}",

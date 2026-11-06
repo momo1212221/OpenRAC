@@ -148,9 +148,16 @@ pub fn settings() -> Vec<SettingSpec> {
             "Hardware auto tuning",
             "bool",
             true.into(),
-            "Detects this device before Play and chooses safe runtime quality automatically. RTX/Apple Silicon can use the Ultra path; weaker or unknown GPUs get a compatible balanced path. It never enables unfinished ray tracing.",
+            "Detects this device before Play and chooses safe runtime quality automatically. RTX/Apple Silicon can use the Ultra path; weaker or unknown GPUs get a compatible balanced path. Verified ray tracing is enabled only when the detected backend can run it safely.",
         ),
         shadows,
+        spec(
+            "ray_tracing",
+            "Ray-traced sunlight",
+            "bool",
+            true.into(),
+            "Uses the native Metal ray-tracing path for static direct-sun visibility on Apple Silicon. M3 and newer Apple GPUs use hardware RT; M1/M2 use the compute fallback once when a level loads, then reuse the result during rendering.",
+        ),
         spec("gtao", "Ambient occlusion", "bool", true.into(), "Soft shade in corners and under objects."),
         quality,
         spec(
@@ -291,6 +298,7 @@ pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> En
                     name: "Ultra / Classic Lighting".into(),
                     values: [
                         ("hardware_auto".into(), Value::Bool(true)),
+                        ("ray_tracing".into(), Value::Bool(true)),
                         ("shadow_quality".into(), Value::from("high")),
                         ("gtao".into(), Value::Bool(true)),
                         ("gtao_quality".into(), Value::from("quality")),
@@ -316,6 +324,7 @@ pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> En
                     name: "Ultra / Maximum".into(),
                     values: [
                         ("hardware_auto".into(), Value::Bool(true)),
+                        ("ray_tracing".into(), Value::Bool(true)),
                         ("shadow_quality".into(), Value::from("high")),
                         ("gtao".into(), Value::Bool(true)),
                         ("gtao_quality".into(), Value::from("quality")),

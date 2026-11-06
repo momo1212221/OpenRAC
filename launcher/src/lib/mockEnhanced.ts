@@ -20,6 +20,7 @@ export const mockEnhanced: EnhancedView = {
         name: "Ultra / Classic Lighting",
         values: {
           hardware_auto: true,
+          ray_tracing: true,
           shadow_quality: "high",
           gtao: true,
           gtao_quality: "quality",
@@ -43,6 +44,7 @@ export const mockEnhanced: EnhancedView = {
         name: "Ultra / Maximum",
         values: {
           hardware_auto: true,
+          ray_tracing: true,
           shadow_quality: "high",
           gtao: true,
           gtao_quality: "quality",
@@ -70,7 +72,23 @@ export const mockEnhanced: EnhancedView = {
         default: true,
         value: true,
         description:
-          "Detects this device before Play and chooses safe runtime quality automatically. RTX/Apple Silicon can use the Ultra path; weaker or unknown GPUs get a compatible balanced path. It never enables unfinished ray tracing.",
+          "Detects this device before Play and chooses safe runtime quality automatically. RTX/Apple Silicon can use the Ultra path; weaker or unknown GPUs get a compatible balanced path. Verified ray tracing is enabled only when the detected backend can run it safely.",
+      },
+      {
+        key: "ray_tracing",
+        name: "Ray-traced sunlight",
+        type: "bool",
+        default: true,
+        value: true,
+        description: "Native Metal ray-traced direct-sun visibility on supported Macs.",
+        min: null,
+        max: null,
+        step: null,
+        choices: [],
+        maxLength: null,
+        binds: null,
+        group: "",
+        conflicts: [],
       },
       {
         key: "shadow_quality",

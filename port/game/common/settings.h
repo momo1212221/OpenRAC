@@ -103,6 +103,7 @@ struct Settings {
     bool enhanced_rendering = false;
     bool enhanced_graphics = true;  // F4 within it; retains individual feature preferences
     bool enhanced_shadows = true;   // cascades and Ratchet map; off restores original shadows
+    bool ray_tracing = true;        // hardware RT where the active backend exposes it
     renderer::ShadowQuality shadow_quality = renderer::ShadowQuality::High;
     renderer::VolumetricQuality volumetric_quality = renderer::VolumetricQuality::Off;
     bool rim_light = true;

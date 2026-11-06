@@ -549,6 +549,23 @@ bool LevelScene::upload(
         GL_STATIC_DRAW
     );
 
+    if (level.rt_sun_visibility.size() == level.vertices.size()
+        && !level.rt_sun_visibility.empty()) {
+        glGenBuffers(1, &m_rt_sun_buffer);
+        glBindBuffer(renderer::world::gl::GL_TEXTURE_BUFFER, m_rt_sun_buffer);
+        glBufferData(
+            renderer::world::gl::GL_TEXTURE_BUFFER,
+            static_cast<GLsizeiptr>(level.rt_sun_visibility.size() * sizeof(float)),
+            level.rt_sun_visibility.data(),
+            GL_STATIC_DRAW
+        );
+        glGenTextures(1, &m_rt_sun_texture);
+        glBindTexture(renderer::world::gl::GL_TEXTURE_BUFFER, m_rt_sun_texture);
+        glTexBuffer(renderer::world::gl::GL_TEXTURE_BUFFER, kR32f, m_rt_sun_buffer);
+        glBindTexture(renderer::world::gl::GL_TEXTURE_BUFFER, 0);
+        glBindBuffer(renderer::world::gl::GL_TEXTURE_BUFFER, 0);
+    }
+
     m_tie_relight_classes = level.tie_relight_classes;
     m_tie_relight = level.tie_relight;
     m_tie_slots = level.tie_slots;
@@ -712,6 +729,14 @@ void LevelScene::release() {
     if (m_indices != 0) {
         glDeleteBuffers(1, &m_indices);
         m_indices = 0;
+    }
+    if (m_rt_sun_texture != 0) {
+        glDeleteTextures(1, &m_rt_sun_texture);
+        m_rt_sun_texture = 0;
+    }
+    if (m_rt_sun_buffer != 0) {
+        glDeleteBuffers(1, &m_rt_sun_buffer);
+        m_rt_sun_buffer = 0;
     }
     if (m_lights != 0) {
         glDeleteTextures(1, &m_lights);
@@ -1107,6 +1132,14 @@ void LevelScene::draw_layer(
         if (state.gtao_visibility != 0) {
             glActiveTexture(GL_TEXTURE0 + 11);
             glBindTexture(GL_TEXTURE_2D, state.gtao_visibility);
+            glActiveTexture(GL_TEXTURE0);
+        }
+        const bool rt_sun = layer == Layer::Terrain && m_rt_sun_texture != 0;
+        glUniform1i(shader.uniform("rt_sun_visibility_enabled"), rt_sun ? 1 : 0);
+        glUniform1i(shader.uniform("rt_sun_visibility"), static_cast<GLint>(kRtSunUnit));
+        if (rt_sun) {
+            glActiveTexture(GL_TEXTURE0 + kRtSunUnit);
+            glBindTexture(renderer::world::gl::GL_TEXTURE_BUFFER, m_rt_sun_texture);
             glActiveTexture(GL_TEXTURE0);
         }
         // The terrain's vertex colours are the game's own lighting (the extractor lights it as

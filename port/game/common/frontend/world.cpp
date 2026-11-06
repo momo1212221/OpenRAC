@@ -33,6 +33,7 @@
 #include "debug_overlay.h"
 #include "enhanced/renderer/atmosphere.h"
 #include "enhanced/renderer/gtao.h"
+#include "enhanced/renderer/ray_traced_sun.h"
 #include "enhanced/renderer/texture_upscale.h"
 #include "enhanced/renderer/water.h"
 #include "enhanced/viewer/scene_lighting.h"
@@ -315,6 +316,35 @@ void use_level(int number) {
         }
     }
     enhanced::install_texture_upscaler(g->renderer->textures());
+
+    // M3/M4 Macs and native Vulkan RT devices may replace the static terrain's direct-sun
+    // visibility with hardware ray queries. This is prepared at level load, so it has no
+    // per-frame acceleration-structure cost and never changes the baked indirect light.
+    g->level.rt_sun_visibility.clear();
+    if (settings::get().enhanced_graphics && settings::get().ray_tracing) {
+        renderer::Vec3 sunlight{0.0f, 0.0f, -1.0f};
+        if (g->level.light_sets.size() == 256) {
+            std::copy_n(g->level.light_sets.data() + 4, 3, sunlight.data());
+        }
+        if (const auto override = settings::get().sunlight_direction()) {
+            std::copy(override->begin(), override->end(), sunlight.begin());
+        }
+        std::string rt_error;
+        const enhanced::RayTracedSunStats rt =
+            enhanced::ray_trace_static_sun(g->level, sunlight, rt_error);
+        if (rt.active) {
+            log::info(
+                "ray tracing: static sunlight prepared with {} ({} triangles, {} terrain receivers, hardware {})",
+                rt.backend,
+                rt.triangles,
+                rt.receivers,
+                rt.hardware ? "yes" : "compute fallback"
+            );
+        } else if (!rt_error.empty()) {
+            log::warn("ray tracing: static sunlight unavailable: {}", rt_error);
+        }
+    }
+
     crash::level_breadcrumb("level scene upload", wanted);
     if (!g->scene.upload(g->level, g->renderer->textures(), error)) {
         crash::level_breadcrumb("level upload failed", wanted);

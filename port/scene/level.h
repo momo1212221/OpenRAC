@@ -215,6 +215,9 @@ struct LevelData {
     std::vector<Instance> bake_surfaces;
     std::vector<Vertex> vertices;
     std::vector<std::uint32_t> indices;
+    // Optional static-sun visibility from the hardware ray-tracing preparation pass. Parallel to
+    // vertices when present; one leaves the existing shadow-map/direct-light path unchanged.
+    std::vector<float> rt_sun_visibility;
     std::vector<Model> models;
     std::vector<Material> materials;
     std::vector<renderer::Rgba8Image> images;
