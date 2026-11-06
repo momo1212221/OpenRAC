@@ -150,6 +150,8 @@ void run_level(
 
     // A level failure must preserve installed lighting and release admission for other levels.
     try {
+        events.line(id, "Bake stage: Resolve static atmosphere (clouds and fog)");
+        (void)profile(level.path, options);  // Validate/freeze atmosphere before any GI transport.
         events.line(id, "Bake stage: Prepare sources");
         prepare_sources(options, level.path, pool);
         recover(final);

@@ -111,9 +111,26 @@ struct BakeTraversalSettings {
     float minimum_swim_depth = 1;  // Shallower water uses supported walking floors.
 };
 
+struct BakeAtmosphereSettings {
+    bool enabled = true;
+    float fog_density = .00022f;
+    Float3 fog_colour{.65f, .70f, .75f};
+    float fog_base = 0;
+    float fog_falloff = 0;
+    float distance = 750;
+    float cloud_coverage = .58f;
+    float cloud_density = .018f;
+    Float3 cloud_colour{.95f, .97f, 1.0f};
+    float cloud_base = 90;
+    float cloud_thickness = 50;
+    float cloud_scale = .035f;
+    std::uint32_t cloud_seed = 1;
+};
+
 struct BakeSettings {
     ProbeTextureFormat texture_format = ProbeTextureFormat::R11G11B10;  // Offline storage policy.
     BakeTraversalSettings traversal{};
+    BakeAtmosphereSettings atmosphere{};
     bool use_level_sky = true;
     float sky_intensity = 1.0f;
     float surface_emission_scale = 1.0f;  // Bake-only gain for geometric emissive surfaces.

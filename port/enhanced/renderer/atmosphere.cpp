@@ -50,14 +50,27 @@ void set_atmosphere_settings(AtmosphereSettings value) {
     value.sun_strength = finite(value.sun_strength, 0, 1, .15f);
     value.jitter_size = finite(value.jitter_size, 0, 1, 1);
     value.anisotropy = finite(value.anisotropy, -.8f, .8f, .3f);
+    value.cloud_coverage = finite(value.cloud_coverage, 0, .99f, defaults.cloud_coverage);
+    value.cloud_density = finite(value.cloud_density, 0, 1, defaults.cloud_density);
+    value.cloud_base = finite(value.cloud_base, -100000, 100000, defaults.cloud_base);
+    value.cloud_thickness = finite(value.cloud_thickness, .01f, 2000, defaults.cloud_thickness);
+    value.cloud_scale = finite(value.cloud_scale, .00001f, 10, defaults.cloud_scale);
+    value.cloud_seed = finite(value.cloud_seed, 0, 65535, defaults.cloud_seed);
+
+    for (float& c : value.cloud_colour) {
+        c = finite(c, 0, 4, 1);
+    }
+
     for (auto& volume : value.volumes) {
         for (int k = 0; k < 3; ++k) {
             volume.centre_radius[k] = finite(volume.centre_radius[k], -100000, 100000, 0);
             volume.colour_density[k] = finite(volume.colour_density[k], 0, 1, .7f);
         }
+
         volume.centre_radius[3] = finite(volume.centre_radius[3], .01f, 2000, 8);
         volume.colour_density[3] = finite(volume.colour_density[3], 0, 1, 0);
     }
+
     std::lock_guard lock(settings_mutex);
     settings = value;
 }
@@ -75,6 +88,7 @@ std::string Atmosphere::fragment_source(std::string source) {
     if (!is_vulkan() || !enhanced_rendering_available()) {
         return source;
     }
+
     source.insert(source.find('\n') + 1, "#define OPENRAC_ATMOSPHERE 1\n");
     source.insert(source.find("void main()"), sampling_source());
     return source;
@@ -82,9 +96,11 @@ std::string Atmosphere::fragment_source(std::string source) {
 
 void Atmosphere::load() {
     release();
+
     if (!is_vulkan() || !enhanced_rendering_available()) {
         return;
     }
+
     const std::array<float, 16> empty{};
     glGenBuffers(1, &m_buffer);
     glBindBuffer(GL_ARRAY_BUFFER, m_buffer);
@@ -117,19 +133,25 @@ void Atmosphere::release() {
     for (auto& program : m_compute) {
         program.release();
     }
+
     m_sky.release();
+
     if (m_texture) {
         glDeleteTextures(1, &m_texture);
     }
+
     if (m_dummy_depth) {
         glDeleteTextures(1, &m_dummy_depth);
     }
+
     if (m_buffer) {
         glDeleteBuffers(1, &m_buffer);
     }
+
     if (m_vao) {
         glDeleteVertexArrays(1, &m_vao);
     }
+
     m_texture = m_buffer = m_vao = m_dummy_depth = 0;
     m_width = m_height = m_slices = 0;
     m_active = m_failed = m_sky_active = false;
@@ -147,6 +169,7 @@ void Atmosphere::prepare(
     const auto controls = atmosphere_settings();
     const auto grid =
         renderer::volumetric_grid(input.volumetric_quality, target.width, target.height);
+
     if (grid.slices == 0) {
         if (m_buffer && m_slices != 0) {
             const std::array<float, 16> empty{};
@@ -154,18 +177,23 @@ void Atmosphere::prepare(
             glBufferData(GL_ARRAY_BUFFER, sizeof(empty), empty.data(), GL_DYNAMIC_DRAW);
             m_width = m_height = m_slices = 0;
         }
+
         return;
     }
+
     if (!m_buffer || m_failed || !enabled || !controls.enabled || input.keep_colour
         || target.width <= 0 || target.height <= 0) {
         return;
     }
+
     std::array<float, 32> centres{}, media{};
     int volume_count = 0;
+
     for (const auto& volume : controls.volumes) {
         if (volume.colour_density[3] == 0) {
             continue;
         }
+
         const int i = volume_count++;
         std::copy(
             volume.centre_radius.begin(), volume.centre_radius.end(), centres.begin() + i * 4
@@ -174,47 +202,57 @@ void Atmosphere::prepare(
             volume.colour_density.begin(), volume.colour_density.end(), media.begin() + i * 4
         );
     }
+
     auto& compute = m_compute
         [renderer::render_opt::enabled(renderer::render_opt::Opt::ShaderVariants)
                  && volume_count == 0
              ? 0
              : 1];
     std::string error;
+
     if (!compute.id()) {
         std::string source = "#version 430 core\n#define OPENRAC_PROBE_PIXEL ivec2(-1)\n"
                              + std::string(lighting::shaders::probes_glsl) + "\n"
                              + std::string(lighting::shaders::atmosphere_transport_glsl) + "\n"
                              + std::string(lighting::shaders::atmosphere_lighting_glsl) + "\n"
                              + std::string(lighting::shaders::atmosphere_comp);
+
         if (&compute == &m_compute[0]) {
             source.insert(source.find('\n') + 1, "#define OPENRAC_ATMOSPHERE_NO_VOLUMES 1\n");
             source =
                 renderer::shader_constants(std::move(source), {{"atmosphere_volume_count", 0}});
         }
+
         if (!compute.build_compute("atmosphere transport", source, error)) {
             log::warn("Original fog retained: {}", error);
             m_failed = true;
             return;
         }
     }
+
     const stats::Scope timing("atmosphere transport", stats::kGpu);
     crash::breadcrumb("atmosphere transport");
     const int width = grid.width, height = grid.height;
+
     if (width != m_width || height != m_height || grid.slices != m_slices) {
         // A clipped texel-buffer view would silently lose the far slices. Keep original fog
         // until the requested tier fits; a later lower tier can still recover without reload.
         GLint limit = 0;
         glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &limit);
         const std::size_t texels = std::size_t(width) * height * grid.slices * 4;
+
         if (limit <= 0 || texels > static_cast<std::size_t>(limit)) {
             static log::Capped told(1);
+
             if (told()) {
                 log::warn(
                     "Atmosphere grid exceeds the device's texel-buffer limit; original fog retained"
                 );
             }
+
             return;
         }
+
         glBindBuffer(GL_ARRAY_BUFFER, m_buffer);
         glBufferData(
             GL_ARRAY_BUFFER, GLsizeiptr(texels * 4 * sizeof(float)), nullptr, GL_DYNAMIC_DRAW
@@ -223,14 +261,17 @@ void Atmosphere::prepare(
         m_height = height;
         m_slices = grid.slices;
     }
+
     m_screen = {0, 0, float(target.width), float(target.height)};
     m_view = input.camera.view;
     m_far = controls.distance;
+
     // Keep every statically referenced shadow descriptor valid when shadows are unavailable.
     for (unsigned unit = 7; unit <= 10; ++unit) {
         glActiveTexture(GL_TEXTURE0 + unit);
         glBindTexture(GL_TEXTURE_2D, m_dummy_depth);
     }
+
     compute.use();
     glUniform1i(compute.uniform("atmosphere_slices"), m_slices);
     scene.bind_surface_lighting(compute, input.camera);
@@ -268,8 +309,24 @@ void Atmosphere::prepare(
         controls.anisotropy,
         controls.jitter_size
     );
+    glUniform4f(
+        compute.uniform("atmosphere_cloud"),
+        controls.cloud_coverage,
+        controls.cloud_density,
+        controls.cloud_base,
+        controls.cloud_thickness
+    );
+    glUniform4f(
+        compute.uniform("atmosphere_cloud_shape"), controls.cloud_scale, controls.cloud_seed, 0, 0
+    );
+    glUniform3f(
+        compute.uniform("atmosphere_cloud_colour"),
+        controls.cloud_colour[0],
+        controls.cloud_colour[1],
+        controls.cloud_colour[2]
+    );
     glUniform1i(compute.uniform("atmosphere_volume_count"), volume_count);
-    m_sky_active = controls.height_density > 0 || volume_count > 0;
+    m_sky_active = controls.height_density > 0 || controls.cloud_density > 0 || volume_count > 0;
     glUniform4fv(compute.uniform("atmosphere_centres[0]"), 8, centres.data());
     glUniform4fv(compute.uniform("atmosphere_media[0]"), 8, media.data());
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, m_buffer);
@@ -283,6 +340,7 @@ void Atmosphere::prepare(
     const auto dispatch = [&] {
         glDispatchCompute((unsigned(width) + 7) / 8, (unsigned(height) + 7) / 8, 1);
     };
+
     // The colour reference keeps its original single trailing visibility dependency.
     if (renderer::colour_graph_enabled()) {
         if (!run_compute_graph("atmosphere transport", outputs, dispatch, error)) {
@@ -293,6 +351,7 @@ void Atmosphere::prepare(
         dispatch();
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
     }
+
     stats::gauge("atmosphere cells", width * height * grid.slices);
     m_active = true;
     glActiveTexture(GL_TEXTURE0);
@@ -302,6 +361,7 @@ void Atmosphere::bind(const renderer::Shader& shader) const {
     if (shader.uniform("atmosphere_volume") < 0) {
         return;
     }
+
     glUniform1i(shader.uniform("atmosphere_enabled"), m_active ? 1 : 0);
     glUniform1i(shader.uniform("atmosphere_volume"), kAtmosphereUnit);
     glUniform2f(
@@ -322,7 +382,9 @@ void Atmosphere::draw_sky(const renderer::RenderTarget& target) {
     if (!m_active || !m_sky_active) {
         return;
     }
+
     std::string error;
+
     if (!m_sky.id()
         && !m_sky.build(
             "local fog over authored sky",
@@ -335,10 +397,13 @@ void Atmosphere::draw_sky(const renderer::RenderTarget& target) {
         m_failed = true;
         return;
     }
+
     const stats::Scope timing("atmosphere sky", stats::kGpu);
+
     if (!m_vao) {
         glGenVertexArrays(1, &m_vao);
     }
+
     glBindFramebuffer(GL_FRAMEBUFFER, target.framebuffer);
     glViewport(0, 0, target.width, target.height);
     glDisable(GL_DEPTH_TEST);
@@ -350,9 +415,11 @@ void Atmosphere::draw_sky(const renderer::RenderTarget& target) {
     m_sky.use();
     bind(m_sky);
     const auto reads = renderer::graphics_shader_reads("atmosphere sky inputs");
+
     if (!reads) {
         throw std::runtime_error(reads.error().message);
     }
+
     // Preserve the same attachment blending after the declared transport-buffer read.
     const auto drawn = renderer::colour_pass(
         "atmosphere sky",
@@ -363,10 +430,12 @@ void Atmosphere::draw_sky(const renderer::RenderTarget& target) {
         },
         renderer::ColourAttachments::Colour
     );
+
     // A rejected sky pass must not publish an incomplete atmosphere overlay.
     if (!drawn) {
         throw std::runtime_error(drawn.error().message);
     }
+
     glBindVertexArray(0);
     glDisable(GL_BLEND);
     glDepthMask(GL_TRUE);
@@ -397,9 +466,11 @@ public:
             m_material
                 ? m_material->quad_fragment_source()
                 : std::optional<std::string>{"vec3 effect_material(vec3 rgb){return rgb;}\n"};
+
         if (source) {
             *source += m_scene.atmosphere_source();
         }
+
         return source;
     }
 
@@ -407,6 +478,7 @@ public:
         if (m_material) {
             m_material->bind_quads(shader, input);
         }
+
         bind_atmosphere(shader);
     }
 
@@ -420,12 +492,14 @@ public:
             m_material.reset();
             error.clear();
         }
+
         return true;
     }
 
     void prepare(const renderer::FrameInput& input) override {
         m_bound_programs.clear();
         m_setups = 0;
+
         if (m_material) {
             m_material->prepare(input);
         }
@@ -464,6 +538,7 @@ public:
         if (m_material) {
             m_material->finish_pass();
         }
+
         stats::gauge("effect atmosphere setups", m_setups);
     }
 
@@ -482,6 +557,7 @@ public:
         if (m_material) {
             m_material->bind(shader, surface, input, motion);
         }
+
         bind_atmosphere(shader);
     }
 
@@ -495,9 +571,11 @@ private:
     void bind_atmosphere(const renderer::Shader& shader) {
         const bool known = std::find(m_bound_programs.begin(), m_bound_programs.end(), shader.id())
                            != m_bound_programs.end();
+
         if (!known || !renderer::render_opt::enabled(renderer::render_opt::Opt::EffectSetupReuse)) {
             m_scene.bind_atmosphere(shader);
             ++m_setups;
+
             if (!known) {
                 m_bound_programs.push_back(shader.id());
             }
@@ -517,6 +595,7 @@ std::unique_ptr<renderer::EffectMaterial> atmosphere_material(
     if (!is_vulkan() || !enhanced_rendering_available() || scene.atmosphere_source().empty()) {
         return material;
     }
+
     return std::make_unique<AtmosphericMaterial>(scene, std::move(material));
 }
 }  // namespace openrac::enhanced

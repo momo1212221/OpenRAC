@@ -28,6 +28,7 @@ void validate_emission_regions(const BakeSettings& settings) {
             || region.scale < 0) {
             throw std::runtime_error("invalid surface emission region");
         }
+
         for (unsigned axis = 0; axis < 3; ++axis) {
             // Empty or planar boxes are allowed, but inverted bounds are not.
             if (region.minimum[axis] > region.maximum[axis]) {
@@ -40,6 +41,7 @@ void validate_emission_regions(const BakeSettings& settings) {
 // Reject settings that could create invalid rays or unbounded allocation requests.
 void validate_settings(const BakeSettings& settings, std::size_t triangle_count) {
     validate_emission_regions(settings);
+
     // Overrides must form a finite ray even when supplied directly by native callers.
     if (settings.sunlight_direction) {
         unit(*settings.sunlight_direction);
@@ -51,6 +53,21 @@ void validate_settings(const BakeSettings& settings, std::size_t triangle_count)
                return v < 0 || v > 4;
            })) {
         throw std::runtime_error("sunlight_scale requires three finite values between 0 and 4");
+    }
+
+    const auto& atmosphere = settings.atmosphere;
+
+    if (!finite(atmosphere.fog_colour) || !finite(atmosphere.cloud_colour)
+        || !std::isfinite(atmosphere.fog_density) || atmosphere.fog_density < 0
+        || !std::isfinite(atmosphere.fog_base) || !std::isfinite(atmosphere.fog_falloff)
+        || atmosphere.fog_falloff < 0 || !std::isfinite(atmosphere.distance)
+        || atmosphere.distance < 10 || atmosphere.distance > 2000
+        || !std::isfinite(atmosphere.cloud_coverage) || atmosphere.cloud_coverage < 0
+        || atmosphere.cloud_coverage >= 1 || !std::isfinite(atmosphere.cloud_density)
+        || atmosphere.cloud_density < 0 || !std::isfinite(atmosphere.cloud_base)
+        || !std::isfinite(atmosphere.cloud_thickness) || atmosphere.cloud_thickness <= 0
+        || !std::isfinite(atmosphere.cloud_scale) || atmosphere.cloud_scale <= 0) {
+        throw std::runtime_error("invalid atmosphere bake settings");
     }
 
     // Bound sampling and relocation settings before allocating worker data.
@@ -119,6 +136,7 @@ void validate_triangle(
         || triangle.emission_contrast > 4) {
         throw std::runtime_error("invalid bake emission contrast");
     }
+
     validate_colour(triangle.diffuse, true);
     validate_colour(triangle.emission, false);
 
@@ -323,7 +341,9 @@ void Scene::build_geometry(unsigned group) {
     rtcReleaseGeometry(geometry);
 }
 
-Scene::Scene(const BakeScene& source, const std::optional<Float3>& sunlight_direction, std::uint32_t threads)
+Scene::Scene(
+    const BakeScene& source, const std::optional<Float3>& sunlight_direction, std::uint32_t threads
+)
     : input(source) {
     const profiling::Zone trace("Build Embree BVH");
 
@@ -438,10 +458,12 @@ void validate_bake_scene(const BakeScene& input, const BakeSettings& settings) {
     // Degenerate rectangles cannot define a finite area probability density.
     for (const auto& light : input.area_emitters) {
         const auto crossed = cross(light.axis_u, light.axis_v);
+
         if (!finite(light.position) || !finite(light.axis_u) || !finite(light.axis_v)
             || dot(crossed, crossed) <= 0 || !std::isfinite(dot(crossed, crossed))) {
             throw std::runtime_error("invalid bake area emitter");
         }
+
         validate_colour(light.radiance, false);
     }
 

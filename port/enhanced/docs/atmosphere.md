@@ -5,10 +5,22 @@ height fog and up to eight spherical local fog volumes. Original graphics, OpenG
 lighting, shader failures and grids exceeding device buffer limits retain the original fog path.
 Selecting a smaller supported tier can restore volumetrics without a reload. Enhanced Settings
 exposes quality and tuning controls and a reset button; quality is saved as `volumetric_quality`, while other tuning is
-session-only. No new level assets or probe bake format are required.
+session-only. The offline probe baker now resolves the same static fog/cloud field before GI, so atmosphere changes invalidate and rebuild probe lighting instead of being composited after it.
 
 Surfaces, water and particles share medium integration and depth-addressable transport. A
 separate fog-only result composes height and local fog over the already shaded sky.
+
+
+## Offline bake order
+
+Static atmosphere is resolved before global illumination. The level profile may define an `atmosphere` object in `probe-bake.json`; defaults mirror the runtime controls. The order is deliberately fixed:
+
+1. Resolve deterministic height fog and the procedural cloud layer.
+2. Freeze those parameters as part of the probe-bake settings identity.
+3. Trace sky, sunlight and every diffuse GI continuation through that medium. Clouds and fog attenuate incoming light before a surface receives it.
+4. Store the resulting GI probes. Runtime volumetrics then render the same kind of medium over the already atmosphere-aware lighting.
+
+This keeps weather-like art direction separate from the expensive GI solve: changing cloud/fog parameters requires a lighting rebake, while camera movement does not. The first implementation uses a deterministic static cloud field; animated weather can be layered separately without silently changing baked energy.
 
 ## Rendering
 
@@ -60,8 +72,7 @@ use separate scoped graphs.
 
 This is an authored-colour artistic medium, not an Earth-scale Rayleigh/Mie sky replacement.
 Planetary lookup tables, multiple-scattering sky bakes, temporal fog history and particle lighting
-caches are outside its scope. The deterministic grid is regenerated each rendered frame;
-there is no history to ghost when lights or cameras change.
+caches are outside its scope. The camera-aligned runtime grid is regenerated each rendered frame, while the deterministic static cloud/fog parameters are also consumed by the offline GI bake. There is no temporal history to ghost when lights or cameras change.
 
 Local sphere intersections are clipped before quadrature so small volumes do not disappear
 between slice centres. Their lighting and sun visibility are evaluated at the cell centre, so very

@@ -9,12 +9,30 @@ uniform vec4 atmosphere_tangents;
 uniform vec4 atmosphere_fog,atmosphere_colour;
 uniform vec4 atmosphere_height; // density, base Z, falloff, far
 uniform vec4 atmosphere_scatter; // haze multiplier, sunlight strength, g, shadow jitter size
+uniform vec4 atmosphere_cloud; // coverage, density, base Z, thickness
+uniform vec4 atmosphere_cloud_shape; // world scale, deterministic seed, reserved, reserved
+uniform vec3 atmosphere_cloud_colour;
 uniform vec4 atmosphere_centres[8],atmosphere_media[8];
 uniform int atmosphere_volume_count;
 float authored_transmission(float depth) {
     if(atmosphere_colour.a<.5) return 1.;
     return clamp(clamp(depth*1024.*atmosphere_fog.x+atmosphere_fog.y,
                       atmosphere_fog.z,atmosphere_fog.w)/255.,1e-4,1.);
+}
+float cloud_noise(vec3 p) {
+    float s=atmosphere_cloud_shape.x, seed=atmosphere_cloud_shape.y*.61803398875;
+    float a=.5+.5*sin((p.x+seed*37.)*s+sin((p.y-seed*53.)*s*.83));
+    float b=.5+.5*sin((p.y+seed*19.)*s*1.71+sin((p.x+p.z+seed*11.)*s*1.13));
+    return clamp(.65*a+.35*b,0.,1.);
+}
+float cloud_medium(vec3 p) {
+    if(atmosphere_cloud.y<=0.) return 0.;
+    float thickness=max(.01,atmosphere_cloud.w);
+    float z=(p.z-atmosphere_cloud.z)/thickness;
+    float vertical=smoothstep(0.,.16,z)*(1.-smoothstep(.72,1.,z));
+    float threshold=clamp(atmosphere_cloud.x,0.,.99);
+    float shape=smoothstep(threshold,min(1.,threshold+.22),cloud_noise(p));
+    return atmosphere_cloud.y*vertical*shape;
 }
 void main() {
     ivec2 xy=ivec2(gl_GlobalInvocationID.xy);
@@ -75,6 +93,11 @@ void main() {
         previous=current;
         float density=atmosphere_height.x*exp(clamp(-atmosphere_height.z*max(0.,world.z-atmosphere_height.y),-80.,0.))*ray_scale;
         vec3 scattering=atmosphere_colour.rgb*density;
+        // Clouds are part of the medium before illumination, so the sun/point-light pass lights
+        // the cloud field instead of compositing a cosmetic cloud layer afterwards.
+        float cloud=cloud_medium(world)*ray_scale;
+        density+=cloud;
+        scattering+=atmosphere_cloud_colour*cloud;
 #ifndef OPENRAC_ATMOSPHERE_NO_VOLUMES
         for(int v=0;v<atmosphere_volume_count;++v) {
             float lo=max(start,intervals[v].x);

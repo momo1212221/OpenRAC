@@ -22,15 +22,22 @@ struct AtmosphereVolume {
 struct AtmosphereSettings {
     bool enabled = true;
     float haze = 1;
-    // Thin default aerial medium: enough for subtle horizon haze and shadowed sun shafts without
+    // Thin default aerial medium: enough for visible shadowed sun shafts and atmospheric depth without
     // replacing the authored skybox or requiring an expensive extra post-process.
-    float height_density = .00018f;
+    float height_density = .00022f;
     float base_height = 0;
     float height_falloff = 0;
     float distance = 750;
-    float sun_strength = .30f;
-    float anisotropy = .55f;
+    float sun_strength = .65f;
+    float anisotropy = .70f;
     float jitter_size = 1.0f;  // Fraction of the froxel used for sun-shadow jitter.
+    float cloud_coverage = .58f;
+    float cloud_density = .018f;
+    std::array<float, 3> cloud_colour{.95f, .97f, 1.0f};
+    float cloud_base = 90;
+    float cloud_thickness = 50;
+    float cloud_scale = .035f;
+    float cloud_seed = 1;
     std::array<AtmosphereVolume, 8> volumes{};
 };
 
