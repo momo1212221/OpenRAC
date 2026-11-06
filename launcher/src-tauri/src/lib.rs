@@ -1208,7 +1208,7 @@ async fn ai_texture_bake(
         let mut detail_stats = texture_ai::DetailStats::default();
         for (input, output) in &batches {
             std::fs::create_dir_all(output).map_err(|e| e.to_string())?;
-            let status = std::process::Command::new(&backend)
+            let _batch_status = std::process::Command::new(&backend)
                 .arg("-i")
                 .arg(input)
                 .arg("-o")
@@ -1223,9 +1223,6 @@ async fn ai_texture_bake(
                 .arg("png")
                 .status()
                 .map_err(|e| format!("could not start Upscayl: {e}"))?;
-            if !status.success() {
-                return Err(format!("Upscayl failed for {}", input.display()));
-            }
 
             // Re-inject high-frequency information from the original. This is deliberately after
             // the neural pass: the model can invent useful material detail, but cannot delete tiny
@@ -1243,7 +1240,26 @@ async fn ai_texture_bake(
                 }
                 let enhanced = output.join(entry.file_name());
                 if !enhanced.is_file() {
-                    return Err(format!("Upscayl did not create {}", enhanced.display()));
+                    // A large directory batch can occasionally omit an individual image while
+                    // still returning success. Retry only that image using Upscayl's file mode.
+                    let status = std::process::Command::new(&backend)
+                        .arg("-i")
+                        .arg(&source)
+                        .arg("-o")
+                        .arg(&enhanced)
+                        .arg("-m")
+                        .arg(&models)
+                        .arg("-n")
+                        .arg(model)
+                        .arg("-s")
+                        .arg("4")
+                        .arg("-f")
+                        .arg("png")
+                        .status()
+                        .map_err(|e| format!("could not retry Upscayl for {}: {e}", source.display()))?;
+                    if !status.success() || !enhanced.is_file() {
+                        return Err(format!("Upscayl did not create {}", enhanced.display()));
+                    }
                 }
                 let stats = texture_ai::postprocess(&source, &enhanced, mode, preserve_microdetail, preserve_stars)?;
                 detail_stats.microdetails += stats.microdetails;
