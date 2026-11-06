@@ -88,7 +88,7 @@ checks api->api_minor before it uses anything newer than the minor it was built 
 | `OPENRAC_UI_CHOICES_MAX` | `64` |  |
 | `OPENRAC_UI_TEXT_MAX` | `47` |  |
 | `OPENRAC_UI_MAIN_ITEMS_MAX` | `2` | The most items the mods together add to the main menu (openrac_api.ui_main_item): Ratchet & Clank's has room for two rows below its own three. Since 1.7. |
-| `OPENRAC_UI_PAUSE_ITEMS_MAX` | `2` | The most items the mods together add to the pause menu's Options page (openrac_api.ui_pause_item). Since 1.9. |
+| `OPENRAC_UI_PAUSE_ITEMS_MAX` | `4` | The most items the mods together add to the pause menu's Options page (openrac_api.ui_pause_item). Since 1.9. |
 | `OPENRAC_UI_NEW_GAME` | `"new_game"` | The main menu's own items, for openrac_api.ui_main_item's `after`. Since 1.7. |
 | `OPENRAC_UI_LOAD_GAME` | `"load_game"` |  |
 | `OPENRAC_UI_OPTIONS` | `"options"` |  |
