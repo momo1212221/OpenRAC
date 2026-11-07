@@ -56,7 +56,7 @@ pub struct Folder {
     pub count: u32,
 }
 
-/// The Texture packs section of a game's page.
+/// The Texture packs section of a game's Mods tab.
 #[derive(Debug, Clone, Serialize, ts_rs::TS)]
 #[ts(rename = "TexturePackView")]
 #[serde(rename_all = "camelCase")]
@@ -164,7 +164,11 @@ pub fn title(id: &str) -> String {
     match id {
         "rac1-pal" => "Ratchet & Clank (PAL)".into(),
         "rac1-ntsc" => "Ratchet & Clank (NTSC-U)".into(),
+        "rac1-pal1" => "Ratchet & Clank (PAL v1.00)".into(),
+        "rac1-jp" => "Ratchet & Clank (Japan)".into(),
         "rac2-ntsc" => "Going Commando (NTSC-U)".into(),
+        "rac2-pal" => "Going Commando (PAL)".into(),
+        "rac2-ntsc2" => "Going Commando (NTSC-U v2.00)".into(),
         "rac3-ntsc" => "Up Your Arsenal (NTSC-U)".into(),
         "rac4-ntsc" => "Deadlocked (NTSC-U)".into(),
         other => other.into(),
@@ -875,6 +879,9 @@ struct Scanned {
     skipped: u32,
 }
 
+/// What a mod's .zip is told when it is read as a texture pack.
+pub const NOT_A_PACK_BUT_A_MOD: &str = "This .zip is a mod, not a texture pack.";
+
 /// The folders a pack keeps at its top; a single other top folder (the pack zipped with its own
 /// folder) is taken off.
 const PACK_FOLDERS: &[&str] = &["Interface", "Shared", "Planets", "Animated"];
@@ -933,6 +940,11 @@ fn scan(archive: &mut zip::ZipArchive<std::fs::File>, id: &str) -> Result<Scanne
             skipped += 1;
             continue;
         }
+        // A mod's manifest anywhere: the .zip is a mod (which may carry pictures of its own), not
+        // a texture pack. The launcher's Add a mod then installs it as one.
+        if file_name == crate::plugins::MANIFEST {
+            return Err(NOT_A_PACK_BUT_A_MOD.into());
+        }
         if rel == MANIFEST {
             let mut text = String::new();
             archive
@@ -987,7 +999,7 @@ fn scan(archive: &mut zip::ZipArchive<std::fs::File>, id: &str) -> Result<Scanne
     if let Some(game) = manifest.game.as_deref() {
         if game != id {
             return Err(format!(
-                "This pack is for {}, not {}. Add it on that game's page instead.",
+                "This pack is for {}, not {}. Add it on that game's Mods tab instead.",
                 title(game),
                 title(id)
             ));
@@ -1329,6 +1341,21 @@ mod tests {
         assert_eq!(&rgba[..4], &[255, 0, 0, 255]);
         assert_eq!(&rgba[(3 * 4)..(4 * 4)], &[0, 255, 0, 255]);
         assert!(rgba.chunks_exact(4).any(|p| p[3] < 255));
+    }
+
+    #[test]
+    fn a_mod_with_pictures_is_not_a_texture_pack() {
+        let t = tempfile::tempdir().unwrap();
+        let zip = t.path().join("mod.zip");
+        make_zip(
+            &zip,
+            &[
+                ("my-mod/openrac-mod.json", br#"{"id":"my-mod"}"#.to_vec()),
+                ("my-mod/Interface/0123456789ABCDEF.png", png(1)),
+            ],
+        );
+        let err = preview_import(&t.path().join("data"), "rac2", "ntsc", &zip).unwrap_err();
+        assert_eq!(err, NOT_A_PACK_BUT_A_MOD);
     }
 
     #[test]

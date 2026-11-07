@@ -47,11 +47,17 @@ constexpr Entry kEntries[] = {
     {Id::SceneryDetail, Tab::Graphics, "Picture", kChoice, A, "Scenery detail",
      "Full draws the scenery's most detailed models at every distance; Original swaps them for "
      "simpler ones far away, as the console did."},
+    {Id::DrawDistance, Tab::Graphics, "Picture", kChoice, A, "Draw distance",
+     "How far away things are still drawn. Original stops where the console did; the larger "
+     "steps draw farther, and Unlimited draws everything in view. What the game hides from a "
+     "place stays hidden."},
     {Id::FrameRate, Tab::Graphics, "Frames", kChoice, A, "Frame rate",
      "Original keeps the console's rate. The others draw extra frames between the game's ticks: "
      "as fast as the display, up to a cap, or without a limit. The game itself runs at its own "
      "speed either way."},
-    {Id::FrameCap, Tab::Graphics, "Frames", kChoice, A, "Frame cap",
+    // Desktop only: on Android the display's rate is the system's, and Frame rate's list of caps
+    // is enough there.
+    {Id::FrameCap, Tab::Graphics, "Frames", kChoice, D, "Frame cap",
      "The most frames a second, in steps of 5, while Frame rate is capped."},
     {Id::VSync, Tab::Graphics, "Frames", kChoice, A, "VSync",
      "Waits for the display before showing a frame, which stops tearing. Off shows frames as "
@@ -59,8 +65,8 @@ constexpr Entry kEntries[] = {
     {Id::FrameCounter, Tab::Graphics, "Frames", kChoice, A, "Frame counter",
      "Shows the frames a second in a corner of the picture. F2 changes it too."},
     {Id::Hdr, Tab::Graphics, "HDR", kChoice, A, "HDR",
-     "High dynamic range output, on a display that has it. Auto follows the system's setting. "
-     "Turned on from Off, it starts with the game's next start."},
+     "High dynamic range output, when the system has the display in HDR mode. Turned on from "
+     "Off, it starts with the game's next start."},
     {Id::HdrPaperWhite, Tab::Graphics, "HDR", kChoice, A, "HDR paper white",
      "How bright the game's white is in HDR. System takes the brightness the system gives "
      "ordinary pictures."},
@@ -164,6 +170,15 @@ constexpr Entry kEntries[] = {
      "Controllers work in the background",
      "The controllers still play while another window is in front. Off: the game ignores them "
      "while it is alt-tabbed or minimised."},
+    {Id::RumbleStrength, Tab::Controls, "Vibration", kChoice, A, "Vibration",
+     "How strong the controller vibrates. Off: never."},
+    {Id::RumbleStyle, Tab::Controls, "Vibration", kChoice, A, "Vibration style",
+     "Enhanced: smoother and easier to feel on modern controllers. Classic: the game's raw "
+     "values."},
+    {Id::RumbleTriggers, Tab::Controls, "Vibration", kSwitch, A, "Vibration in the triggers",
+     "Also vibrate the triggers, on controllers that have trigger motors (Xbox One and later)."},
+    {Id::RumblePhone, Tab::Controls, "Vibration", kSwitch, T, "Vibrate the phone",
+     "With touch controls, the phone or tablet vibrates."},
     {Id::ConnectedControllers, Tab::Controls, "Players", kPanel, A, "Controllers connected",
      "Each controller connected, lit while a button is pressed on it, and the player it is."},
     {Id::PlayersReset, Tab::Controls, "Players", kAction, A, "Players back to the defaults",
@@ -176,6 +191,9 @@ constexpr Entry kEntries[] = {
      "The key and the controller button that open and close this menu. Any controller's Select "
      "and Start pressed together do too. The key is kept by its place on the keyboard; Alt "
      "counts pressed by itself, so Alt+Return still goes full screen."},
+    {Id::TouchActionButtons, Tab::Controls, "Touch controls", kSwitch, T, "Action buttons",
+     "Buttons that show what they do (jump, fire, the ship's boost) and change with what the game "
+     "is doing. Off: the DualShock's buttons."},
     {Id::TouchButtonSize, Tab::Controls, "Touch controls", kChoice, T, "Button size",
      "The on-screen buttons' size."},
     {Id::TouchCameraSpeed, Tab::Controls, "Touch controls", kChoice, T, "Camera speed",
@@ -194,6 +212,8 @@ constexpr Entry kEntries[] = {
      "Click a moby in the picture to select it and see its fields."},
     {Id::ObjectViewer, Tab::Developer, "Tools", kSwitch, D, "Object viewer",
      "Look at a picked object on its own: its model, bones, lights and materials."},
+    {Id::MeatProxyReview, Tab::Developer, "Tools", kSwitch, D, "Meat Proxy Review",
+     "Open saved freecam views and record feedback."},
     {Id::LevelSelect, Tab::Developer, "Tools", kAction, A, "Level select",
      "Goes to another level. F1 opens it too."},
     {Id::KeepPaused, Tab::Developer, "Time", kSwitch, A, "Keep paused",

@@ -1,9 +1,5 @@
 #include "include_asm.h"
 
-INCLUDE_ASM("asm/pal/game", func_PAL_0034D230);
-
-INCLUDE_ASM("asm/pal/game", func_PAL_0034D238);
-
 INCLUDE_ASM("asm/pal/game", func_PAL_0034D490);
 
 extern int func_00335E20(unsigned char *field);
@@ -13,6 +9,8 @@ unsigned int func_PAL_0034EC30(unsigned char *owner)
     unsigned int address = (unsigned int)func_00335E20(owner + 0x378);
     return *(unsigned int *)address & 0xff000000u;
 }
+
+INCLUDE_ASM("asm/pal/game", func_PAL_0034F060);
 
 
 extern void func_00336920(char *, int, int);
@@ -124,13 +122,7 @@ void func_PAL_0034EFF0(int *self, int value)
 }
 
 
-INCLUDE_ASM("asm/pal/game", func_PAL_0034F050);
-
-INCLUDE_ASM("asm/pal/game", func_PAL_0034F060);
-
 INCLUDE_ASM("asm/pal/game", func_PAL_0034F068);
-
-INCLUDE_ASM("asm/pal/game", func_PAL_0034FD60);
 
 extern void func_003363D0(void *p);
 extern void func_PAL_0034D238(void *p);

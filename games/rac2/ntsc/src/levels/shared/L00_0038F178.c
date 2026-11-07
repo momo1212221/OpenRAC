@@ -215,7 +215,6 @@ void func_L00_0038F5F0(char *object)
 
 /* func_L00_0038FC48 is defined in L00_0038FC48-g8.c. */
 
-INCLUDE_ASM("asm/levels", func_L00_0038FE10);
 
 /* Calls a callee with the constant 167 and, when it returns a non-zero object, stores the argument pointer at +4 of the object held at +104, clears the words at +0, +8 and +12 of that object, sets byte +48 to 255, the halfword at +50 to 126 and bytes +49 and +32 to 0, then returns the object. */
 char *func_L00_00390938(char *p)
@@ -269,7 +268,6 @@ void func_L00_00390E10(char *object)
 }
 
 
-INCLUDE_ASM("asm/levels", func_L00_00390FF8);
 
 /* Releases the second argument's object: clears a word of the sub-object at +0x68, clears
  * two globals, hands its +0x14 word over before clearing it, then runs five helpers and the
@@ -456,7 +454,6 @@ void func_L00_00398118(Rac2Native_9cdc323a4d0c2fbd_AnalysisOwner *owner)
 }
 
 
-INCLUDE_ASM("asm/levels", func_L00_00398810);
 
 
 /* func_L00_0039B288 is defined in L00_0039B288-g8.c. */

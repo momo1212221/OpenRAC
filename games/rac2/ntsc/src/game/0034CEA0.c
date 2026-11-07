@@ -153,7 +153,7 @@ extern void func_0033E1B0(void *, void *);
 
 INCLUDE_ASM("asm/game", func_0034CEA0);
 
-INCLUDE_ASM("asm/game", func_0034DB98);
+/* func_0034DB98 is in 0034CEA0-g8.c. */
 
 
 /* walks 26 consecutive 72-byte records calling one leaf per record, then calls four more leaves on fixed offsets of the same object and returns the object pointer */
@@ -375,7 +375,8 @@ char *func_0034E5C0(char *object)
     return object;
 }
 
-void func_0034EBE0(void)
+/* The retail caller passes an owner to both setup helpers; these bodies use resident state. */
+void func_0034EBE0(void *owner)
 {
     float *p = (float *)F45821cfb_D_001C2740;
 
@@ -391,7 +392,7 @@ void func_0034EBE0(void)
     F45821cfb_FUN_00282C88((char *)&p[236]);
 }
 
-void func_0034EC70(void)
+void func_0034EC70(void *owner)
 {
     char *p = F0a76d85b_D_001B5200;
 

@@ -186,6 +186,8 @@ Item item(Id id, std::uint8_t where) {
             return row_choice(kAnisotropy);
         case Id::SceneryDetail:
             return row_choice(kSceneryDetail);
+        case Id::DrawDistance:
+            return row_choice(kDrawDistance);
         case Id::FrameRate:
             return row_choice(kFrameRate);
         case Id::FrameCap:
@@ -370,6 +372,10 @@ Item item(Id id, std::uint8_t where) {
         case Id::TriggerPoint:
         case Id::FaceButtons:
         case Id::PadBackground:
+        case Id::RumbleStrength:
+        case Id::RumbleStyle:
+        case Id::RumbleTriggers:
+        case Id::RumblePhone:
         case Id::ConnectedControllers:
         case Id::PlayersReset:
         case Id::PlayerOne:
@@ -386,6 +392,9 @@ Item item(Id id, std::uint8_t where) {
             it.can_raise = r.can_raise;
             return it;
         }
+        case Id::TouchActionButtons:
+            it.on = set.touch_style == 0;
+            return it;
         case Id::TouchButtonSize:
             it.value = std::format("{}%", set.touch_scale);
             it.can_lower = set.touch_scale > settings::kTouchScales[0];
@@ -412,6 +421,10 @@ Item item(Id id, std::uint8_t where) {
         case Id::ObjectViewer:
             it.shown = s.developer;
             it.on = s.object_viewer.open;
+            return it;
+        case Id::MeatProxyReview:
+            it.shown = s.developer;
+            it.on = s.meat_proxy_review;
             return it;
         case Id::LevelSelect:
             it.shown = s.developer;
@@ -530,6 +543,9 @@ bool act(Id id, int by) {
         case Id::SceneryDetail:
             change_setting(kSceneryDetail, by);
             return false;
+        case Id::DrawDistance:
+            change_setting(kDrawDistance, by);
+            return false;
         case Id::FrameRate:
             change_setting(kFrameRate, by);
             return false;
@@ -544,8 +560,8 @@ bool act(Id id, int by) {
             return false;
         case Id::Hdr: {
             // From Off, it counts from the next start (frontend's apply_hdr says so).
-            const int mode = static_cast<int>(set.hdr);
-            set.hdr = static_cast<hdr::Mode>((mode + by + 3) % 3);
+            const int count = static_cast<int>(hdr::Mode::Count);
+            set.hdr = static_cast<hdr::Mode>((static_cast<int>(set.hdr) + by + count) % count);
             changed();
             return false;
         }
@@ -689,6 +705,10 @@ bool act(Id id, int by) {
         case Id::TriggerPoint:
         case Id::FaceButtons:
         case Id::PadBackground:
+        case Id::RumbleStrength:
+        case Id::RumbleStyle:
+        case Id::RumbleTriggers:
+        case Id::RumblePhone:
         case Id::ConnectedControllers:
         case Id::PlayersReset:
         case Id::PlayerOne:
@@ -696,6 +716,10 @@ bool act(Id id, int by) {
         case Id::MenuOpen:
         case Id::ControlsReset:
             controls_act(id, by);
+            return false;
+        case Id::TouchActionButtons:
+            set.touch_style = set.touch_style == 0 ? 1 : 0;
+            settings::save();
             return false;
         case Id::TouchButtonSize:
             set.touch_scale = settings::step_listed(settings::kTouchScales, set.touch_scale, by);
@@ -723,6 +747,9 @@ bool act(Id id, int by) {
                 set_picker_enabled(true);
             }
             return false;
+        case Id::MeatProxyReview:
+            s.meat_proxy_review = !s.meat_proxy_review;
+            return s.meat_proxy_review;
         case Id::LevelSelect:
             press(SDLK_F1);
             return true;

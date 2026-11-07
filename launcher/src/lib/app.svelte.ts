@@ -1,8 +1,10 @@
 // The UI's shared state: settings, the library, navigation, toasts and the
 // job queue. Pages read `app` and call the functions below; nothing else
 // talks to the Rust side except through api.ts.
+import { SvelteMap } from "svelte/reactivity";
 import { hidePaths } from "./paths";
 import { bakeCacheBusy, bakeFailure, type BakeFailure } from "./bakeFailure";
+import { toolFailure } from "./toolErrors";
 import {
   api,
   ask,
@@ -65,6 +67,8 @@ interface AppState {
     text: string;
     kind: "info" | "error";
     bake?: BakeNotice;
+    /** A failed task's last output lines, folders cut to their names. */
+    details?: string;
   }[];
   update: UpdateInfo | null;
   showUpdateModal: boolean;
@@ -172,7 +176,7 @@ const queue = new Queue(jobs.list);
 // A stopped lighting bake already keeps verified levels and region checkpoints on disk.
 // One automatic retry per version uses those checkpoints; a persistent real error is then shown
 // instead of looping forever.
-const bakeResumeAttempts = new Map<string, number>();
+const bakeResumeAttempts = new SvelteMap<string, number>();
 
 // ---- Android: the set-up goes on in the background -----------------------------------------
 
@@ -221,9 +225,9 @@ function expire(id: number) {
 }
 
 /** Says something for a moment; an error stays until it is dismissed, as it may need reading twice. */
-export function toast(text: string, kind: "info" | "error" = "info", bake?: BakeNotice) {
+export function toast(text: string, kind: "info" | "error" = "info", bake?: BakeNotice, details?: string) {
   const id = ++toastId;
-  app.toasts.push({ id, text, kind, bake });
+  app.toasts.push({ id, text, kind, bake, details });
   // No more than four errors at once: the oldest gives way.
   const errors = app.toasts.filter((t) => t.kind === "error");
   if (errors.length > 4 && errors[0]) expire(errors[0].id);
@@ -422,7 +426,8 @@ function handleExit(job: Job) {
   // Setting a game up says why it stopped itself (installFromDisc).
   else if (job.state === "failed" && job.actionId === "probe-bake" && version !== null) {
     void handleBakeFailure(job, version);
-  } else if (job.state === "failed" && !job.actionId.startsWith("install:")) toast(`${job.title} failed`, "error");
+  } else if (job.state === "failed" && !job.actionId.startsWith("install:"))
+    toast(`${job.title} failed`, "error", undefined, toolFailure(job.lines).details || undefined);
   if (job.state === "succeeded" && job.actionId === "probe-bake" && version !== null) {
     bakeResumeAttempts.delete(version);
   }
@@ -629,7 +634,8 @@ export async function refresh() {
   const discs = ++discsSeq;
   let scan: { found: FoundDisc[]; choices: DiscChoice[] } = { found: [], choices: [] };
   try {
-    if (app.config.discsDir) scan = await api.scanDiscs();
+    // A developer's disc switch also draws on the discs set up without a games folder.
+    if (app.config.discsDir || app.config.developer) scan = await api.scanDiscs();
   } catch {
     // A folder that went away: the game pages ask for an image as before.
   }
@@ -706,6 +712,12 @@ function taskOf(actionId: string): string | null {
   if (actionId === "port-build" || actionId === "build") return "Building the game";
   if (actionId === "editor-extract" || actionId === "editor-import") return "Preparing the level editor";
   return null;
+}
+
+/** Whether a game runs now: mods load at its start, so changing them waits for it to close. */
+export function gameRunning(): boolean {
+  if (onAndroid) return !!app.game?.running;
+  return jobs.list.some((j) => PLAY_ACTIONS.includes(j.actionId) && j.state === "running");
 }
 
 export function updateDiscordPresence(page: Page = app.page, version: string | null = app.version) {

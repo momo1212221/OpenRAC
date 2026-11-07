@@ -45,6 +45,7 @@
 #include "game/common/frontend/scene_frame_internal.h"
 #include "game/common/frontend/state.h"
 #include "mod_menu.h"
+#include "mod_overlay.h"
 #include "openrac/game_host.h"
 #include "platform/performance_hint.h"
 #include "platform/pump.h"
@@ -59,6 +60,7 @@
 #include "scene/level_renderer.h"
 #include "scene/screenshot.h"
 #include "settings.h"
+#include "ui_colors.h"
 
 namespace openrac::frontend {
 
@@ -317,7 +319,7 @@ void capture_frame(const FramePresentation& output) {
         const auto writing = std::chrono::steady_clock::now();
         const std::string path = shots().prefix + std::to_string(output.tick)
                                  + (first ? std::string() : "_b" + std::to_string(between_index))
-                                 + ".png";
+                                 + (output.enhanced_graphics ? "_enhanced" : "") + ".png";
         // As the screen shows it: the frame's alpha is what the GS blends wrote, not a picture's
         // coverage, and a viewer that shows it draws the sky full of the effects' blotches.
         std::vector<std::uint8_t> pixels = renderer::read_rgba(shown, width, height);
@@ -465,7 +467,10 @@ void draw_overlay(const FramePresentation& output) {
          output.picker_palette,
          output.picker_level,
          output.tick,
-         output.picker_layers}
+         output.picker_layers,
+         output.freecam,
+         output.camera_level,
+         output.enhanced_graphics}
     );
 }
 
@@ -497,10 +502,13 @@ void present_frame(FramePresentation& output) {
     // The window thread's own parts of a frame, measured apart (performance captures).
     {
         const stats::Scope menus("menus");
+        mod_overlay::draw(output.camera, output.has_camera, shown, width, height, aspect);
         debug_menu::draw(shown, width, height);
         mod_menu::draw(shown, width, height);
         if (settings::get().show_fps != settings::FrameCounter::Off) {
-            renderer::ui::fps_counter::draw(shown, width, height);
+            // In the game's accent over the theme's darkest ink, as the launcher and the menu.
+            const ui_colors::Colors& colors = ui_colors::launcher();
+            renderer::ui::fps_counter::draw(shown, width, height, colors.amber, colors.ink_deep);
         }
     }
     {

@@ -54,12 +54,15 @@ add_library(openrac_platform STATIC
   platform/controls_file.cpp
   platform/gpu_driver.cpp
   platform/input.cpp
+  platform/menu_chord.cpp
   platform/pad.cpp
   platform/players.cpp
   platform/performance_hint.cpp
   platform/pump.cpp
   platform/ray_tracing.cpp
+  platform/rumble.cpp
   platform/show_folder.cpp
+  platform/touch_actions.cpp
   platform/touch_pad.cpp
   platform/window.cpp
 )
@@ -78,6 +81,10 @@ openrac_add_test(controls SOURCES tests/controls_test.cpp game/common/controls_s
 openrac_add_test(input_ports SOURCES tests/input_ports_test.cpp INCLUDES . LIBS openrac_platform)
 # Ray-tracing capability selection and a real acceleration-structure build where supported.
 openrac_add_test(ray_tracing SOURCES tests/ray_tracing_test.cpp INCLUDES . LIBS openrac_platform)
+# The game's motor commands as a gamepad plays them (platform/rumble.h).
+openrac_add_test(rumble SOURCES tests/rumble_test.cpp INCLUDES . LIBS openrac_platform)
+# Start+Select opens the menu, which the game never sees (platform/menu_chord.h).
+openrac_add_test(menu_chord SOURCES tests/menu_chord_test.cpp INCLUDES . LIBS openrac_platform)
 # Android: the player's own GPU driver package (platform/gpu_driver.h, cmake/Android.cmake).
 if(ANDROID)
   target_sources(openrac_platform PRIVATE android/gpu_driver.cpp
@@ -281,11 +288,14 @@ add_library(openrac_renderer_ui STATIC
   renderer/ui/fps_counter.cpp
   renderer/ui/imgui_gl.cpp
   renderer/ui/logo.cpp
+  renderer/ui/overlay_draw.cpp
+  renderer/ui/overlay_list.cpp
   renderer/ui/picture_blit.cpp
+  renderer/ui/touch_icons.cpp
   renderer/ui/touch_overlay.cpp
 )
 target_link_libraries(openrac_renderer_ui PUBLIC openrac_renderer openrac_platform
-  PRIVATE openrac_imgui)
+  PRIVATE openrac_imgui openrac_nanosvg)
 openrac_warnings(openrac_renderer_ui)
 
 # Optional upscaled texture colours: the normal renderer only owns the provider interface.
@@ -649,6 +659,11 @@ add_library(openrac_viewer_lib INTERFACE)
 target_link_libraries(openrac_viewer_lib INTERFACE openrac_scene_renderer openrac_enhanced_viewer
   openrac_enhanced_textures)
 
+# MobyProc's distance test and fade (game/common/moby_proc.h), which both games' profiles share.
+add_library(openrac_game_moby_proc STATIC game/common/moby_proc.cpp)
+target_link_libraries(openrac_game_moby_proc PUBLIC openrac_scene_renderer)
+openrac_warnings(openrac_game_moby_proc)
+
 # Ratchet & Clank's profile (game/common/profile.h): what the renderers read of the running game
 # from its memory (game/rac1/game_state.h), for rac1's programs (cmake/Games.cmake links it as
 # openrac_game_<game>_profile), the viewer and its tests.
@@ -658,12 +673,19 @@ add_library(openrac_game_rac1_profile STATIC
   game/rac1/shrub_proc.cpp
 )
 target_include_directories(openrac_game_rac1_profile PRIVATE runtime/include)
-target_link_libraries(openrac_game_rac1_profile PUBLIC openrac_scene_renderer)
+target_link_libraries(openrac_game_rac1_profile PUBLIC openrac_scene_renderer openrac_game_moby_proc)
 openrac_warnings(openrac_game_rac1_profile)
 openrac_add_test(camera_target LIBS openrac_game_rac1_profile)
 openrac_add_test(moby_fade LIBS openrac_game_rac1_profile openrac_ps2float)
 openrac_add_test(shrub_proc LIBS openrac_game_rac1_profile openrac_ps2float)
 openrac_add_test(water_interactions LIBS openrac_game_rac1_profile)
+
+# Going Commando's profile, one for its three discs (game/rac2/profile.cpp), for rac2's programs.
+add_library(openrac_game_rac2_profile STATIC game/rac2/profile.cpp)
+target_include_directories(openrac_game_rac2_profile PRIVATE runtime/include)
+target_link_libraries(openrac_game_rac2_profile PUBLIC openrac_scene_renderer openrac_game_moby_proc)
+openrac_warnings(openrac_game_rac2_profile)
+openrac_add_test(rac2_moby_view LIBS openrac_game_rac2_profile)
 
 # Tests are registered through openrac_add_test (cmake/Tests.cmake), which makes the program
 # <subject>_test and the ctest test <subject>; a program that runs under more names gets them with
@@ -810,6 +832,8 @@ set_tests_properties(touch_overlay PROPERTIES SKIP_RETURN_CODE 77)
 
 openrac_add_test(imgui_gl LIBS openrac_renderer_ui openrac_platform openrac_imgui)
 set_tests_properties(imgui_gl PROPERTIES SKIP_RETURN_CODE 77)
+openrac_add_test(overlay_draw LIBS openrac_renderer_ui openrac_platform)
+set_tests_properties(overlay_draw PROPERTIES SKIP_RETURN_CODE 77)
 
 openrac_add_test(renderer_texture LIBS openrac_renderer)
 # The view math of a mod's views (renderer/math.h): header only.
@@ -876,8 +900,10 @@ add_test(NAME renderer_direct_es COMMAND renderer_direct_test)
 add_test(NAME renderer_shader_es COMMAND renderer_shader_test)
 add_test(NAME touch_overlay_es COMMAND touch_overlay_test)
 add_test(NAME imgui_gl_es COMMAND imgui_gl_test)
+add_test(NAME overlay_draw_es COMMAND overlay_draw_test)
 add_test(NAME viewer_es COMMAND viewer_test "${CMAKE_CURRENT_BINARY_DIR}/viewer_test_level_es")
-set(openrac_es_tests renderer_direct_es renderer_shader_es touch_overlay_es imgui_gl_es viewer_es)
+set(openrac_es_tests renderer_direct_es renderer_shader_es touch_overlay_es imgui_gl_es overlay_draw_es
+    viewer_es)
 if(TARGET world_gl_smoke_test)
   add_test(NAME world_gl_smoke_es COMMAND world_gl_smoke_test)
   list(APPEND openrac_es_tests world_gl_smoke_es)
@@ -913,9 +939,10 @@ if(OPENRAC_VULKAN)
   add_test(NAME renderer_shader_vulkan COMMAND renderer_shader_test)
   add_test(NAME touch_overlay_vulkan COMMAND touch_overlay_test)
   add_test(NAME imgui_gl_vulkan COMMAND imgui_gl_test)
+  add_test(NAME overlay_draw_vulkan COMMAND overlay_draw_test)
   add_test(NAME viewer_vulkan COMMAND viewer_test "${CMAKE_CURRENT_BINARY_DIR}/viewer_test_level_vulkan")
   set(openrac_vulkan_tests renderer_direct_vulkan renderer_shader_vulkan touch_overlay_vulkan imgui_gl_vulkan
-      viewer_vulkan)
+      overlay_draw_vulkan viewer_vulkan)
   if(TARGET world_gl_smoke_test)
     add_test(NAME world_gl_smoke_vulkan COMMAND world_gl_smoke_test)
     list(APPEND openrac_vulkan_tests world_gl_smoke_vulkan)

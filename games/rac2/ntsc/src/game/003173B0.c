@@ -539,9 +539,6 @@ void func_00319FB8(char *object)
     func_0031A340(object, data + 0x330, 0.15f, 0x1050B0, 0x10000000, 0x30000000);
 }
 
-INCLUDE_ASM("asm/game", func_0031A098);
-
-
 extern void func_0031A098(void *record);
 extern long long func_0027C878_1(int id);
 extern float func_00283248(float x, float y);
@@ -673,7 +670,7 @@ unsigned int func_0031AB08(unsigned int param_1)
 /* func_0031AB18 is defined in 0031AB18-zero-ti.c. */
 
 
-INCLUDE_ASM("asm/game", func_0031BCC8);
+/* func_0031BCC8 is in 0031BCC8-g8.c. */
 
 /* func_0031C498 is in 0031C498.c. */
 
@@ -749,8 +746,6 @@ void func_0031D268(char *arg0) {
 
 
 /* func_0031D308 is in the -G8 sibling. */
-
-INCLUDE_ASM("asm/game", func_0031D350);
 
 /* func_0031D3E0 is in 0031D3E0.c. */
 
@@ -904,8 +899,6 @@ void func_0031DEE8(char *owner)
 
 
 /* func_0031E560 is defined in 0031E560-dbg.c (-g). */
-
-INCLUDE_ASM("asm/game", func_0031E6D8);
 
 
 

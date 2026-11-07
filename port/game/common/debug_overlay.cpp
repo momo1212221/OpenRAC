@@ -93,8 +93,8 @@ void configure() {
     // one), "inspect" selects the hero and opens the inspector, "labels" names the mobys in view,
     // "memview" opens the memory viewer.
     if (const std::optional<std::string_view> v = env::value(env::Var::Overlay); v && *v != "0") {
-        s.wanted = true;
         const std::string list(*v);
+        s.wanted = list != "meat-proxy-review";
         const auto has = [&](const char* word) {
             std::size_t at = 0;
             const std::size_t n = std::strlen(word);
@@ -119,6 +119,7 @@ void configure() {
         }
         s.labels = has("labels");
         s.object_viewer.open = s.developer && has("object-viewer");
+        s.meat_proxy_review = s.developer && has("meat-proxy-review");
         set_picker_enabled(has("picker") || s.object_viewer.open);
         s.wireframe = has("wireframe");
         s.memory_viewer = has("memview");
@@ -515,7 +516,7 @@ void panel(const Shown& shown) {
             text_coloured(kRed, "PAUSED");
         }
         if (ImGui::Button(keys ? "screenshot (F12)" : "screenshot")) {
-            s.shot_path = shot_name(s.tick);
+            s.shot_tick = s.tick;
         }
         ImGui::SameLine();
         bool dumping = stats::dumping();
@@ -554,7 +555,7 @@ void panel(const Shown& shown) {
             mobys_section();
         }
         if (header(kGame, "Game")) {
-            game_section();
+            game_section(shown);
         }
         if (header(kShaders, "Shaders")) {
             shaders_section();
@@ -564,6 +565,23 @@ void panel(const Shown& shown) {
         }
     }
     ImGui::End();
+}
+
+// A screenshot's file: in the working folder; on Android, whose apps run in "/" (not writable),
+// in the app's own files (HOME, which the launcher sets).
+std::string shot_name(std::uint64_t tick, bool enhanced) {
+    const std::string name =
+        std::format("openrac_window_{}{}.png", tick, enhanced ? "_enhanced" : "");
+#if defined(__ANDROID__)
+    if (const std::optional<std::string> home = env::system_variable("HOME");
+        home && !home->empty()) {
+        std::error_code ignored;
+        const std::filesystem::path dir = std::filesystem::path(*home) / "screenshots";
+        std::filesystem::create_directories(dir, ignored);
+        return (dir / name).string();
+    }
+#endif
+    return name;
 }
 
 // The window as it is now, overlay included, to a PNG (the back buffer, before the swap). False
@@ -604,22 +622,6 @@ void set_visible(bool on) {
     stats::set_enabled(stats::Client::Overlay, on);
 }
 
-// A screenshot's file: in the working folder; on Android, whose apps run in "/" (not writable),
-// in the app's own files (HOME, which the launcher sets).
-std::string shot_name(std::uint64_t tick) {
-    const std::string name = std::format("openrac_window_{}.png", tick);
-#if defined(__ANDROID__)
-    if (const std::optional<std::string> home = env::system_variable("HOME");
-        home && !home->empty()) {
-        std::error_code ignored;
-        const std::filesystem::path dir = std::filesystem::path(*home) / "screenshots";
-        std::filesystem::create_directories(dir, ignored);
-        return (dir / name).string();
-    }
-#endif
-    return name;
-}
-
 void request() {
     configure();
     s.wanted = true;
@@ -643,6 +645,16 @@ void set_touch_guides(float x, float y) {
     s.touch_guides = ImVec2(x, y);
 }
 
+void set_touch_selected(float size) {
+    s.touch_selected = size;
+}
+
+int take_touch_size_steps() {
+    const int steps = s.touch_size_steps;
+    s.touch_size_steps = 0;
+    return steps;
+}
+
 void toggle_drawer() {
     if (drawer_possible()) {
         set_menu(!s.menu_open);
@@ -650,16 +662,17 @@ void toggle_drawer() {
 }
 
 bool visible() {
-    return s.visible || s.enhanced_settings;
+    return s.visible || s.enhanced_settings || s.meat_proxy_review;
 }
 
 bool wants_cursor() {
-    return s.menu_open || s.menu_at > 0.0f || s.visible || s.enhanced_settings
-           || s.object_viewer.open || picker_enabled() || s.touch_editing;
+    return s.menu_open || s.menu_at > 0.0f || visible() || s.object_viewer.open || picker_enabled()
+           || s.touch_editing;
 }
 
 bool event(const SDL_Event& e) {
     configure();
+    release_scripted_pointer(e);
     // A press awaited for a binding (the Controls tab): the controllers' presses are the
     // capture's, not the menu's. The keyboard does nothing either (no menu key, no Enter on
     // another row, no Android Back, which a controller's B may be), but Esc gives the capture up. Key releases still reach the menu, so a key
@@ -743,10 +756,25 @@ bool event(const SDL_Event& e) {
             return true;
         }
     }
-    // The menu's controller button (menu_bar_button; by default L3), on a desktop and a touch
-    // screen alike, while the game's window has the focus. Not "...": a running Steam client opens
-    // its own panel on it.
+    // The menu's controller button (menu_bar_button), on a desktop and a touch screen alike, while
+    // the game's window has the focus. Not "...": a running Steam client opens its own panel on it.
+    // Start+Select, the default, opens the menu from the game's pad (menu_pad_chord) and closes
+    // it here: the second of the pair pressed while the first is held, on one controller.
     MenuMotion& m = s.menu_motion;
+    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && s.menu_open && menu_bar_chord()
+        && (e.gbutton.button == SDL_GAMEPAD_BUTTON_START
+            || e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK)
+        && SDL_GetKeyboardFocus() != nullptr && !s.pad_locked && !controls_capturing()) {
+        SDL_Gamepad* pad = SDL_GetGamepadFromID(e.gbutton.which);
+        const SDL_GamepadButton other = e.gbutton.button == SDL_GAMEPAD_BUTTON_START
+                                            ? SDL_GAMEPAD_BUTTON_BACK
+                                            : SDL_GAMEPAD_BUTTON_START;
+        if (pad != nullptr && SDL_GetGamepadButton(pad, other)) {
+            m.pad = true;
+            toggle_menu();
+            return true;
+        }
+    }
     if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && SDL_GetKeyboardFocus() != nullptr
         && menu_bar_button() != SDL_GAMEPAD_BUTTON_INVALID && e.gbutton.button == menu_bar_button()
         && !s.pad_locked && !controls_capturing()) {
@@ -796,7 +824,7 @@ bool event(const SDL_Event& e) {
                 s.stretch = std::max(s.stretch / 2.0, 1.0);
                 return true;
             case SDLK_F12:
-                s.shot_path = shot_name(s.tick);
+                s.shot_tick = s.tick;
                 return true;
             // The menu, open at its Controls tab (debug/menu_controls.cpp).
             case SDLK_F13:
@@ -809,9 +837,7 @@ bool event(const SDL_Event& e) {
                 break;
         }
     }
-    if (!(s.visible || s.enhanced_settings || s.object_viewer.open || picker_enabled()
-          || s.menu_open)
-        || !s.initialised) {
+    if (!(visible() || s.object_viewer.open || picker_enabled() || s.menu_open) || !s.initialised) {
         return false;
     }
     ImGui_ImplSDL3_ProcessEvent(&e);
@@ -839,7 +865,8 @@ bool event(const SDL_Event& e) {
         case SDL_EVENT_KEY_DOWN:
         case SDL_EVENT_KEY_UP:
         case SDL_EVENT_TEXT_INPUT:
-            return io.WantTextInput || (s.object_viewer.open && io.WantCaptureKeyboard);
+            return io.WantTextInput
+                   || ((s.object_viewer.open || s.meat_proxy_review) && io.WantCaptureKeyboard);
         default:
             return false;
     }
@@ -944,8 +971,7 @@ void draw(const Shown& shown) {
     const bool badge = s.paused || s.stretch != 1.0 || notifications_pending() || capture_busy()
                        || !mods::play_notice().empty();
     const bool menu_out = s.menu_open || s.menu_at > 0.0f || s.shot_when_shut || s.touch_editing;
-    if (!(s.visible || s.enhanced_settings || picker_enabled() || badge || menu_out
-          || !s.shot_path.empty())
+    if (!(visible() || picker_enabled() || badge || menu_out || s.shot_tick)
         || shown.window == nullptr || !initialise(shown.window)) {
         s.drew_last_frame = false;
         return;
@@ -990,6 +1016,7 @@ void draw(const Shown& shown) {
     refresh_scripted_pointer();
     ImGui::NewFrame();
     enhanced_settings_window();
+    meat_proxy_review_window(shown);
     material_settings_window();
     controls_frame();
     if (s.visible) {
@@ -1010,15 +1037,8 @@ void draw(const Shown& shown) {
     picker_overlay(shown);
     object_viewer_window(shown);
     status_notifications();
-    draw_notifications();
-    ImGui::Render();
-    if (s.gl_subset) {
-        renderer::ui::imgui_gl::render(ImGui::GetDrawData());
-    } else {
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-    }
-    renderer::gl_stats::reset_binds();
 
+    std::string scripted_shot;
     const stats::Frame* last = stats::history(0);
     const bool tick_frame = last == nullptr || last->kind != stats::FrameKind::Between;
     if (s.shot_every > 0 && tick_frame && s.tick % s.shot_every == 0 && s.tick >= s.shot_from && s.shots < 10000) {
@@ -1028,21 +1048,41 @@ void draw(const Shown& shown) {
         held = s.paused ? held + 1 : 0;
         if (written != s.tick || held == 5) {
             written = s.tick;
-            write_window(std::format("{}{}{}.png", s.shot_prefix, s.tick, held == 5 ? "_held" : ""), shown.window_width,
-                         shown.window_height);
+            scripted_shot = std::format(
+                "{}{}{}{}.png",
+                s.shot_prefix,
+                s.tick,
+                held == 5 ? "_held" : "",
+                shown.enhanced_graphics ? "_enhanced" : ""
+            );
             s.shots++;
         }
     }
-    if (!s.shot_path.empty()) {
-        const bool saved = write_window(s.shot_path, shown.window_width, shown.window_height);
+    if (!s.shot_tick && scripted_shot.empty()) {
+        draw_notifications();
+    }
+    ImGui::Render();
+    if (s.gl_subset) {
+        renderer::ui::imgui_gl::render(ImGui::GetDrawData());
+    } else {
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    }
+    renderer::gl_stats::reset_binds();
+
+    if (!scripted_shot.empty()) {
+        write_window(scripted_shot, shown.window_width, shown.window_height);
+    }
+    if (s.shot_tick) {
+        const std::string path = shot_name(*s.shot_tick, shown.enhanced_graphics);
+        const bool saved = write_window(path, shown.window_width, shown.window_height);
         notify({
             .title = saved ? "Screenshot saved" : "The screenshot could not be saved",
-            .text = s.shot_path,
-            .folder = saved ? s.shot_path : std::string(),
+            .text = path,
+            .folder = saved ? path : std::string(),
             .tone = saved ? Tone::Done : Tone::Error,
             .seconds = saved ? 3.0 : 8.0,
         });
-        s.shot_path.clear();
+        s.shot_tick.reset();
     }
 }
 

@@ -98,11 +98,11 @@ detailedGameLog: boolean,
  */
 renderer: "opengl" | "vulkan", 
 /**
- * HDR output (port docs/port/HDR.md): "" (default) leaves it to the game's own setting (its
- * drawer, the settings file's `hdr`); "off", "auto" or "on" is given to each game's start
- * (OPENRAC_HDR), over that. On every system; it needs the Vulkan renderer.
+ * HDR output (port docs/port/HDR.md): "off" (default) or "on", given to each game's start
+ * (OPENRAC_HDR) over the game's own setting. On: HDR when the system has the display in HDR
+ * mode. On every system; it needs the Vulkan renderer. Anything else reads as "off" (load).
  */
-hdr: "" | "off" | "auto" | "on", 
+hdr: "off" | "on", 
 /**
  * Linux: the launcher's own window draws without WebKitGTK's accelerated compositing mode
  * (webkit.rs), for a graphics driver that crashes it. Turned on by the launcher itself after
@@ -121,17 +121,29 @@ playWithMods: boolean,
  */
 crashesSeen: { [key in string]: number }, 
 /**
- * For developers with more than one disc of a game in the games folder: the version each
+ * For developers whose launcher knows more than one disc of a game: the version each
  * game's page plays (`rac1` -> `rac1/ntsc`). Used only with developer tools on
  * (disc_choice.rs); without one, the disc set up, as for a player.
  */
 discChoice: { [key in string]: string }, 
+/**
+ * For developers: the image each version was last set up from (`rac1/ntsc` -> the .iso), so
+ * the disc switch offers that version without a games folder (disc_choice.rs). An image
+ * moved, deleted or now another disc is not offered.
+ */
+discImages: { [key in string]: string }, 
 /**
  * The name online mods show the other players (multiplayer.rs): 3 to 16 letters, digits and
  * underscores, made up at the first start and changed in Settings. Given to the game as
  * `OPENRAC_PLAYER_NAME`.
  */
 multiplayerName: string, 
+/**
+ * This installation's key (multiplayer.rs): random, made at the first start and never shown.
+ * What a host's ban holds on to, so a new name gets round none. Given to the game as
+ * `OPENRAC_IDENTITY_KEY`.
+ */
+multiplayerKey: string, 
 /**
  * The mod indexes to read (index.rs), in order; empty: the built-in list (`index::INDEXES`).
  */

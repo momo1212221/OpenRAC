@@ -10,15 +10,15 @@ Enhanced graphics uses the Vulkan renderer on Windows and Linux and Vulkan throu
 macOS. This keeps the game renderer vendor-neutral: NVIDIA, AMD and Intel GPUs do not need separate
 game binaries.
 
-| Platform / GPU | Architecture | Runtime renderer | Automatic baseline |
-| --- | --- | --- | --- |
-| Windows, NVIDIA RTX | x86_64 | Vulkan | Ultra / Classic Lighting |
-| Windows, modern AMD Radeon RX / Radeon Pro | x86_64 | Vulkan | Ultra / Classic Lighting |
-| Windows, Intel Arc | x86_64 | Vulkan | Ultra / Classic Lighting |
-| Windows, older/unknown GPU | x86_64 | Vulkan when supported | Balanced |
-| Linux, NVIDIA / AMD / Intel | x86_64 | Vulkan | capability dependent |
-| macOS Apple Silicon | arm64 | Vulkan via MoltenVK | Ultra / Classic Lighting |
-| macOS Intel / AMD | x86_64 | Vulkan via MoltenVK | Balanced; probe baker availability may differ |
+| Platform / GPU                             | Architecture | Runtime renderer      | Automatic baseline                            |
+| ------------------------------------------ | ------------ | --------------------- | --------------------------------------------- |
+| Windows, NVIDIA RTX                        | x86_64       | Vulkan                | Ultra / Classic Lighting                      |
+| Windows, modern AMD Radeon RX / Radeon Pro | x86_64       | Vulkan                | Ultra / Classic Lighting                      |
+| Windows, Intel Arc                         | x86_64       | Vulkan                | Ultra / Classic Lighting                      |
+| Windows, older/unknown GPU                 | x86_64       | Vulkan when supported | Balanced                                      |
+| Linux, NVIDIA / AMD / Intel                | x86_64       | Vulkan                | capability dependent                          |
+| macOS Apple Silicon                        | arm64        | Vulkan via MoltenVK   | Ultra / Classic Lighting                      |
+| macOS Intel / AMD                          | x86_64       | Vulkan via MoltenVK   | Balanced; probe baker availability may differ |
 
 The launcher reports the detected architecture, GPU names, vendor, renderer backend and compute
 backend in its capability object. NVIDIA systems with a working `nvidia-smi` are marked as CUDA

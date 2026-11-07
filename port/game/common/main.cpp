@@ -65,6 +65,8 @@
 #include "program/program.h"
 
 #ifdef OPENRAC_FRONTEND
+#include <SDL3/SDL_misc.h>
+
 #include "debug_overlay.h"
 #include "enhanced/renderer/fur.h"
 #include "enhanced/viewer/probe_lighting.h"
@@ -215,11 +217,14 @@ int (*openrac_game_skip_buttons)(void) = nullptr;
 void (*openrac_game_skip)(void) = nullptr;
 int (*openrac_game_flight)(void) = nullptr;
 int (*openrac_game_mode)(uint32_t* mode) = nullptr;
+int (*openrac_game_touch)(const char** context, const char* hints[OPENRAC_TOUCH_HINTS_MAX]) =
+    nullptr;
 int (*openrac_game_hero_position)(float xyz[3]) = nullptr;
 int (*openrac_game_camera_position)(float xyz[3]) = nullptr;
 int (*openrac_game_updating_moby)(openrac_game_moby* out) = nullptr;
 int (*openrac_game_hero)(float position[3], float rotation[3], int32_t* state) = nullptr;
 int (*openrac_game_camera_turn)(uint8_t, float, float*, float[3], unsigned*) = nullptr;
+float openrac_game_camera_speed = 1.0f;
 const openrac_front_end* openrac_game_front_end = nullptr;
 const openrac_game_play* openrac_game_play_host = nullptr;
 const openrac_game_tools* openrac_game_tools_host = nullptr;
@@ -354,6 +359,7 @@ void load_mods() {
     host.hooks = openrac_game_hook_points;
     host.hook_count = openrac_game_hook_point_count;
     host.list = g_options.plugins;
+    host.stack = g_options.mods.empty() ? std::filesystem::path() : g_options.mods / "stack.json";
     host.purist = g_options.no_mods;
     host.loaded_level = openrac_game_loaded_overlay;
     host.pad_hook = &openrac_game_pad_report_hook;
@@ -449,6 +455,12 @@ void load_mods() {
     host.graphics = frontend::mod_graphics;
     host.menu_rect = frontend::mod_menu::rect;
     host.menu_text = frontend::mod_menu::text_at;
+    host.open_url = [](const char* url) {
+        return SDL_OpenURL(url);
+    };
+    host.set_clipboard = [](const char* text) {
+        return SDL_SetClipboardText(text);
+    };
     host.set_views = frontend::set_view_source;
     host.set_vulkan_setup = [](const openrac_vulkan_setup* setup) {
         platform::VulkanSetup s;
@@ -574,6 +586,9 @@ int main(int argc, char** argv) {
     // The session's log first, so that a game that cannot start says why in it (on Android the
     // only place the player can read it, through the launcher).
     open_session(argc, argv);
+    // The part of the game built from the disc, before any of its code runs, and after the log is
+    // open so that one that does not load says why there.
+    load_asm_part(g_options);
     const fs::path iso = g_options.data / "iso_data" / openrac_game.game;
     const fs::path exe = iso / openrac_game.serial;
     const fs::path disc = iso / "disc.iso";
@@ -654,7 +669,7 @@ int main(int argc, char** argv) {
             if (settings::set_hdr_mode(hdr)) {
                 log::info("HDR output {} (OPENRAC_HDR)", hdr);
             } else {
-                log::warn("OPENRAC_HDR={}: not off, auto or on, ignored", hdr);
+                log::warn("OPENRAC_HDR={}: not off or on, ignored", hdr);
             }
         }
         log::header("settings  " + settings::summary(), false);
@@ -689,13 +704,15 @@ int main(int argc, char** argv) {
             log::info("enhanced rendering on (Vulkan only); probe bakes from {}",
                       g_options.probes.empty() ? std::string("nowhere") : g_options.probes.string());
         }
-        // A texture pack (docs/port/TEXTURE_PACKS.md): <data>/texture_packs/<game id>/, and
-        // OPENRAC_DUMP_TEXTURES=DIR writes every texture under the names a pack uses.
+        // A texture pack (docs/port/TEXTURE_PACKS.md): <data>/texture_packs/<game id>/, a mod like
+        // the others, so --no-mods leaves it out; OPENRAC_DUMP_TEXTURES=DIR writes every texture
+        // under the names a pack uses.
         {
             const auto dump = env::value(env::Var::DumpTextures);
             renderer::texture_pack::configure(
-                settings::get().texture_pack ? g_options.data / "texture_packs" / openrac_game.id
-                                             : fs::path{},
+                settings::get().texture_pack && !g_options.no_mods
+                    ? g_options.data / "texture_packs" / openrac_game.id
+                    : fs::path{},
                 dump ? fs::path(std::string(*dump)) : fs::path{},
                 {texture_pack_load, texture_pack_save, texture_pack_load_gif},
                 texture_pack_level_name

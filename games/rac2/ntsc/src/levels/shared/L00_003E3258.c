@@ -385,7 +385,7 @@ void func_L00_003E5340(char *object, float *position)
 
 INCLUDE_ASM("asm/levels", func_L00_003E5BD8);
 
-INCLUDE_ASM("asm/levels", func_L00_003E6030);
+/* func_L00_003E6030 is defined in L00_003E6030-g8.c. */
 
 
 /* Walks the shared table of 0x50-byte records and, for the one owned by OBJECT, either
@@ -507,7 +507,7 @@ void func_L00_003E7760(void)
 {
 }
 
-INCLUDE_ASM("asm/levels", func_L00_003E7C88);
+/* func_L00_003E7C88 is in L00_003E3258-fade.c */
 
 /* func_L00_003E7E40 lives in L00_003E7E40-trails.c. */
 

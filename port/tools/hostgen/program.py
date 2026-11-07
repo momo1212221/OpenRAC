@@ -30,6 +30,8 @@ ASM_MARK = "openrac_asm_"
 
 # A data symbol given as an asm label with a constant offset (`D_L16_0017C218+12`).
 _SYMBOL_OFFSET = re.compile(r"^\s*([A-Za-z_]\w*)\s*([+-])\s*(0[xX][0-9A-Fa-f]+|\d+)\s*$")
+# The suffix of a global's $gp view (common.h's SDATA): the same global under another label.
+_GP_VIEW = "__gp"
 
 # Helpers whose bodies are the decompilation's inline assembly
 # (include/common.h): the runtime has host versions (guest.h).
@@ -89,6 +91,9 @@ class Function:
     # 32-bit result 64-bit where one of them is "returns_64"
     returns: tuple = ()
     wide_result: bool = False   # its result was made 64-bit so (widen_returns): sig.ret is the 64-bit type
+    # a variadic definition whose C reaches its variable arguments through __builtin_next_arg (uses_arg_area):
+    # the EE's save area of argument doublewords, which its callers fill on the host (lower.py)
+    arg_area: bool = False
 
 
 @dataclass
@@ -256,6 +261,10 @@ class Program:
                 text = offset.group(3)
                 n = int(text, 16) if text[:2] in ("0x", "0X") else int(text, 10)
                 return (base + n if offset.group(2) == "+" else base - n) & 0xFFFFFFFF
+        if symbol.endswith(_GP_VIEW):
+            # A $gp view of a global (common.h's SDATA, `__asm__("ref_L00_00424F98_03__gp")`) is
+            # the global: a level's derived name has its address only under its own name.
+            return self.data_address(symbol.removesuffix(_GP_VIEW))
         return None
 
     def data_level(self, symbol: str) -> int | None:
@@ -263,6 +272,8 @@ class Program:
         offset = _SYMBOL_OFFSET.match(symbol)
         if offset:
             symbol = offset.group(1)
+        if symbol.endswith(_GP_VIEW) and symbol not in self.level_names:
+            symbol = symbol.removesuffix(_GP_VIEW)
         if symbol in self.level_names and self.level_names[symbol][0] >= 0:
             return self.level_names[symbol][0]
         for pattern in self.data_names:
@@ -617,6 +628,20 @@ def widen_forwarded(program: Program) -> list[str]:
 RESULT32 = {"int", "signed int", "signed", "unsigned int", "unsigned", "gaddr"}
 
 
+def uses_arg_area(decl: dict) -> bool:
+    """A variadic definition that reaches its variable arguments as the console's register save area
+    (`(char *)__builtin_next_arg(last) - 0x38`, forwarded to a function that walks it): GCC for the EE
+    stores the argument registers past the named ones there as doublewords, followed by the stack
+    arguments, and the C reads or passes on that memory rather than using va_arg."""
+    stack = [decl]
+    while stack:
+        n = stack.pop()
+        if n.get("kind") == "DeclRefExpr" and (n.get("referencedDecl") or {}).get("name") == "__builtin_next_arg":
+            return True
+        stack.extend(n.get("inner", ()))
+    return False
+
+
 def returned_calls(decl: dict, by_id: dict) -> tuple:
     """The functions (symbols) whose result a definition's `return` statements hand back as it is: the value is a
     direct call's result, through parentheses and conversions that are no instruction on the EE (between 32-bit
@@ -802,7 +827,8 @@ def index_unit(program: Program, unit: str, ast: dict) -> list[str]:
                 if not from_main and not decl.get("_file", "").endswith(".c"):
                     # A static function from a header is translated in every unit that has it.
                     pass
-                program.statics[(unit, sym)] = Function(sym, sig, unit, static=True, tail=tail)
+                program.statics[(unit, sym)] = Function(sym, sig, unit, static=True, tail=tail,
+                                                         arg_area=sig.variadic and uses_arg_area(decl))
                 continue
             f = program.functions.get(sym)
             if f is not None and f.unit is not None and f.unit != unit:
@@ -811,7 +837,8 @@ def index_unit(program: Program, unit: str, ast: dict) -> list[str]:
             declared = f.declared if f else []
             program.functions[sym] = Function(sym, sig, unit, asm=f.asm if f else False, declared=declared, tail=tail,
                                               forwards=forwarded_params(decl, by_id),
-                                              returns=returned_calls(decl, by_id))
+                                              returns=returned_calls(decl, by_id),
+                                              arg_area=sig.variadic and uses_arg_area(decl))
         else:
             f = program.functions.get(sym)
             if f is None:
@@ -833,7 +860,10 @@ def best_declaration(sigs: list[Signature]) -> Signature:
 def read_places(path: Path, program: Program) -> int:
     """Each level function's address in each level that has it
     (config/overlays/functions.tsv of rac1/pal: name, kind, size,
-    fingerprint, levels, places as level:address,...)."""
+    fingerprint, levels, places as level:address,...; or a release's catalogue,
+    config/versions/<key>/functions.tsv: name, kind, size, fingerprint, counterpart,
+    method, similarity, same, places, whose executable places, boot:address, are the
+    name's own)."""
     if not path.exists():
         return 0
     count = 0
@@ -843,10 +873,11 @@ def read_places(path: Path, program: Program) -> int:
         cols = line.split("\t")
         if len(cols) < 6:
             continue
+        column = 8 if len(cols) >= 9 and ":" in cols[8] else 5
         places = []
-        for item in cols[5].split(","):
+        for item in cols[column].split(","):
             level, _, addr = item.partition(":")
-            if level and addr:
+            if level and addr and level != "boot":
                 places.append((int(level), int(addr, 16)))
         if places:
             program.places[cols[0]] = places
@@ -963,7 +994,7 @@ def merge(into: Program, part: Program) -> list[str]:
                 continue
             declared = have.declared + f.declared
             into.functions[sym] = Function(sym, f.sig, f.unit, asm=have.asm, declared=declared, tail=f.tail,
-                                           forwards=f.forwards, returns=f.returns)
+                                           forwards=f.forwards, returns=f.returns, arg_area=f.arg_area)
         else:
             have.declared.extend(f.declared)
             if have.unit is None and have.declared:

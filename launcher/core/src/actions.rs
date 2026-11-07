@@ -571,6 +571,9 @@ impl Action {
         if self.kind == Kind::Play && crate::multiplayer::is_valid(&ctx.config.multiplayer_name) {
             env.push((crate::multiplayer::ENV.to_string(), ctx.config.multiplayer_name.clone()));
         }
+        if self.kind == Kind::Play && crate::multiplayer::is_valid_key(&ctx.config.multiplayer_key) {
+            env.push((crate::multiplayer::KEY_ENV.to_string(), ctx.config.multiplayer_key.clone()));
+        }
         // Settings, "Detailed game logs": the port's verbose log (port/common/log.h).
         if self.kind == Kind::Play && ctx.config.detailed_game_log {
             env.push(("OPENRAC_LOG".to_string(), "verbose".to_string()));
@@ -585,9 +588,9 @@ impl Action {
         {
             env.push(("OPENRAC_GL_API".to_string(), "vulkan".to_string()));
         }
-        // Settings, "HDR": the launcher's choice over the game's own for this start.
-        if self.kind == Kind::Play && matches!(ctx.config.hdr.as_str(), "off" | "auto" | "on") {
-            env.push(("OPENRAC_HDR".to_string(), ctx.config.hdr.clone()));
+        // Settings, "HDR": Off or On, over the game's own for this start.
+        if self.kind == Kind::Play {
+            env.push(("OPENRAC_HDR".to_string(), crate::config::hdr_mode(&ctx.config.hdr).to_string()));
         }
         // The Mods tab's Enhanced graphics (enhanced.rs): with `enhanced_rendering = 1` in the
         // version's settings file the game draws with Vulkan, the one renderer that has it, and
@@ -1056,15 +1059,19 @@ mod tests {
         );
         let unnamed = Config { multiplayer_name: "no spaces".into(), ..installed.clone() };
         assert!(!play.plan(&ctx(&unnamed)).unwrap().env.iter().any(|(k, _)| k == "OPENRAC_PLAYER_NAME"));
-        // Settings, "HDR": nothing by default (the game's own), else the launcher's word.
-        assert!(!plan.env.iter().any(|(k, _)| k == "OPENRAC_HDR"));
-        let modes = ["off", "auto", "on"].map(|mode| Config { hdr: mode.into(), ..installed.clone() });
-        for hdr in &modes {
-            let plan = play.plan(&ctx(hdr)).unwrap();
-            assert!(plan.env.contains(&("OPENRAC_HDR".to_string(), hdr.hdr.clone())), "{:?}", plan.env);
+        let key = "0123456789abcdef0123456789abcdef".to_string();
+        let keyed = Config { multiplayer_key: key.clone(), ..installed.clone() };
+        assert!(play.plan(&ctx(&keyed)).unwrap().env.contains(&("OPENRAC_IDENTITY_KEY".to_string(), key)));
+        assert!(!play.plan(&ctx(&installed)).unwrap().env.iter().any(|(k, _)| k == "OPENRAC_IDENTITY_KEY"));
+        // Settings, "HDR": Off by default, else On; anything else is Off.
+        assert!(plan.env.contains(&("OPENRAC_HDR".to_string(), "off".to_string())), "{:?}", plan.env);
+        let modes = [("off", "off"), ("on", "on"), ("bright", "off")]
+            .map(|(hdr, sent)| (Config { hdr: hdr.into(), ..installed.clone() }, sent));
+        for (config, sent) in &modes {
+            let plan = play.plan(&ctx(config)).unwrap();
+            let wanted = ("OPENRAC_HDR".to_string(), sent.to_string());
+            assert!(plan.env.contains(&wanted), "{}: {:?}", config.hdr, plan.env);
         }
-        let odd = Config { hdr: "bright".into(), ..installed.clone() };
-        assert!(!play.plan(&ctx(&odd)).unwrap().env.iter().any(|(k, _)| k == "OPENRAC_HDR"));
         // Settings, "Renderer": Vulkan, the default, on the desktops; OpenGL sets nothing.
         let opengl = Config { renderer: "opengl".into(), ..installed.clone() };
         assert!(!play.plan(&ctx(&opengl)).unwrap().env.iter().any(|(k, _)| k == "OPENRAC_GL_API"));

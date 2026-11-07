@@ -68,6 +68,11 @@ namespace openrac::frontend {
 
 namespace {
 
+bool supports_enhanced_water(std::string_view game, int level) {
+    return (level == 1 && game.starts_with("rac1-"))
+           || (game == "rac1-ntsc" && (level == 11 || level == 17));
+}
+
 // The extracted level the title world is written as (editor/level.py load_title).
 constexpr int kTitleWorld = 99;
 // The flight between planets' sky, written as a level of its own (editor/level.py load_flight).
@@ -195,6 +200,11 @@ void preload_level(int number) {
 // The directional light bank, in the executable's terms (relocated to the loaded program's copy).
 gaddr light_bank_address() {
     return openrac_game_front_end != nullptr ? openrac_game_front_end->light_bank : 0;
+}
+
+// The game's occlusion mask (0x80 bytes), in the executable's terms; 0 when the game has none.
+gaddr occlusion_address() {
+    return openrac_game_front_end != nullptr ? openrac_game_front_end->occlusion : 0;
 }
 
 // Uploads a level's geometry; while the boot program runs (the title and the main menu), the title
@@ -394,10 +404,8 @@ void use_level(int number) {
                 renderer::Bucket::Particles,
                 enhanced::atmosphere_material(
                     g->scene,
-                    ((wanted == 1 && g->game.starts_with("rac1-"))
-                     || (wanted == 11 && g->game == "rac1-ntsc"))
-                        ? enhanced::make_water(g->scene, dir)
-                        : nullptr
+                    supports_enhanced_water(g->game, wanted) ? enhanced::make_water(g->scene, dir)
+                                                             : nullptr
                 )
             ),
             error
@@ -1316,9 +1324,7 @@ extern "C" int openrac_game_enhanced_water(void) {
     using namespace openrac;
     return c_boundary::call("openrac_game_enhanced_water", 0, [] {
         const bool available =
-            frontend::g && frontend::g->game.starts_with("rac1-")
-            && (frontend::g->loaded == 1
-                || (frontend::g->loaded == 11 && frontend::g->game == "rac1-ntsc"))
+            frontend::g && frontend::supports_enhanced_water(frontend::g->game, frontend::g->loaded)
             && frontend::enhanced_graphics_available() && settings::get().enhanced_graphics
             && enhanced::water_available();
         if (available && frontend::g->loaded == 11 && enhanced::ocean_replaces_horizon()) {
