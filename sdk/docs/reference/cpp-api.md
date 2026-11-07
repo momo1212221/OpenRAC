@@ -228,6 +228,7 @@ One of the mod's pages of the game's own menus (Mod::ui_page): set what it shows
 | `std::string data_dir() const` | Since 1.11: the mod's own folder for the files it keeps (beside the memory cards, made by the port), empty for none. |
 | `int save_slot_current() const` | Since 1.11: the memory card slot the game in progress saves into (the one it was loaded from or last saved to), -1 for none. |
 | `bool has_api_12() const` | Whether the port has interface 1.12's calls: the hero moved by the mod (hero_set_pose), the collision triangles, props, sounds, the camera, heat haze and HUD text. has_hero_drive(), has_collision(), has_props(), has_sounds() and has_camera() say the same for each part. |
+| `bool has_api_13() const` | Whether the port has interface 1.13's hit-source metadata/replay support. |
 | `bool has_hero_drive() const` |  |
 | `bool has_collision() const` |  |
 | `bool has_props() const` |  |
