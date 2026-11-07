@@ -73,7 +73,7 @@ fn read_rgba(path: &Path) -> Result<RgbaImage, String> {
     match info.color_type {
         png::ColorType::Rgba => pixels.extend_from_slice(bytes),
         png::ColorType::Rgb => {
-            for p in bytes.chunks_exact(3) {
+            for p in bytes.as_chunks::<3>().0.iter() {
                 pixels.extend_from_slice(&[p[0], p[1], p[2], 255]);
             }
         }
@@ -83,7 +83,7 @@ fn read_rgba(path: &Path) -> Result<RgbaImage, String> {
             }
         }
         png::ColorType::GrayscaleAlpha => {
-            for p in bytes.chunks_exact(2) {
+            for p in bytes.as_chunks::<2>().0.iter() {
                 pixels.extend_from_slice(&[p[0], p[0], p[0], p[1]]);
             }
         }
@@ -208,8 +208,8 @@ fn center_block(output: &RgbaImage, source: &RgbaImage, x: usize, y: usize) -> V
 fn restore_star(output: &mut RgbaImage, source: &RgbaImage, x: usize, y: usize, original: &[u8]) {
     for (ox, oy) in center_block(output, source, x, y) {
         let at = (oy * output.width + ox) * 4;
-        for channel in 0..3 {
-            output.pixels[at + channel] = output.pixels[at + channel].max(original[channel]);
+        for (channel, value) in original.iter().take(3).enumerate() {
+            output.pixels[at + channel] = output.pixels[at + channel].max(*value);
         }
         output.pixels[at + 3] = output.pixels[at + 3].max(original[3]);
     }
@@ -218,8 +218,8 @@ fn restore_star(output: &mut RgbaImage, source: &RgbaImage, x: usize, y: usize, 
 fn add_residual(output: &mut RgbaImage, source: &RgbaImage, x: usize, y: usize, residual: [i32; 3], strength: f32) {
     for (ox, oy) in center_block(output, source, x, y) {
         let at = (oy * output.width + ox) * 4;
-        for channel in 0..3 {
-            let add = residual[channel] as f32 * strength;
+        for (channel, value) in residual.iter().enumerate() {
+            let add = *value as f32 * strength;
             output.pixels[at + channel] = (output.pixels[at + channel] as f32 + add).round().clamp(0.0, 255.0) as u8;
         }
     }
@@ -272,7 +272,7 @@ mod tests {
         let source_path = temp("source-star");
         let output_path = temp("output-star");
         let mut source = image(3, 3, [8, 8, 12]);
-        let center = (1 * 3 + 1) * 4;
+        let center = 16;
         source.pixels[center..center + 4].copy_from_slice(&[240, 235, 220, 255]);
         write_rgba(&source_path, &source).unwrap();
         write_rgba(&output_path, &image(12, 12, [12, 12, 18])).unwrap();
@@ -292,7 +292,7 @@ mod tests {
         let source_path = temp("source-detail");
         let output_path = temp("output-detail");
         let mut source = image(3, 3, [100, 100, 100]);
-        let center = (1 * 3 + 1) * 4;
+        let center = 16;
         source.pixels[center..center + 4].copy_from_slice(&[150, 130, 110, 255]);
         write_rgba(&source_path, &source).unwrap();
         write_rgba(&output_path, &image(12, 12, [112, 112, 112])).unwrap();

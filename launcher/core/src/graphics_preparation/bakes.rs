@@ -394,7 +394,7 @@ fn cloud_profile(text: &str) -> Value {
     let mut atmosphere = serde_json::Map::new();
     let mut colour = vec![Value::Null; 3];
     for spec in super::settings().iter().filter(|s| s.key.starts_with("cloud_")) {
-        let mut value = crate::enhanced::read_setting(&text, spec);
+        let mut value = crate::enhanced::read_setting(text, spec);
         // Canonical f32 values keep the cache stable when the native port rewrites its INI.
         if spec.kind == "float" {
             value = Value::from(value.as_f64().unwrap_or_default() as f32 as f64);

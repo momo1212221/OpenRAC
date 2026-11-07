@@ -514,8 +514,10 @@ fn png_rgba(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
     raw.truncate(info.buffer_size());
     let pixels = match info.color_type {
         png::ColorType::Rgba => raw,
-        png::ColorType::Rgb => raw.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
-        png::ColorType::GrayscaleAlpha => raw.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        png::ColorType::Rgb => raw.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        png::ColorType::GrayscaleAlpha => {
+            raw.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()
+        }
         png::ColorType::Grayscale => raw.iter().flat_map(|v| [*v, *v, *v, 255]).collect(),
         png::ColorType::Indexed => return Err(format!("{} stayed indexed after PNG expansion", path.display())),
     };
@@ -1347,7 +1349,7 @@ mod tests {
         assert_eq!(rgba.len(), 4 * 4 * 4);
         assert_eq!(&rgba[..4], &[255, 0, 0, 255]);
         assert_eq!(&rgba[(3 * 4)..(4 * 4)], &[0, 255, 0, 255]);
-        assert!(rgba.chunks_exact(4).any(|p| p[3] < 255));
+        assert!(rgba.as_chunks::<4>().0.iter().any(|p| p[3] < 255));
     }
 
     #[test]

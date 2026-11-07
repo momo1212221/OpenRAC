@@ -313,7 +313,7 @@ fn list_meta(folder: &Path, serial: &str) -> Result<Vec<SnapshotMeta>, String> {
 /// The tips of the immutable snapshot graph. Concurrent devices may make two children of the same
 /// parent; both remain tips and are reported as a conflict until a later snapshot names both as
 /// parents.
-fn heads<'a>(snapshots: &'a [SnapshotMeta]) -> Vec<&'a SnapshotMeta> {
+fn heads(snapshots: &[SnapshotMeta]) -> Vec<&SnapshotMeta> {
     let parents: BTreeSet<&str> = snapshots.iter().flat_map(|s| s.parents.iter().map(String::as_str)).collect();
     let mut out: Vec<&SnapshotMeta> = snapshots.iter().filter(|s| !parents.contains(s.id.as_str())).collect();
     out.sort_by(|a, b| (a.created.as_str(), a.id.as_str()).cmp(&(b.created.as_str(), b.id.as_str())));
@@ -371,11 +371,13 @@ fn snapshot_id(serial: &str, content: &str, parents: &[String], device: &str) ->
     format!("{:x}", hash.finalize())
 }
 
+type LocalSnapshot = (PathBuf, save_transfer::SaveArchiveManifest, String);
+
 fn status_with(
     folder: Option<&Path>,
     serial: &str,
     launcher_version: &str,
-) -> Result<(CloudSaveStatus, Option<(PathBuf, save_transfer::SaveArchiveManifest, String)>), String> {
+) -> Result<(CloudSaveStatus, Option<LocalSnapshot>), String> {
     let Some(folder) = folder else {
         return Ok((
             CloudSaveStatus {

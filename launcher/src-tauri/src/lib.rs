@@ -544,8 +544,8 @@ fn run_action(
             if openrac_launcher_core::launcher_addons::enabled(
                 &openrac_launcher_core::saves::data_home(),
                 openrac_launcher_core::graphics_preparation::ID,
-                &key.split_once('/').unwrap_or(("", "")).0,
-                &key.split_once('/').unwrap_or(("", "")).1,
+                key.split_once('/').unwrap_or(("", "")).0,
+                key.split_once('/').unwrap_or(("", "")).1,
             ) {
                 openrac_launcher_core::graphics_preparation::sync_cloud_profile(
                     &config,
@@ -1170,10 +1170,10 @@ async fn ai_texture_bake(
     fn upscayl_paths() -> (PathBuf, PathBuf) {
         #[cfg(target_os = "macos")]
         {
-            return (
+            (
                 PathBuf::from("/Applications/Upscayl.app/Contents/Resources/bin/upscayl-bin"),
                 PathBuf::from("/Applications/Upscayl.app/Contents/Resources/models"),
-            );
+            )
         }
 
         #[cfg(windows)]
@@ -1218,7 +1218,7 @@ async fn ai_texture_bake(
                     }
                 }
             }
-            return (PathBuf::from("upscayl-bin.exe"), PathBuf::from("models"));
+            (PathBuf::from("upscayl-bin.exe"), PathBuf::from("models"))
         }
 
         #[cfg(all(not(target_os = "macos"), not(windows)))]
