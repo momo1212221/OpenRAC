@@ -4,6 +4,9 @@
 // Sun/emitter visibility, surface bounces and winding-independent occupancy.
 #include "enhanced/lighting/bake_transport.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "enhanced/lighting/bake_material.h"
 #include "enhanced/lighting/bake_math.h"
 
@@ -84,9 +87,65 @@ BounceSurface bounce_surface(
             acceleration.triangle(hit.hit),
             hit.hit.u,
             hit.hit.v,
-            {{1, 1, 1}, settings.terrain_vertex_albedo}
+            {{1, 1, 1}, settings.terrain_vertex_albedo, settings.terrain_vertex_albedo_strength}
         )
     };
+}
+
+struct MediumTransport {
+    float transmission = 1;
+    Float3 colour{};
+};
+
+MediumTransport medium_transport(
+    const BakeAtmosphereSettings& a, Float3 origin, Float3 direction, float distance
+) {
+    MediumTransport out;
+
+    if (!a.enabled || distance <= 0) {
+        return out;
+    }
+
+    const float length = std::min(std::isfinite(distance) ? distance : a.distance, a.distance);
+
+    if (length <= 0) {
+        return out;
+    }
+
+    constexpr unsigned kSteps = 6;
+    const float ds = length / float(kSteps);
+    float optical = 0;
+    Float3 weighted{};
+
+    for (unsigned i = 0; i < kSteps; ++i) {
+        const auto p = add(origin, mul(direction, (float(i) + .5f) * ds));
+        const float fog =
+            a.fog_density
+            * std::exp(std::clamp(-a.fog_falloff * std::max(0.f, p[2] - a.fog_base), -80.f, 0.f));
+        optical += fog * ds;
+
+        for (unsigned c = 0; c < 3; ++c) {
+            weighted[c] += a.fog_colour[c] * fog * ds;
+        }
+    }
+
+    const float cloud =
+        a.cloud_field ? a.cloud_field->optical_depth(origin, direction, length) : 0.f;
+    optical += cloud;
+
+    for (unsigned c = 0; c < 3; ++c) {
+        weighted[c] += a.cloud_colour[c] * cloud;
+    }
+
+    out.transmission = std::exp(-std::min(optical, 80.0f));
+
+    if (optical > 1e-8f) {
+        for (unsigned c = 0; c < 3; ++c) {
+            out.colour[c] = weighted[c] / optical;
+        }
+    }
+
+    return out;
 }
 
 // Accumulated radiance and diffuse throughput for a single continuation path.
@@ -95,6 +154,17 @@ struct BounceLighting {
     const BakeSettings& settings;  // Immutable settings for this bake.
     Float3 result{};               // Radiance in the primary ray direction.
     Float3 throughput{1, 1, 1};    // Reflectance product of preceding surfaces.
+
+    // Apply the already-established cloud/fog field before evaluating the next lighting event.
+    void transmit(Float3 origin, Float3 direction, float distance) {
+        const auto medium = medium_transport(settings.atmosphere, origin, direction, distance);
+        const float scattered = (1 - medium.transmission) * .12f * settings.sky_intensity;
+
+        for (unsigned c = 0; c < 3; ++c) {
+            result[c] += throughput[c] * medium.colour[c] * scattered;
+            throughput[c] *= medium.transmission;
+        }
+    }
 
     // Adds escaped sky radiance through the preceding surface reflectance.
     void add_environment(Float3 direction) {
@@ -155,11 +225,20 @@ struct BounceLighting {
                 continue;
             }
 
-            // Primary sunlight uses the same per-level RGB scale as runtime lighting.
+            const float atmosphere_visibility =
+                medium_transport(
+                    settings.atmosphere,
+                    add(surface.position, mul(surface.normal, settings.ray_bias)),
+                    to_sun,
+                    settings.atmosphere.distance
+                )
+                    .transmission;
+
+            // Primary sunlight uses the same per-level RGB scale as runtime lighting, after cloud/fog attenuation.
             for (unsigned c = 0; c < 3; ++c) {
                 const float correction = sun.primary ? settings.sunlight_scale[c] : 1.0f;
                 result[c] += throughput[c] * surface.albedo[c] * sun.irradiance[c] * correction
-                             * cosine / kPi;
+                             * atmosphere_visibility * cosine / kPi;
             }
         }
     }
@@ -212,6 +291,10 @@ Float3 radiance(
 
     // The final depth can escape to the sky without adding another surface bounce.
     for (std::uint32_t bounce = 0; bounce <= settings.bounces; ++bounce) {
+        const Float3 medium_origin{hit.ray.org_x, hit.ray.org_y, hit.ray.org_z};
+        const float medium_distance =
+            hit.hit.geomID == RTC_INVALID_GEOMETRY_ID ? settings.atmosphere.distance : hit.ray.tfar;
+        lighting.transmit(medium_origin, direction, medium_distance);
         const auto emission = segment_emission(acceleration, settings, hit, direction_pdf);
 
         // Emission is accepted at the terminal depth without another diffuse bounce.

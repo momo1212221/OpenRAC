@@ -3,6 +3,7 @@
 in vec3 v_world;
 #endif
 in vec3 v_water_rest;
+flat in vec2 v_water_art_axis;
 uniform samplerBuffer water_bodies;
 uniform sampler2D water_coast_map;
 uniform sampler2D water_wave_map;
@@ -106,7 +107,8 @@ vec3 water_direct_specular(vec3 p,vec3 n,vec3 eye,float roughness,float shadow,o
         vec3 delta=LOCAL_POSITION(i).xyz-p;
         float radius=LOCAL_POSITION(i).w,distance=length(delta);
         if(radius<=0. || distance>=radius || distance<1e-6) continue;
-        vec3 radiance=max(LOCAL_COLOUR(i).rgb,vec3(0))*LOCAL_ATTENUATION(distance,radius)*LOCAL_CONE(i,delta/distance);
+        vec3 radiance=max(LOCAL_COLOUR(i).rgb,vec3(0))*LOCAL_ATTENUATION(distance,radius)*LOCAL_CONE(i,delta/distance)
+            *LOCAL_VISIBILITY(p,i);
         irradiance+=radiance*float(max(dot(mp_vec3(n),mp_vec3(delta/distance)),mp_float(0)));
         result+=radiance*water_specular(n,eye,delta/distance,roughness);
     }
@@ -257,7 +259,12 @@ vec3 effect_material(vec3 painted) {
     if(water_fine_strength>0.) {
         vec2 dpdx=dFdx(v_water_rest.xy),dpdy=dFdy(v_water_rest.xy);
         vec2 texture_uv=v_stq.xy/v_stq.z;
-        vec2 axis=water_art_direction(dpdx,dpdy,dFdx(texture_uv),dFdy(texture_uv),flow.xy);
+        // Still pools share a ripple direction and phase across their authored triangles.
+        vec2 axis=vec2(1,0);
+        if(dot(flow.xy,flow.xy)>1e-8) {
+            axis=dot(v_water_art_axis,v_water_art_axis)>.5?v_water_art_axis
+                :water_art_direction(dpdx,dpdy,dFdx(texture_uv),dFdy(texture_uv),flow.xy);
+        }
         float painted_weight=.9+.1*clamp(dot(painted,vec3(.2126,.7152,.0722)),0.,1.);
         // Include the maximum flow-phase stretch in the filter footprint.
         vec2 filter_dx=abs(dpdx)+1.5*abs(dFdx(wave.yz));

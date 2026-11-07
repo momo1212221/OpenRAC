@@ -100,7 +100,6 @@ void func_002E7090(int level)
 
 /* func_002E7248 is matched in its own unit, 002E7248-qcopy.c. */
 
-INCLUDE_ASM("asm/game", func_002E7338);
 
 /* func_002E7570 is in 002E7018-qcopy.c (grouped lq/sq copies). */
 
@@ -226,7 +225,7 @@ int func_002EB158(int index)
 /* func_002EBAA8 is in 002EBAA8-g8.c (-G8 small data). */
 
 
-INCLUDE_ASM("asm/game", func_002EBC70);
+/* func_002EBC70 is in 002EBC70-g8.c (-G8 small data). */
 
 /* func_002EBDF0 is matched in 002EBDF0-g8.c. */
 
@@ -234,7 +233,8 @@ INCLUDE_ASM("asm/game", func_002EBC70);
 
 /* func_002EC408 is in 002EC408-g8.c (-G8 small data). */
 
-INCLUDE_ASM("asm/game", func_002ECB70);
+/* func_002ECB70 is matched in 002ECB70-g8.c (-G8 small data, -fno-gcse). */
+
 
 /* selects the level data bank when the resident context is in state 9 */
 void func_002ED058(void) {

@@ -241,11 +241,11 @@ void func_L00_0041AFD8(void *unused, float *a, int k, float f)
     func_00280B90(&local, &local.m00, 0);
 }
 
-INCLUDE_ASM("asm/levels", func_L00_0041B1B8);
+/* func_L00_0041B1B8 is in L00_0041ABB8-trail-g8.c. */
 
 /* func_L00_0041B840 is in L00_0041ABB8-ring-g8.c. */
 
-INCLUDE_ASM("asm/levels", func_L00_0041BCC8);
+/* func_L00_0041BCC8 is in L00_0041ABB8-beam-g8.c. */
 
 /* Builds a 224-byte local record, writes a looked-up handle and fixed fields, calls bound float helpers, invokes one bound helper on each of four blocks, and passes the record to a final bound helper. */
 void func_L00_0041C160(void *unused, float *b, float *a, int k, float f)
@@ -368,7 +368,7 @@ void func_L00_0041E4A8(void *arg0)
 
 /* func_L00_0041EB38 is in L00_0041ABB8-shot-g8.c. */
 
-INCLUDE_ASM("asm/levels", func_L00_0041EE58);
+/* func_L00_0041EE58 is in L00_0041ABB8-homing.c. */
 
 
 
@@ -519,8 +519,7 @@ void func_L00_004208C8(MoveObject *object, TI128 *input)
     }
 }
 
-INCLUDE_ASM("asm/levels", func_L00_00420C38);
-
+/* func_L00_00420C38 is built from L00_0041ABB8-anim-g8.c. */
 
 /* reads a base pointer from a0+112 and pushes three consecutive tweak slots through the same five-float interpolation helper, writing each result back over the first float vector while forwarding three trailing floats unchanged. */
 void func_L00_004219D8(char *a0, float *a1, float *a2,

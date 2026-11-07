@@ -9,7 +9,16 @@
   // A built-in entry (Enhanced graphics, core/src/enhanced.rs: `builtIn`) has no folder, menu or
   // source; its page also says how far its lighting bake is, with the way to run it.
   import { onDestroy, onMount, tick } from "svelte";
-  import { ask, type BakeStatus, type ModSources, type ModUpdate, type PluginPreset, type PluginView } from "$lib/api";
+  import {
+    api,
+    ask,
+    type BakeStatus,
+    type ModSources,
+    type ModUpdate,
+    type PluginPreset,
+    type PluginView,
+    type VersionView,
+  } from "$lib/api";
   import { phaseLabel, readProgress } from "$lib/progress";
   import type { Job } from "$lib/queue";
   import { Saver, type SaveState } from "$lib/autosave";
@@ -22,6 +31,7 @@
   import Menu, { type MenuItem } from "./Menu.svelte";
   import ModSetting from "./ModSetting.svelte";
   import Reason from "./Reason.svelte";
+  import TexturePacksBlock from "./TexturePacksBlock.svelte";
 
   let {
     mod,
@@ -37,6 +47,7 @@
     onfolder,
     onhomepage,
     onremove,
+    ontool = () => undefined,
     builtIn = null,
   }: {
     mod: PluginView;
@@ -53,11 +64,78 @@
     onfolder: () => void;
     onhomepage: () => void;
     onremove: () => void;
+    /** Shows the mod's own page (ModTool.svelte), for a mod that has one (`tool`). */
+    ontool?: () => void;
     /** A built-in entry's bake: its status, the job running it, and the way to start it. */
-    builtIn?: { bake: BakeStatus; job: Job | null; onbake: () => void; ondelete: () => void } | null;
+    builtIn?: {
+      bake: BakeStatus;
+      job: Job | null;
+      logJob: Job | null;
+      onfollow: () => void;
+      game: string;
+      version: string;
+      versionView: VersionView;
+      onbake: () => void;
+      ondelete: () => void;
+      onpack: () => void;
+    } | null;
   } = $props();
 
   const bakeProgress = $derived(builtIn?.job ? readProgress(builtIn.job.actionId, builtIn.job.lines) : null);
+
+  type AiAssetMode = "faithful" | "balanced" | "enhanced";
+  let textureMessage = $state("");
+  let textureReload = $state(0);
+  let aiBusy = $state(false);
+  const aiPref = (key: string, fallback: string) => {
+    if (typeof localStorage === "undefined") return fallback;
+    return localStorage.getItem(`openrac.graphics.${key}`) ?? fallback;
+  };
+  const savedAiMode = aiPref("aiMode", "balanced");
+  let aiMode = $state<AiAssetMode>(savedAiMode === "faithful" || savedAiMode === "enhanced" ? savedAiMode : "balanced");
+  let aiPreserveMicrodetail = $state(aiPref("preserveMicrodetail", "1") !== "0");
+  let aiPreserveStars = $state(aiPref("preserveStars", "1") !== "0");
+
+  function rememberAi(key: string, value: string) {
+    if (typeof localStorage !== "undefined") localStorage.setItem(`openrac.graphics.${key}`, value);
+  }
+
+  async function aiPreRender() {
+    if (!builtIn || aiBusy) return;
+    aiBusy = true;
+    textureMessage = "AI asset pre-render is running…";
+    try {
+      const result = await api.aiTextureBake(builtIn.game, builtIn.version, {
+        mode: aiMode,
+        preserveMicrodetail: aiPreserveMicrodetail,
+        preserveStars: aiPreserveStars,
+      });
+      await api.texturePacksSet(builtIn.game, builtIn.version, { enabled: true });
+      textureReload++;
+
+      let meshText = "";
+      try {
+        const meshes = await api.aiMeshBake(builtIn.game, builtIn.version, aiMode);
+        meshText = meshes.available
+          ? ` ${meshes.processed}/${meshes.discovered} render meshes were AI-refined; collision was left original.`
+          : ` ${meshes.discovered} render meshes were found; this computer has no 3D AI backend yet, so geometry was left original.`;
+      } catch (meshError) {
+        meshText = ` Texture AI succeeded; 3D AI failed: ${String(meshError)}`;
+      }
+
+      textureMessage = `${result.processed} textures rendered with ${result.model}; preserved ${result.preservedStars} stars/tiny lights and ${result.preservedMicrodetails} microdetails.${meshText}`;
+      builtIn.onpack();
+    } catch (e) {
+      textureMessage = String(e);
+    } finally {
+      aiBusy = false;
+    }
+  }
+
+  async function prepareCloudsAndLighting() {
+    await saver.flush();
+    if (saver.state !== "failed") builtIn?.onbake();
+  }
 
   // ---- Saving as the player goes ----
 
@@ -98,6 +176,49 @@
   );
   const changed = $derived(shown.filter((s) => s.value !== s.default && String(s.value) !== String(s.default)));
 
+  function enhancedParent(key: string): string | null {
+    if (mod.id !== "enhanced-graphics" && mod.id !== "graphics-preparation") return null;
+    if (key.startsWith("cloud_") && key !== "cloud_enabled") return "cloud_enabled";
+    if (key === "agx_exposure" || key === "agx_brightness") return "agx_preview";
+    if (key === "bloom_strength" || key === "bloom_radius") return "bloom";
+    if (
+      [
+        "gtao_quality",
+        "gtao_radius",
+        "gtao_strength",
+        "gtao_slices",
+        "gtao_steps",
+        "gtao_half_resolution",
+        "gtao_hi_z",
+      ].includes(key)
+    )
+      return "gtao";
+    if (["rim_light_strength", "rim_light_falloff", "rim_shadow_lift"].includes(key)) return "rim_light";
+    if (
+      [
+        "motion_blur_strength",
+        "motion_blur_radius",
+        "motion_blur_samples",
+        "motion_blur_min_motion",
+        "motion_blur_spread",
+        "motion_blur_depth_tolerance",
+        "motion_blur_cutscene_multiplier",
+      ].includes(key)
+    )
+      return "motion_blur";
+    return null;
+  }
+
+  function enhancedChildOf(key: string): string | undefined {
+    const parent = enhancedParent(key);
+    return parent ? `${mod.id}-${parent}-name` : undefined;
+  }
+
+  function enhancedSettingDisabled(key: string): boolean {
+    const parent = enhancedParent(key);
+    return parent ? shown.find((setting) => setting.key === parent)?.value !== true : false;
+  }
+
   function change(key: string, value: unknown, delay: number) {
     saver.set(key, value, delay);
   }
@@ -120,7 +241,7 @@
   const cannotLoad = $derived(mod.enabled && !purist && (mod.state === "refused" || mod.state === "failed"));
 
   const menu = $derived<MenuItem[]>(
-    builtIn
+    mod.kind === "built-in"
       ? []
       : [
           ...(source
@@ -187,7 +308,7 @@
     </ol>
   </nav>
 
-  <section class="panel head" class:off={!mod.enabled}>
+  <section class="panel head" class:off={!mod.enabled && mod.kind !== "tool"}>
     <div class="title">
       <h2 bind:this={heading} tabindex="-1">{mod.name}</h2>
       <p class="meta">
@@ -205,6 +326,11 @@
       {#if mod.description}<p class="desc">{mod.description}</p>{/if}
     </div>
     <div class="actions">
+      {#if mod.tool}
+        <button class="primary" title={T.MOD_PAGE.openToolHint(mod.name)} onclick={ontool}
+          ><Icon name="external" size={16} />{T.MOD_PAGE.openTool}</button
+        >
+      {/if}
       {#if update && !source?.pin}
         <button disabled={updating} onclick={onupdate}
           >{#if updating}<span class="spinner"></span>{:else}<Icon name="refresh" size={16} />{/if}{T.MOD_PAGE.update(
@@ -212,24 +338,39 @@
           )}</button
         >
       {/if}
-      <label class="power" class:on={mod.enabled}>
-        <span>{mod.enabled ? T.MOD_PAGE.on : T.MOD_PAGE.off}</span>
-        <input
-          type="checkbox"
-          role="switch"
-          class="switch"
-          aria-label={T.useAria(mod.name)}
-          checked={mod.enabled}
-          disabled={!mod.enabled && mod.blocked !== ""}
-          onchange={(e) => {
-            onenable(e.currentTarget.checked);
-          }}
-        />
-      </label>
+      {#if mod.kind === "tool"}
+        <!-- A tool can't be off: its switch shows on, greyed, and says why. -->
+        <label class="power on" title={T.VIEW.toolAlwaysOn}>
+          <span>{T.VIEW.toolAlwaysOnShort}</span>
+          <input
+            type="checkbox"
+            role="switch"
+            class="switch"
+            aria-label={`${mod.name}: ${T.VIEW.toolAlwaysOn}`}
+            checked
+            disabled
+          />
+        </label>
+      {:else}
+        <label class="power" class:on={mod.enabled}>
+          <span>{mod.enabled ? T.MOD_PAGE.on : T.MOD_PAGE.off}</span>
+          <input
+            type="checkbox"
+            role="switch"
+            class="switch"
+            aria-label={T.useAria(mod.name)}
+            checked={mod.enabled}
+            disabled={!mod.enabled && mod.blocked !== ""}
+            onchange={(e) => {
+              onenable(e.currentTarget.checked);
+            }}
+          />
+        </label>
+      {/if}
       {#if menu.length}<Menu label={T.MOD_PAGE.more(mod.name)} items={menu} />{/if}
     </div>
 
-    {#if purist && mod.enabled}
+    {#if purist && mod.enabled && !mod.tool && mod.kind !== "built-in"}
       <p class="notice"><Icon name="info" size={16} /><span>{T.WITH_MODS.offNotice}</span></p>
     {/if}
     {#if cannotLoad}
@@ -249,7 +390,7 @@
     <details class="more about">
       <summary>{T.MOD_PAGE.about}</summary>
       <div class="about-body">
-        {#if builtIn}<p class="long">{T.ENHANCED.about}</p>
+        {#if mod.id === "enhanced-graphics"}<p class="long">{T.ENHANCED.about}</p>
         {:else if mod.description}<p class="long">{mod.description}</p>{/if}
         <dl>
           <dt>{T.MOD_PAGE.aboutKind}</dt>
@@ -263,7 +404,7 @@
           {/if}
           {#if mod.license}<dt>{T.PANEL.license}</dt>
             <dd>{mod.license}</dd>{/if}
-          {#if !builtIn}
+          {#if mod.kind !== "built-in"}
             <dt>{T.PANEL.folder}</dt>
             <dd class="folder">
               <span class="mono">{mod.path}</span>
@@ -281,17 +422,23 @@
     </details>
   </section>
 
-  {#if builtIn}
+  {#if builtIn && mod.enabled}
     {@const bake = builtIn.bake}
     {@const job = builtIn.job}
     <section class="panel bake" aria-labelledby={`${mod.id}-bake`}>
       <div class="bake-text">
-        <h3 id={`${mod.id}-bake`}>{T.ENHANCED.lightingTitle}</h3>
+        <h3 id={`${mod.id}-bake`}>Prepare lighting, GI, water and clouds</h3>
+        <p class="muted small-print">
+          Cloud shapes are prepared once and loaded from disk during play. Changes in the Clouds section require
+          preparation again and a level reload. Lighting uses the same prepared field.
+        </p>
         <p class="muted" role="status">
           {#if job}
             {phaseLabel(job)}{bakeProgress?.percent != null
               ? `, ${Math.round(bakeProgress.percent)} %${bakeProgress.left ? `, ${bakeProgress.left}` : ""}`
               : "…"}
+          {:else if bake.busy}
+            {T.ENHANCED.busy(bake.ready, bake.levels)}
           {:else if !bake.available}
             {bake.noBakerHere ? T.ENHANCED.noBakerHere : bake.levels === 0 ? T.ENHANCED.noLevels : T.ENHANCED.noBaker}
           {:else if bake.ready >= bake.levels}
@@ -302,25 +449,47 @@
             {#if bake.failed}{T.ENHANCED.failed(bake.failed)}{/if}
           {/if}
         </p>
-        {#if job}
+        {#if job !== null || bake.busy}
           <div
             class="track"
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-valuenow={bakeProgress?.percent ?? undefined}
+            aria-valuenow={job ? (bakeProgress?.percent ?? undefined) : undefined}
+            aria-label={bake.busy && !job ? T.ENHANCED.busy(bake.ready, bake.levels) : undefined}
           >
-            {#if bakeProgress?.percent != null}<i style:width={`${bakeProgress.percent}%`}></i>{:else}<i class="moving"
+            {#if job && bakeProgress?.percent != null}<i style:width={`${bakeProgress.percent}%`}></i>{:else}<i
+                class="moving"
               ></i>{/if}
           </div>
         {:else if bake.ready < bake.levels && !bake.noBakerHere}
           <p class="dim small-print">{T.ENHANCED.fallback}</p>
         {/if}
       </div>
-      {#if !job && (bake.available || bake.ready + bake.partial + bake.failed > 0)}
+      {#if !job && bake.busy}<button class="ghost" onclick={builtIn.onfollow}>Show live preparation output</button>{/if}
+      {#if !job && builtIn.logJob}<details>
+          <summary>Preparation log</summary>
+          <pre>{builtIn.logJob.lines
+              .slice(-150)
+              .map((l) => l.line)
+              .join("\n")}</pre>
+        </details>{/if}
+      {#if job}
+        <details>
+          <summary>Live preparation log</summary>
+          <pre>{job.lines
+              .slice(-150)
+              .map((l) => l.line)
+              .join("\n")}</pre>
+        </details>
+        {#if job.id !== null}<button class="ghost" onclick={() => job.id !== null && void api.cancelJob(job.id)}
+            >Stop preparation</button
+          >{/if}
+      {/if}
+      {#if !job && !bake.busy && (bake.available || bake.ready + bake.partial + bake.failed > 0)}
         <div class="bake-actions">
           {#if bake.available}
-            <button class:ghost={bake.ready >= bake.levels} onclick={builtIn.onbake}
+            <button class:ghost={bake.ready >= bake.levels} onclick={() => void prepareCloudsAndLighting()}
               ><Icon name="refresh" size={16} />{bake.ready >= bake.levels
                 ? T.ENHANCED.again
                 : bake.partial
@@ -337,6 +506,82 @@
         </div>
       {/if}
     </section>
+  {/if}
+
+  {#if builtIn && mod.enabled}
+    <section class="panel texture-tools" aria-labelledby={`${mod.id}-textures`}>
+      <div class="texture-head">
+        <div>
+          <h3 id={`${mod.id}-textures`}>AI asset enhancement</h3>
+          <p class="muted">
+            Neural enhancement for textures and render meshes, including terrain, scenery and models. Collision stays
+            untouched. Everything is pre-rendered, so there is no runtime AI cost.
+          </p>
+        </div>
+      </div>
+
+      <div class="texture-ai-grid">
+        <label class="ai-profile">
+          <span>AI asset profile</span>
+          <select
+            value={aiMode}
+            disabled={aiBusy}
+            onchange={(e) => {
+              aiMode = e.currentTarget.value as AiAssetMode;
+              rememberAi("aiMode", aiMode);
+            }}
+          >
+            <option value="faithful">Faithful · preserve original look</option>
+            <option value="balanced">Balanced · add material detail</option>
+            <option value="enhanced">Maximum detail · strongest reconstruction</option>
+          </select>
+        </label>
+        <label>
+          <span>Preserve original micro-detail</span>
+          <input
+            type="checkbox"
+            role="switch"
+            class="switch"
+            checked={aiPreserveMicrodetail}
+            disabled={aiBusy}
+            onchange={(e) => {
+              aiPreserveMicrodetail = e.currentTarget.checked;
+              rememberAi("preserveMicrodetail", aiPreserveMicrodetail ? "1" : "0");
+            }}
+          />
+        </label>
+        <label>
+          <span>Preserve stars & tiny lights</span>
+          <input
+            type="checkbox"
+            role="switch"
+            class="switch"
+            checked={aiPreserveStars}
+            disabled={aiBusy}
+            onchange={(e) => {
+              aiPreserveStars = e.currentTarget.checked;
+              rememberAi("preserveStars", aiPreserveStars ? "1" : "0");
+            }}
+          />
+        </label>
+      </div>
+
+      <div class="texture-actions">
+        <button
+          disabled={aiBusy || builtIn.game !== "rac1" || builtIn.version !== "pal"}
+          onclick={() => void aiPreRender()}
+        >
+          {#if aiBusy}<span class="spinner"></span>{:else}<Icon name="refresh" size={16} />{/if}
+          Build AI asset pack
+        </button>
+        <span class="muted small-print">
+          Faithful stays closest to the original. Balanced is the recommended default. Maximum Detail allows the
+          strongest texture and mesh reconstruction; rigged assets must retain their skinning.
+        </span>
+      </div>
+      {#if textureMessage}<p class="texture-message" role="status">{textureMessage}</p>{/if}
+    </section>
+    <TexturePacksBlock preparationControls version={builtIn.versionView} reload={textureReload} />
   {/if}
 
   {#if mod.settings.length}
@@ -383,12 +628,8 @@
             {#each g.settings as s (s.key)}
               <ModSetting
                 setting={s}
-                childOf={mod.id === "enhanced-graphics" && s.key === "agx_brightness"
-                  ? `${mod.id}-agx_preview-name`
-                  : undefined}
-                disabled={mod.id === "enhanced-graphics" &&
-                  s.key === "agx_brightness" &&
-                  shown.find((setting) => setting.key === "agx_preview")?.value !== true}
+                childOf={enhancedChildOf(s.key)}
+                disabled={enhancedSettingDisabled(s.key)}
                 id={`${mod.id}-${s.key}`}
                 saved={savedCount[s.key] ?? 0}
                 conflicts={clashes[s.key] ?? []}
@@ -407,12 +648,8 @@
             {#each g.settings as s (s.key)}
               <ModSetting
                 setting={s}
-                childOf={mod.id === "enhanced-graphics" && s.key === "agx_brightness"
-                  ? `${mod.id}-agx_preview-name`
-                  : undefined}
-                disabled={mod.id === "enhanced-graphics" &&
-                  s.key === "agx_brightness" &&
-                  shown.find((setting) => setting.key === "agx_preview")?.value !== true}
+                childOf={enhancedChildOf(s.key)}
+                disabled={enhancedSettingDisabled(s.key)}
                 id={`${mod.id}-${s.key}`}
                 saved={savedCount[s.key] ?? 0}
                 conflicts={clashes[s.key] ?? []}
@@ -427,7 +664,7 @@
       {/if}
     {/each}
   {:else}
-    <p class="none">{T.MOD_PAGE.noSettings}</p>
+    <p class="none">{mod.tool ? T.MOD_PAGE.toolSettings : T.MOD_PAGE.noSettings}</p>
   {/if}
 </div>
 
@@ -838,6 +1075,92 @@
 
   .small-print {
     font-size: 0.8125rem;
+  }
+
+  .texture-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .texture-head,
+  .texture-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+  }
+
+  .texture-head h3 {
+    margin: 0 0 4px;
+    font-family: var(--font-sans);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+
+  .texture-head p,
+  .texture-message {
+    margin: 0;
+    font-size: 0.8125rem;
+  }
+
+  .texture-ai-grid > label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  .texture-ai-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+    background: var(--panel-hi);
+  }
+
+  .texture-ai-grid label {
+    font-size: 0.78rem;
+  }
+
+  .texture-ai-grid .ai-profile {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .texture-ai-grid select {
+    width: 100%;
+  }
+
+  .texture-actions .small-print {
+    max-width: 54ch;
+    text-align: right;
+  }
+
+  .texture-message {
+    color: var(--soft);
+  }
+
+  @media (max-width: 760px) {
+    .texture-head,
+    .texture-actions {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .texture-ai-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .texture-actions .small-print {
+      text-align: left;
+    }
   }
 
   /* Its heading where the other groups have theirs, the fold's chevron at the right (app.css). */

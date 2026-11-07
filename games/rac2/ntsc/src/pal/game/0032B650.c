@@ -110,6 +110,6 @@ void func_PAL_0032B730(char *self)
 }
 
 
-INCLUDE_ASM("asm/pal/game", func_PAL_0032B920);
-
-INCLUDE_ASM("asm/pal/game", func_PAL_0032B930);
+void func_PAL_0032B920(void)
+{
+}

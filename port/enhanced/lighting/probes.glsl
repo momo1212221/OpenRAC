@@ -19,7 +19,7 @@ uniform float probe_gi_multiplier;
 uniform vec3 probe_sunlight_scale;
 // XYZ is a world-space travel direction; W enables the primary-light override.
 uniform vec4 probe_sunlight_direction;
-uniform int probe_terrain_albedo;
+uniform float probe_terrain_albedo;
 // 1: lighting anchored on the game's own (Going Commando): the original moby ambient is the floor of
 // a moby's diffuse GI, and terrain whose vertex colours carry the original lighting takes the
 // enhanced lighting relative to unshadowed sunlight (README, Retail anchoring).
@@ -73,6 +73,7 @@ uniform vec4 probe_point_colour[8];
 #define LOCAL_POSITION(i) probe_point_position[i]
 #define LOCAL_COLOUR(i) probe_point_colour[i]
 #define LOCAL_CONE(i,d) 1.
+#define LOCAL_VISIBILITY(p,i) 1.
 #define LOCAL_ATTENUATION(d,r) (1.0-(d)/(r))
 #endif
 
@@ -348,7 +349,7 @@ ivec3 probe_choose_regions(vec3 p) {
             int id = int(texelFetch(probe_region_masks, 1 + slot).r);
             vec3 step = probe_regions[id * 3 + 1].xyz;
             vec3 c = probe_local(p - probe_regions[id * 3].xyz,vec2(probe_regions[id*3+1].w,probe_regions[id*3+2].w)) / step;
-            vec3 edge = min(c, probe_regions[id * 3 + 2].xyz - 1.0 - c);
+            vec3 edge = min(c, (probe_regions[id * 3 + 2].xyz - 1.0 - c) * vec3(1.0, 1.0, 0.5));
             float influence = smoothstep(0.0, 1.0, min(edge.x, min(edge.y, edge.z)));
             float score = influence / (step.x * step.y * step.z);
             if (score > scores.x || (score > 0.0 && score == scores.x && id < best.x)) {
@@ -372,7 +373,9 @@ ivec3 probe_choose_regions(vec3 p) {
     return best;
 }
 
-bool sample_probe_irradiance(vec3 p, vec3 n, vec3 surface_bias, out vec3 irradiance) {
+bool sample_probe_irradiance(
+    vec3 p, vec3 n, vec3 surface_bias, out vec3 irradiance, out float dense_weight
+) {
     vec3 locals = vec3(0.0);
     float total = 0.0;
     float confidence = 0.0;
@@ -409,7 +412,7 @@ bool sample_probe_irradiance(vec3 p, vec3 n, vec3 surface_bias, out vec3 irradia
             continue;
         }
         vec3 coordinate = probe_local(p - origin,frame) / spacing;
-        vec3 edge = min(coordinate, dimensions - 1.0 - coordinate);
+        vec3 edge = min(coordinate, (dimensions - 1.0 - coordinate) * vec3(1.0, 1.0, 0.5));
         float boundary = smoothstep(0.0, 1.0, min(edge.x, min(edge.y, edge.z))) * weight;
         // Zero-influence borders cannot contribute even when their probes are valid.
         if (boundary <= 0.0) {
@@ -425,6 +428,7 @@ bool sample_probe_irradiance(vec3 p, vec3 n, vec3 surface_bias, out vec3 irradia
             total += blend;
         }
     }
+    dense_weight = min(total, 1.0);
     if (total >= 1.0) {
         irradiance = locals / total;
         return true;
@@ -445,11 +449,17 @@ bool sample_probe_irradiance(vec3 p, vec3 n, vec3 surface_bias, out vec3 irradia
     if (total > 0.0) {
         if (!base_valid) {
             irradiance = locals / total;
+            dense_weight = 1.0;
             return true;
         }
-        irradiance = mix(irradiance, locals / total, min(total, 1.0));
+        irradiance = mix(irradiance, locals / total, dense_weight);
     }
     return base_valid;
+}
+
+bool sample_probe_irradiance(vec3 p, vec3 n, vec3 surface_bias, out vec3 irradiance) {
+    float dense_weight;
+    return sample_probe_irradiance(p, n, surface_bias, irradiance, dense_weight);
 }
 
 // Reference/fixture entry point retains the original normal-only bias.
@@ -720,13 +730,14 @@ vec3 probe_direct(vec3 p, vec3 n, vec4 selector, float visibility) {
         // Authored radiance can exceed FP16; narrow only the bounded angular/range weights.
         if(i>=8) {
             mp_float weight=mp_float(response)*mp_float(LOCAL_ATTENUATION(distance,radius))
-                            *mp_float(LOCAL_CONE(i,delta/distance));
+                            *mp_float(LOCAL_CONE(i,delta/distance))*mp_float(LOCAL_VISIBILITY(p,i));
             direct+=max(LOCAL_COLOUR(i).rgb,vec3(0))*float(weight);
             continue;
         }
 #endif
         mp_vec3 contribution = max(mp_vec3(LOCAL_COLOUR(i).rgb), mp_vec3(0))
-            * mp_float(response) * mp_float(LOCAL_ATTENUATION(distance,radius)) * mp_float(LOCAL_CONE(i,delta/distance));
+            * mp_float(response) * mp_float(LOCAL_ATTENUATION(distance,radius)) * mp_float(LOCAL_CONE(i,delta/distance))
+            * mp_float(LOCAL_VISIBILITY(p,i));
         direct += vec3(contribution);
     }
     return direct;

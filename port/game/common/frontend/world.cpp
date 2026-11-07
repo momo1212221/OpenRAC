@@ -15,6 +15,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <format>
@@ -22,6 +23,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -33,6 +35,7 @@
 #include "debug_overlay.h"
 #include "enhanced/renderer/atmosphere.h"
 #include "enhanced/renderer/gtao.h"
+#include "enhanced/renderer/ray_traced_sun.h"
 #include "enhanced/renderer/texture_upscale.h"
 #include "enhanced/renderer/water.h"
 #include "enhanced/viewer/scene_lighting.h"
@@ -66,6 +69,11 @@
 namespace openrac::frontend {
 
 namespace {
+
+bool supports_enhanced_water(std::string_view game, int level) {
+    return (level == 1 && game.starts_with("rac1-"))
+           || (game == "rac1-ntsc" && (level == 11 || level == 17));
+}
 
 // The extracted level the title world is written as (editor/level.py load_title).
 constexpr int kTitleWorld = 99;
@@ -102,15 +110,27 @@ struct LevelSources {
 LevelSources level_sources(int wanted) {
     LevelSources sources;
     sources.dir = g->levels / std::format("level_{:02d}", wanted);
+
     // An edited level's scenery (--mods): the editor's pack writes it beside its gameplay file.
     if (openrac_game_mods_dir != nullptr) {
         sources.edited = std::filesystem::path(openrac_game_mods_dir)
                          / std::format("level_{:02d}", wanted) / "placements.json";
     }
+
     // The loaded mods' assets for this level (MODS.md, section 3), searched before its own files.
     for (const std::filesystem::path& root : mods::asset_roots()) {
         sources.mod_roots.push_back(root / std::format("level_{:02d}", wanted));
     }
+
+    if (const char* prepared = std::getenv("OPENRAC_PREPARED_MESHES")) {
+        if (!std::getenv("OPENRAC_PREPARED_GRAPHICS")
+            || std::string_view(std::getenv("OPENRAC_PREPARED_GRAPHICS")) != "0") {
+            sources.mod_roots.push_back(
+                std::filesystem::path(prepared) / std::format("level_{:02d}", wanted)
+            );
+        }
+    }
+
     return sources;
 }
 
@@ -122,6 +142,7 @@ bool read_level(int wanted, const LevelSources& sources, std::string& error) {
         crash::level_breadcrumb("level data wait", wanted);
         Preload::Read read = g_preload.read.get();
         g_preload.level = -1;
+
         if (read.level.dir == sources.dir) {
             g->level = std::move(read.level);
             error = std::move(read.error);
@@ -129,6 +150,7 @@ bool read_level(int wanted, const LevelSources& sources, std::string& error) {
             return read.ok;
         }
     }
+
     crash::level_breadcrumb("level data read", wanted);
     const bool read =
         scene::load_level(sources.dir, g->level, error, sources.edited, sources.mod_roots);
@@ -154,9 +176,11 @@ void configure_level_shadows(State& owner, int level) {
     );
     const bool sun_shadow = enhanced_graphics_available() && openrac_game_has_level(level)
                             && env::flag(env::Var::SunShadows);
+
     if (!owner.scene.enable_sun_shadow(sun_shadow, error)) {
         log::warn("Cascaded sun shadows unavailable: {}", error);
     }
+
     if (!owner.scene.enable_hero_shadow(
             enhanced_graphics_available()
                 && (hero_pixel_shadow || owner.scene.sun_shadow_enabled()),
@@ -173,9 +197,11 @@ void preload_level(int number) {
     if (!g || number < 0 || number == g->loaded || !g->profile->has_levels()) {
         return;
     }
+
     if (g_preload.level == number && g_preload.generation == openrac_game_mods_generation) {
         return;
     }
+
     // A read of another level still under way is waited for here (its future ends with it).
     crash::level_breadcrumb("level preload requested", number);
     g_preload.level = number;
@@ -196,12 +222,18 @@ gaddr light_bank_address() {
     return openrac_game_front_end != nullptr ? openrac_game_front_end->light_bank : 0;
 }
 
+// The game's occlusion mask (0x80 bytes), in the executable's terms; 0 when the game has none.
+gaddr occlusion_address() {
+    return openrac_game_front_end != nullptr ? openrac_game_front_end->occlusion : 0;
+}
+
 // Uploads a level's geometry; while the boot program runs (the title and the main menu), the title
 // world's, or level 0's when the title world was not extracted.
 void use_level(int number) {
     static unsigned loaded_generation;
     static unsigned loaded_props;
     int wanted = number;
+
     if (number <= -2
         && std::filesystem::exists(
             g->levels / std::format("level_{:02d}", kFlightWorld + 2 + number)
@@ -212,12 +244,15 @@ void use_level(int number) {
                      ? kTitleWorld
                      : 0;
     }
+
     // A prop of a mesh the level was read without (interface 1.12): the level is read again with it.
     const unsigned props = mods::prop_meshes_generation();
+
     if (wanted == g->loaded && loaded_generation == openrac_game_mods_generation
         && loaded_props == props) {
         return;
     }
+
     crash::level_breadcrumb("level load started", wanted);
     loaded_generation = openrac_game_mods_generation;
     loaded_props = props;
@@ -227,16 +262,20 @@ void use_level(int number) {
     // display list, the fonts) across the change.
     const bool fresh = !g->renderer;
     g->hud = nullptr;
+
     if (fresh) {
         g->renderer = std::make_unique<renderer::Renderer>();
         // The enhanced renderer's ambient occlusion, drawn when the player's settings ask for it.
         g->renderer->set_ambient_occlusion(std::make_unique<renderer::Gtao>());
+
         for (const renderer::ImageUpload& image : g->images) {
             g->renderer->textures().upload(image);
         }
     } else {
         g->renderer->clear_renderers();
+        g->renderer->textures().clear_upscaled_texture_colours();
     }
+
     crash::level_breadcrumb("level scene reset", wanted);
     g->scene.release();
     g->scene = scene::LevelScene();
@@ -255,6 +294,7 @@ void use_level(int number) {
     // player about.
     const bool has_levels = g->profile->has_levels();
     const bool read = read_level(wanted, sources, error);
+
     if (!has_levels && !read) {
         crash::level_breadcrumb("level scenery unavailable", wanted);
         log::info(
@@ -268,11 +308,14 @@ void use_level(int number) {
         );
         g->renderer->add(std::make_unique<renderer::DirectBackground>(*hud), error);
         g->renderer->add(std::move(hud), error);
+
         if (fresh) {
             init_level_renderer(wanted, error);
         }
+
         return;
     }
+
     if (has_levels && !read) {
         crash::level_breadcrumb("level load failed", wanted);
         log::warn("level {}: {} (extract it with editor/extract.py port)", wanted, error);
@@ -298,28 +341,72 @@ void use_level(int number) {
             ),
             error
         );
+
         if (fresh) {
             init_level_renderer(wanted, error);
         }
+
         return;
     }
+
     // The mods' prop meshes, read as an assets classes.json's are (MODS.md, section 6): a mesh that
     // cannot be read leaves its props undrawn, and the level as it is.
     for (const std::filesystem::path& mesh : mods::prop_meshes()) {
         std::string why;
+
         if (const auto model = scene::load_model(mesh, g->level, why)) {
             g->prop_models.emplace_back(mesh, *model);
         } else {
             log::warn("mods: prop mesh {}: {}", mesh.string(), why);
         }
     }
+
     enhanced::install_texture_upscaler(g->renderer->textures());
+
+    // M3/M4 Macs and native Vulkan RT devices may replace the static terrain's direct-sun
+    // visibility with hardware ray queries. This is prepared at level load, so it has no
+    // per-frame acceleration-structure cost and never changes the baked indirect light.
+    g->level.rt_sun_visibility.clear();
+
+    if (settings::get().enhanced_graphics && settings::get().ray_tracing
+        && (!std::getenv("OPENRAC_PREPARED_GRAPHICS")
+            || std::string_view(std::getenv("OPENRAC_PREPARED_GRAPHICS")) != "0")) {
+        renderer::Vec3 sunlight{0.0f, 0.0f, -1.0f};
+
+        if (g->level.light_sets.size() == 256) {
+            std::copy_n(g->level.light_sets.data() + 4, 3, sunlight.data());
+        }
+
+        if (const auto override = settings::get().sunlight_direction()) {
+            std::copy(override->begin(), override->end(), sunlight.begin());
+        }
+
+        std::string rt_error;
+        const enhanced::RayTracedSunStats rt =
+            enhanced::ray_trace_static_sun(g->level, sunlight, rt_error);
+
+        if (rt.active) {
+            log::info(
+                "ray tracing: static sunlight prepared with {} ({} triangles, {} terrain "
+                "receivers, hardware {})",
+                rt.backend,
+                rt.triangles,
+                rt.receivers,
+                rt.hardware ? "yes" : "compute fallback"
+            );
+        } else if (!rt_error.empty()) {
+            log::warn("ray tracing: static sunlight unavailable: {}", rt_error);
+        }
+    }
+
     crash::level_breadcrumb("level scene upload", wanted);
+
     if (!g->scene.upload(g->level, g->renderer->textures(), error)) {
         crash::level_breadcrumb("level upload failed", wanted);
         log::error("level {}: {}", wanted, error);
         return;
     }
+
     // The 2D path: its part before the world first, the rest after the world renderers.
     crash::level_breadcrumb("level renderers setup", wanted);
     auto hud = std::make_unique<renderer::DirectRenderer>(
@@ -328,6 +415,7 @@ void use_level(int number) {
     g->hud = hud.get();
     g->renderer->add(std::make_unique<renderer::DirectBackground>(*hud), error);
     configure_level_shadows(*g, wanted);
+
     for (std::size_t layer = 0; layer < scene::kLayerCount; ++layer) {
         // The caster is drawn after its shadow, so its proxy cannot darken
         // Ratchet himself. Opaque scenery has already filled the depth buffer.
@@ -337,10 +425,12 @@ void use_level(int number) {
                 log::error("shadow renderer: {}", error);
             }
         }
+
         g->renderer->add(
             std::make_unique<scene::LayerRenderer>(g->scene, static_cast<scene::Layer>(layer)),
             error
         );
+
         // The liquids (the seas and lava the game draws solid) after the ties, where retail's draw
         // callback list 3 draws them, before the shrubs and mobys (renderer/effects.h).
         if (static_cast<scene::Layer>(layer) == scene::Layer::Ties
@@ -356,6 +446,7 @@ void use_level(int number) {
             log::error("liquid renderer: {}", error);
         }
     }
+
     if (g->renderer->add(
             std::make_unique<renderer::EffectRenderer>(
                 "effects",
@@ -363,10 +454,8 @@ void use_level(int number) {
                 renderer::Bucket::Particles,
                 enhanced::atmosphere_material(
                     g->scene,
-                    ((wanted == 1 && g->game.starts_with("rac1-"))
-                     || (wanted == 11 && g->game == "rac1-ntsc"))
-                        ? enhanced::make_water(g->scene, dir)
-                        : nullptr
+                    supports_enhanced_water(g->game, wanted) ? enhanced::make_water(g->scene, dir)
+                                                             : nullptr
                 )
             ),
             error
@@ -374,13 +463,17 @@ void use_level(int number) {
         == nullptr) {
         log::error("effect renderer: {}", error);
     }
+
     g->renderer->add(std::move(hud), error);
+
     if (fresh) {
         init_level_renderer(wanted, error);
     }
+
     // The sky's textures at pool keys of their own (kSkyTextureKey + number), for its sprites.
     crash::level_breadcrumb("level sky upload", wanted);
     const auto sky = scene::load_sky_textures(dir, g->level.overrides);
+
     for (std::size_t i = 0; i < sky.size(); ++i) {
         if (sky[i].width > 0) {
             const renderer::TextureHandle h = g->renderer->textures().add(
@@ -389,6 +482,7 @@ void use_level(int number) {
             g->renderer->textures().place(kSkyTextureKey + static_cast<std::uint32_t>(i), h);
         }
     }
+
     // Build shader work from earlier runs now, behind the loading screen (docs/port/RENDER_PERF.md).
     crash::level_breadcrumb("level pipelines", wanted);
 #if defined(OPENRAC_VULKAN)
@@ -403,9 +497,11 @@ void use_level(int number) {
 
 void savestate_restored(std::uint64_t tick) {
     options_menu::savestate_restored();
+
     if (!g) {
         return;
     }
+
     // Join any in-flight render before discarding its view of future guest state. use_level() will
     // rebuild the scene and GPU renderers from the restored level on the next tick.
     g->render_worker.reset();
@@ -418,9 +514,11 @@ void savestate_restored(std::uint64_t tick) {
     g->kept = std::make_shared<Kept>();
     g->scene.release();
     g->renderer.reset();
+
     if (g->temporal) {
         g->temporal->reset();
     }
+
     g->scene = scene::LevelScene();
     g->level = scene::LevelData();
     g->loaded = -2;
@@ -453,9 +551,11 @@ void savestate_restored(std::uint64_t tick) {
     g->frame.release();
     g->picture.release();
     g->last_world.release();
+
     for (renderer::FrameBuffer& view : g->views) {
         view.release();
     }
+
     g->view_targets.clear();
     g->render_failed = false;
     g_route = {};
@@ -470,12 +570,14 @@ void water_explosion(const float* position, float radius, float strength) {
         || g->water_impulses.size() >= renderer::kWaterImpulseLimit) {
         return;
     }
+
     renderer::WaterImpulse impulse{
         {position[0], position[1], position[2]},
         {position[0], position[1], position[2]},
         radius,
         strength
     };
+
     if (renderer::valid_water_impulse(impulse)) {
         g->water_impulses.push_back(impulse);
     }
@@ -485,6 +587,7 @@ void effect_quad(std::span<const std::uint8_t> ram, const openrac_game_quad& qua
     if (quad.source < g->effect_sources.size()) {
         ++g->effect_sources[quad.source];
     }
+
     renderer::EffectQuad q;
     std::memcpy(q.corner, quad.corner, sizeof(q.corner));
     std::memcpy(q.rgba, quad.rgba, sizeof(q.rgba));
@@ -503,6 +606,7 @@ void effect_quad(std::span<const std::uint8_t> ram, const openrac_game_quad& qua
     q.cbp = cbp;
     const std::uint32_t width = 1u << ((quad.tex0 >> 26) & 0xF);
     const std::uint32_t height = 1u << ((quad.tex0 >> 30) & 0xF);
+
     if (pixels != 0 && clut != 0 && pixels + width * height <= ram.size()
         && clut + 1024 <= ram.size()) {
         renderer::ImageUpload palette;
@@ -524,12 +628,14 @@ void effect_quad(std::span<const std::uint8_t> ram, const openrac_game_quad& qua
         // by content (effect_textures): its GS blocks are shared with other effect textures in the
         // frame, and the pool holds only the last upload at a block when the quads are drawn.
         const renderer::gs::Tex0 t = renderer::gs::Tex0::decode(quad.tex0);
+
         if (t.psm == 0x13 && t.cpsm == 0x00 && !t.csm) {
             const std::array<std::uint32_t, 3> source{pixels, clut, width << 16 | height};
             auto hashed =
                 std::find_if(g->effect_hashed.begin(), g->effect_hashed.end(), [&](const auto& h) {
                     return h.first == source;
                 });
+
             if (hashed == g->effect_hashed.end()) {
                 g->effect_hashed.push_back(
                     {source,
@@ -538,10 +644,12 @@ void effect_quad(std::span<const std::uint8_t> ram, const openrac_game_quad& qua
                 );
                 hashed = std::prev(g->effect_hashed.end());
             }
+
             g->effect_texture_ids.push_back(
                 {g->effects.size(), hashed->second.first, hashed->second.second}
             );
         }
+
         g->effect_uploads.push_back(std::move(palette));
         g->effect_uploads.push_back(std::move(image));
         g->effects.push_back(q);
@@ -557,6 +665,7 @@ std::uint32_t effect_quad_marker() {
     if (!g || g->effects.empty() || g->effects.size() > 0xFFFFF) {
         return 0;
     }
+
     return (g->effect_generation & 0xFFF) << 20 | static_cast<std::uint32_t>(g->effects.size() - 1);
 }
 
@@ -566,22 +675,28 @@ void effect_textures() {
         g->effect_textures.clear();
         g->effect_textures_for = g->renderer.get();
     }
+
     const renderer::gs::Texa texa{0, false, 0x80};
+
     for (const State::EffectTextureId& e : g->effect_texture_ids) {
         if (!g->renderer || e.effect >= g->effects.size()) {
             continue;
         }
+
         renderer::EffectQuad& q = g->effects[e.effect];
         const auto at = static_cast<std::size_t>(q.uploads);
+
         if (q.uploads < 0 || at + 1 >= g->effect_uploads.size()) {
             continue;
         }
+
         const renderer::ImageUpload& palette = g->effect_uploads[at];
         const renderer::ImageUpload& image = g->effect_uploads[at + 1];
         const std::uint64_t id = e.pixels ^ (e.clut * 0x9E3779B97F4A7C15ull)
                                  ^ (static_cast<std::uint64_t>(image.width) << 48
                                     | static_cast<std::uint64_t>(image.height) << 32);
         std::uint32_t& key = g->effect_textures[id];
+
         if (key == 0) {
             // As the pool converts the two uploads (convert_upload): the pixels as they lie, the
             // CLUT in CSM1, in the chip's alpha units.
@@ -606,21 +721,25 @@ void effect_textures() {
             key = kEffectTextureKey + static_cast<std::uint32_t>(g->effect_textures.size() - 1);
             g->renderer->textures().place(key, h);
         }
+
         // A pack maker's dump groups the textures an effect cycles through (by its quad's slot
         // when it has one, else by where its texels lie).
         if (const auto placed = g->renderer->textures().placed(key)) {
             constexpr std::uint64_t kQuadSlot = std::uint64_t{1} << 32;  // ids apart from blocks
             g->renderer->textures().watch(q.id != 0 ? q.id | kQuadSlot : image.dbp, *placed);
         }
+
         q.tbp = key;
         q.cbp = 0;
     }
+
     // For a capture: the effect quads by where their texture's source was found (effect_quad).
     if (stats::enabled()) {
         stats::gauge("effect quads without texture source", g->effect_sources[0]);
         stats::gauge("effect quads paged this frame", g->effect_sources[1]);
         stats::gauge("effect quads paged before", g->effect_sources[2]);
     }
+
     g->effect_texture_ids.clear();
     g->effect_hashed.clear();
     g->effect_sources = {};
@@ -630,6 +749,7 @@ void sky_shell(int shell, const float* matrix) {
     if (!g || shell < 0 || shell >= static_cast<int>(g->sky_shells.size())) {
         return;
     }
+
     std::memcpy(g->sky_shells[static_cast<std::size_t>(shell)].data(), matrix, sizeof(float) * 16);
     g->sky_shell_mask |= 1u << shell;
 }
@@ -638,14 +758,17 @@ int hud_side() {
     if (!g || !g->window || settings::get().hud != settings::Hud::Edges) {
         return 0;
     }
+
     int window_width = 0;
     int window_height = 0;
     g->window->drawable_size(window_width, window_height);
     const Box box =
         frame_box(window_width, window_height, picture_aspect(window_width, window_height));
+
     if (box.height <= 0) {
         return 0;
     }
+
     // The picture is box.width / box.height wide where the game's is 4:3: each side gained half
     // the difference, in pixels of which the game's picture has 512.
     const float wider =
@@ -669,15 +792,18 @@ float picture_wider() {
     if (!g || !g->window) {
         return 1.0f;
     }
+
     int window_width = 0;
     int window_height = 0;
     g->window->drawable_size(window_width, window_height);
     const float aspect = picture_aspect(window_width, window_height);
     const Box box = frame_box(window_width, window_height, aspect);
+
     // As render() widens the frame's horizontal tangent: 1 / picture_scale.
     if (aspect <= kTvAspect || box.width <= 0 || box.height <= 0) {
         return 1.0f;
     }
+
     return std::max(
         1.0f, static_cast<float>(box.width) / (kTvAspect * static_cast<float>(box.height))
     );
@@ -703,6 +829,7 @@ void sky_sprite_quads(const host::GameState& state) {
     const float tan_y = state.tan_half_fov_y > 0.0f ? state.tan_half_fov_y : 0.476f;
     std::vector<renderer::EffectQuad> quads;
     quads.reserve(g->sky_sprites.size());
+
     for (const auto& [r, tex0] : g->sky_sprites) {
         float pos[3];
         float theta;
@@ -714,9 +841,11 @@ void sky_sprite_quads(const host::GameState& state) {
         std::memcpy(&rgba, r.data() + 4, 4);
         const float len = std::sqrt(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]);
         const float z = pos[0] * fwd[0] + pos[1] * fwd[1] + pos[2] * fwd[2];
+
         if (!(len > 0.0f) || !(z > 0.0f) || !std::isfinite(size)) {
             continue;
         }
+
         const float k = kSkyDistance / len;
         const float h = 4.0f * size * tan_y * k;
         const float c = std::cos(theta);
@@ -725,20 +854,24 @@ void sky_sprite_quads(const host::GameState& state) {
         float centre[3];
         float a[3];
         float b[3];
+
         for (int i = 0; i < 3; ++i) {
             centre[i] = cam[i] + pos[i] * k;
             a[i] = (c * right[i] + 1.0625f * s * down[i]) * h;
             b[i] = (-s * right[i] + 1.0625f * c * down[i]) * h;
         }
+
         for (int i = 0; i < 3; ++i) {
             q.corner[0][i] = centre[i] + a[i];
             q.corner[1][i] = centre[i] + b[i];
             q.corner[2][i] = centre[i] - b[i];
             q.corner[3][i] = centre[i] - a[i];
         }
+
         for (std::uint32_t& col : q.rgba) {
             col = rgba;
         }
+
         const float st[4][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
         std::memcpy(q.st, st, sizeof(st));
         (void)tex0;
@@ -750,6 +883,7 @@ void sky_sprite_quads(const host::GameState& state) {
         q.alpha = r[3];
         quads.push_back(q);
     }
+
     if (!quads.empty()) {
         std::stable_sort(
             quads.begin(),
@@ -763,6 +897,7 @@ void sky_sprite_quads(const host::GameState& state) {
         );
         g->effects.insert(g->effects.begin(), quads.begin(), quads.end());
     }
+
     g->sky_sprites.clear();
 }
 
@@ -799,23 +934,28 @@ std::uint32_t particle_texture(
 ) {
     constexpr std::uint32_t kParticleTextureKey = 0x30000;  // past the sky's (kSkyTextureKey)
     const std::size_t kSide = std::size_t{1} << log2_side;
+
     if (!g->renderer || pixels == 0 || clut == 0 || pixels + kSide * kSide > ram.size()
         || clut + 1024 > ram.size()) {
         return 0;
     }
+
     if (g->particle_textures_for
         != g->renderer.get()) {  // a new renderer (a level loaded): a new pool
         g->particle_textures.clear();
         g->particle_textures_for = g->renderer.get();
     }
+
     const std::span<const std::uint8_t> indices = ram.subspan(pixels, kSide * kSide);
     const std::span<const std::uint8_t> colours = ram.subspan(clut, 1024);
     const std::uint64_t id =
         renderer::hash_bytes(indices.data(), indices.size())
         ^ (renderer::hash_bytes(colours.data(), colours.size()) * 0x9E3779B97F4A7C15ull);
+
     if (const auto found = g->particle_textures.find(id); found != g->particle_textures.end()) {
         return found->second;
     }
+
     const renderer::gs::Texa texa{0, false, 0x80};
     const std::vector<std::uint32_t> palette = renderer::clut_csm1(colours, 0x00, 16, 256, texa);
     renderer::Rgba8Image image =
@@ -840,13 +980,17 @@ std::uint32_t particle_texture(
 // name, "?" for a game without the table.
 std::string particle_update(std::span<const std::uint8_t> ram, unsigned type) {
     const gaddr table = g->profile->particle_updates();
+
     if (table == 0) {
         return "?";
     }
+
     const gaddr at = (OPENRAC_DATA(table) + 4u * type) & 0x01FFFFFFu;
+
     if (at + 4 > ram.size()) {
         return "?";
     }
+
     std::uint32_t fn;
     std::memcpy(&fn, ram.data() + at, 4);
     const char* name = openrac_guest_function_name(fn);
@@ -869,11 +1013,13 @@ ParticleDepth particle_depth(const std::uint8_t* r, const host::GameState& state
     std::memcpy(p1, r + 0x10, sizeof(p1));
     std::memcpy(p2, r + 0x20, sizeof(p2));
     std::array<float, 3> centre = {p1[0], p1[1], p1[2]};
+
     if ((r[1] & 3) == 3) {
         for (int i = 0; i < 3; ++i) {
             centre[i] = (p1[i] + p2[i]) * 0.5f;
         }
     }
+
     const std::array<float, 3>& cam = state.camera_position;
     const std::array<float, 3>& fwd = state.forward;
     const float z = (centre[0] - cam[0]) * fwd[0] + (centre[1] - cam[1]) * fwd[1]
@@ -892,12 +1038,14 @@ ParticleDepth particle_depth(const std::uint8_t* r, const host::GameState& state
 // drawn, and the records within 6 units of Ratchet, whole, in hex.
 void note_particles(std::span<const std::uint8_t> ram, const host::GameState& state) {
     const host::LiveMoby* hero = nullptr;
+
     for (const host::LiveMoby& m : state.mobys) {
         if (m.class_id == 0) {
             hero = &m;
             break;
         }
     }
+
     const auto callback = [&](unsigned type) {
         return particle_update(ram, type);
     };
@@ -908,9 +1056,11 @@ void note_particles(std::span<const std::uint8_t> ram, const host::GameState& st
     std::array<int, 256> lines{}, untextured{}, beyond{};
     std::string near;
     int listed = 0;
+
     for (const State::Particle& p : g->particles) {
         const std::uint8_t* r = p.record.data();
         ++counts[r[0]];
+
         if ((r[1] & 3) == 2) {
             ++lines[r[0]];
         } else if (p.pixels == 0 || p.clut == 0) {
@@ -918,20 +1068,26 @@ void note_particles(std::span<const std::uint8_t> ram, const host::GameState& st
         } else if (particle_depth(r, state).beyond()) {
             ++beyond[r[0]];
         }
+
         if (hero == nullptr || listed >= 40) {
             continue;
         }
+
         float pos[3];
         std::memcpy(pos, r + 0x10, sizeof(pos));
         const float dx = pos[0] - hero->matrix[12], dy = pos[1] - hero->matrix[13],
                     dz = pos[2] - hero->matrix[14];
+
         if (!(dx * dx + dy * dy + dz * dz < kNear * kNear)) {
             continue;
         }
+
         std::string hex;
+
         for (std::size_t i = 0; i < p.record.size(); ++i) {
             hex += std::format("{:02x}", r[i]);
         }
+
         near += std::format(
             "{}{{\"type\":{},\"pixels\":\"{:x}\",\"clut\":\"{:x}\",\"record\":\"{}\"}}",
             listed ? "," : "",
@@ -942,12 +1098,15 @@ void note_particles(std::span<const std::uint8_t> ram, const host::GameState& st
         );
         ++listed;
     }
+
     std::string out = "{\"types\":[";
     bool first = true;
+
     for (unsigned t = 0; t < counts.size(); ++t) {
         if (counts[t] == 0) {
             continue;
         }
+
         out += std::format(
             "{}{{\"type\":{},\"count\":{},\"lines\":{},\"untextured\":{},\"beyond\":{},"
             "\"update\":\"{}\"}}",
@@ -961,6 +1120,7 @@ void note_particles(std::span<const std::uint8_t> ram, const host::GameState& st
         );
         first = false;
     }
+
     out += "],\"near\":[" + near + "]}";
     effects_dump::particles(std::move(out));
 }
@@ -1008,9 +1168,11 @@ void particle_quads(std::span<const std::uint8_t> ram, const host::GameState& st
         ++texture_resolves;
         return particle_texture(ram, pixels, palette, texture_side);
     };
+
     if (effects_dump::armed()) {
         note_particles(ram, state);
     }
+
     const bool covering = draw_coverage::armed();
     // particle_update's, by type, for OPENRAC_DRAW_COVERAGE.
     std::vector<std::string> updates(covering ? 256 : 0);
@@ -1019,23 +1181,29 @@ void particle_quads(std::span<const std::uint8_t> ram, const host::GameState& st
             if (updates[r[0]].empty()) {
                 updates[r[0]] = particle_update(ram, r[0]);
             }
+
             draw_coverage::particle(r[0], reason, updates[r[0]]);
         }
     };
+
     for (const State::Particle& p : g->particles) {
         const std::uint8_t* r = p.record.data();
         const int kind = r[1] & 3;
+
         if (kind == 2 || p.pixels == 0 || p.clut == 0) {
             cover(r, kind == 2 ? "lines" : "untextured");
             continue;
         }
+
         std::array<float, 3> p1{f32(r + 0x10), f32(r + 0x14), f32(r + 0x18)};
         std::array<float, 3> p2{f32(r + 0x20), f32(r + 0x24), f32(r + 0x28)};
         const ParticleDepth depth = particle_depth(r, state);
+
         if (depth.beyond()) {
             cover(r, "beyond");
             continue;
         }
+
         cover(r, "");
         const float z = depth.z;
         const int fade =
@@ -1045,22 +1213,27 @@ void particle_quads(std::span<const std::uint8_t> ram, const host::GameState& st
         };
         renderer::EffectQuad q{};
         const std::uint32_t c1 = faded(u32(r + 4));
+
         for (std::uint32_t& c : q.rgba) {
             c = c1;
         }
+
         const float st[4][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
         std::memcpy(q.st, st, sizeof(st));
         const float theta = static_cast<float>(r[8]) * 6.2831853f / 256.0f;
         const float c = std::cos(theta);
         const float s = std::sin(theta);
+
         if (kind == 0) {
             const float h = f32(r + 0xC) / 210000.0f * (z / (z + 0.5f));
             float a[3];
             float b[3];
+
             for (int i = 0; i < 3; ++i) {
                 a[i] = (c * right[i] + 1.0625f * s * down[i]) * h;
                 b[i] = (-s * right[i] + 1.0625f * c * down[i]) * h;
             }
+
             for (int i = 0; i < 3; ++i) {
                 q.corner[0][i] = p1[i] + a[i];
                 q.corner[1][i] = p1[i] + b[i];
@@ -1070,6 +1243,7 @@ void particle_quads(std::span<const std::uint8_t> ram, const host::GameState& st
         } else if (kind == 1) {
             const float h = f32(r + 0xC) / 420000.0f;
             const float d[4][2] = {{c, s}, {-s, c}, {s, -c}, {-c, -s}};
+
             for (int k = 0; k < 4; ++k) {
                 q.corner[k][0] = p1[0] + d[k][0] * h;
                 q.corner[k][1] = p1[1] + d[k][1] * h;
@@ -1084,31 +1258,38 @@ void particle_quads(std::span<const std::uint8_t> ram, const host::GameState& st
             float n[3] =
                 {e[1] * m[2] - e[2] * m[1], e[2] * m[0] - e[0] * m[2], e[0] * m[1] - e[1] * m[0]};
             const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+
             if (len <= 0.0f) {
                 continue;
             }
+
             for (float& v : n) {
                 v /= len;
             }
+
             for (int i = 0; i < 3; ++i) {
                 q.corner[0][i] = p1[i] + n[i] * w1;
                 q.corner[1][i] = p1[i] - n[i] * w1;
                 q.corner[2][i] = p2[i] + n[i] * w1 * k2;
                 q.corner[3][i] = p2[i] - n[i] * w1 * k2;
             }
+
             const std::uint32_t c2 = faded(u32(r + 0xC));
             q.rgba[2] = c2;
             q.rgba[3] = c2;
         }
+
         // Its texture: 32 x 32 PSMT8 with a 256-colour CSM1 palette, decoded here and kept in the pool
         // at a key of its own (particle_texture).
         texture_side = p.log2_side;
         q.tbp = reuse_textures ? texture_cache.resolve(p.pixels, p.clut, resolve_texture)
                                : resolve_texture(p.pixels, p.clut);
         q.cbp = 0;
+
         if (q.tbp == 0) {
             continue;
         }
+
         q.tex0 = 1ull << 34;  // TCC, MODULATE; the texture is the one placed at q.tbp
         q.clamp = 5;
         q.tex1 = 0xFF9000000120ull;
@@ -1117,14 +1298,17 @@ void particle_quads(std::span<const std::uint8_t> ram, const host::GameState& st
         q.rigid = kind != 3;
         items.push_back({z, q});
     }
+
     stats::gauge("particle texture resolves", double(texture_resolves));
     stats::gauge("particle texture reuse", reuse_textures ? 1 : 0);
     std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
         return a.depth > b.depth;
     });
+
     for (const Item& it : items) {
         g->effects.push_back(it.quad);
     }
+
     g->particles.clear();
     g->sky_sprites.clear();
 }
@@ -1133,6 +1317,7 @@ void moby_colour(std::uint32_t object, unsigned colour, int level) {
     if (!g) {
         return;
     }
+
     g->scripted_moby_colours.set(level, object, colour);
 }
 
@@ -1140,10 +1325,13 @@ int ui_quad(const openrac_game_ui_rect& quad) {
     // The 2D layer's quads are drawn natively (on the way off the GS packets); OPENRAC_UI_REPLAY
     // replays the game's packets instead, for comparing.
     static const bool native = !env::flag(env::Var::UiReplay);
+
     if (!g || !native || g->ui_quads.size() >= 0xFFFFFFu) {  // the marker's index is 24 bits
         return -1;
     }
+
     renderer::UiQuad q;
+
     for (int i = 0; i < 4; ++i) {
         q.x[i] = quad.x[i];
         q.y[i] = quad.y[i];
@@ -1151,6 +1339,7 @@ int ui_quad(const openrac_game_ui_rect& quad) {
         q.v[i] = quad.v[i];
         q.corners[i] = quad.corners[i];
     }
+
     q.clamp = quad.clamp;
     q.z = quad.z;
     q.rgba = quad.rgba;
@@ -1167,11 +1356,14 @@ enhanced::MaterialRuntime* editable_materials(std::string& error) {
         error = "render worker is busy; retry after it completes";
         return nullptr;
     }
+
     auto* lighting = lighting::scene_lighting(g->scene);
+
     if (!lighting) {
         error = "enhanced material renderer unavailable";
         return nullptr;
     }
+
     error.clear();
     return &lighting->materials();
 }
@@ -1182,6 +1374,7 @@ bool material_edit_result(const Result<void>& result, std::string& error) {
         error = result.error().message;
         return false;
     }
+
     error.clear();
     return true;
 }
@@ -1192,6 +1385,7 @@ std::shared_ptr<const enhanced::MaterialEditor> material_editor() {
     if (!g || render_pending()) {
         return {};
     }
+
     auto* lighting = lighting::scene_lighting(g->scene);
     return lighting ? lighting->materials().editor() : nullptr;
 }
@@ -1233,7 +1427,9 @@ void reset_materials() {
     if (!g || render_pending()) {
         return;
     }
+
     auto* lighting = lighting::scene_lighting(g->scene);
+
     if (lighting) {
         lighting->materials().reset();
     }
@@ -1244,6 +1440,7 @@ enhanced::FoliageControls foliage_controls() {
     if (!g || render_pending()) {
         return {};
     }
+
     auto* lighting = lighting::scene_lighting(g->scene);
     return lighting ? lighting->foliage_materials().controls() : enhanced::FoliageControls{};
 }
@@ -1254,16 +1451,21 @@ bool set_foliage_controls(const enhanced::FoliageControls& controls, std::string
         error = "foliage renderer unavailable";
         return false;
     }
+
     auto* lighting = lighting::scene_lighting(g->scene);
+
     if (!lighting) {
         error = "enhanced foliage renderer unavailable";
         return false;
     }
+
     const auto result = lighting->foliage_materials().set_controls(controls);
+
     if (!result) {
         error = result.error().message;
         return false;
     }
+
     return true;
 }
 
@@ -1272,7 +1474,9 @@ void reset_foliage_controls() {
     if (!g || render_pending()) {
         return;
     }
+
     auto* lighting = lighting::scene_lighting(g->scene);
+
     if (lighting) {
         lighting->foliage_materials().reset_controls();
     }
@@ -1285,11 +1489,10 @@ extern "C" int openrac_game_enhanced_water(void) {
     using namespace openrac;
     return c_boundary::call("openrac_game_enhanced_water", 0, [] {
         const bool available =
-            frontend::g && frontend::g->game.starts_with("rac1-")
-            && (frontend::g->loaded == 1
-                || (frontend::g->loaded == 11 && frontend::g->game == "rac1-ntsc"))
+            frontend::g && frontend::supports_enhanced_water(frontend::g->game, frontend::g->loaded)
             && frontend::enhanced_graphics_available() && settings::get().enhanced_graphics
             && enhanced::water_available();
+
         if (available && frontend::g->loaded == 11 && enhanced::ocean_replaces_horizon()) {
             return 2;
         }

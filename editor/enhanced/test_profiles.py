@@ -11,6 +11,15 @@ from enhanced import profiles
 
 
 class ProfileTests(unittest.TestCase):
+    def test_going_commandos_discs_share_v101s_profiles(self):
+        self.assertEqual([profiles.profile_name("rac2", v) for v in ("ntsc", "pal", "ntsc2")], ["rac2-ntsc"] * 3)
+        self.assertEqual(profiles.profile_name("rac1", "pal"), "rac1-pal")
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            profiles.write_bake_profile(SimpleNamespace(game="rac2", version="ntsc2", id=5), directory)
+            shared = profiles.PROFILE_ROOT / "rac2-ntsc/level_05/probe-bake.json"
+            self.assertEqual((directory / "probe-bake.json").read_bytes(), shared.read_bytes())
+
     def test_object_lights_shared_by_pal_and_ntsc(self):
         """Model-attached lights share definitions across revisions and reach standalone exports."""
         with tempfile.TemporaryDirectory() as temp:
@@ -68,6 +77,19 @@ class ProfileTests(unittest.TestCase):
                 settings = json.loads((directory/'probe-bake.json').read_text())
                 self.assertEqual(settings['strategy'], 'scene')
 
+    def test_generated_material_layer_waits_for_the_baker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root/'profiles/rac1-ntsc/level_02'
+            source.mkdir(parents=True)
+            (source/'emission-textures.json').write_text('{"version":1,"textures":[]}')
+            (source/'material-overrides.json').write_text('{"version":1,"overrides":[]}')
+            export = root/'export'
+            export.mkdir()
+            with mock.patch.object(profiles, 'PROFILE_ROOT', root/'profiles'):
+                profiles.write_material_profiles(SimpleNamespace(game='rac1', version='ntsc', id=2), export)
+            self.assertFalse((export/'materials/level/material-overrides.json').exists())
+
     def test_region_settings_are_exported_with_bake_profile(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -80,6 +102,20 @@ class ProfileTests(unittest.TestCase):
             with mock.patch.object(profiles, 'PROFILE_ROOT', root / 'profiles'):
                 profiles.write_bake_profile(SimpleNamespace(game='rac1', version='ntsc', id=1), directory)
             self.assertEqual((directory / 'probe-bake.json').read_text(), text)
+
+    def test_blarg_lighting_environments_are_exported_for_ntsc_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            name = "lighting-environments.json"
+            tracked = profiles.PROFILE_ROOT / "rac1-ntsc/level_06" / name
+            for version in ("ntsc", "pal"):
+                export = root / version
+                export.mkdir()
+                profiles.write_bake_profile(SimpleNamespace(game="rac1", version=version, id=6), export)
+                if version == "ntsc":
+                    self.assertEqual((export / name).read_bytes(), tracked.read_bytes())
+                else:
+                    self.assertFalse((export / name).exists())
 
     def test_only_the_exact_game_version_and_level_match(self):
         with tempfile.TemporaryDirectory() as temp:

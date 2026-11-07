@@ -12,8 +12,26 @@ layout(push_constant) uniform Exposure { float exposure_ev; };
 #else
 uniform sampler2D tex_T0;
 uniform float exposure_ev;
+uniform int agx_enabled;
+uniform float bloom_strength;
+uniform float bloom_radius;
 out vec4 colour;
 #endif
+
+vec3 DecodeSRGB(vec3 value)
+{
+    return mix(value/12.92,pow((value+0.055)/1.055,vec3(2.4)),
+               greaterThan(value,vec3(0.04045)));
+}
+
+vec3 EncodeSRGB(vec3 value)
+{
+    value=max(value,vec3(0));
+    return vec3(value.r <= 0.0031308 ? 12.92*value.r : 1.055*pow(value.r,1/2.4)-0.055,
+                value.g <= 0.0031308 ? 12.92*value.g : 1.055*pow(value.g,1/2.4)-0.055,
+                value.b <= 0.0031308 ? 12.92*value.b : 1.055*pow(value.b,1/2.4)-0.055);
+}
+
 float AgXSigmoid(float x)
 {
     const float pivotX = 10.0/16.5;
@@ -67,28 +85,59 @@ vec3 AgXDisplay(vec3 scene)
     vec3 hsv = AgXHSV(value);
     hsv.x = fract(hue+0.4*(fract(hsv.x-hue+0.5)-0.5));
     value = clamp((AgXRGB(hsv)*outset)*to709,0.0,1.0);
-    // Encode once. Both native swapchains use UNORM, not sRGB render targets.
-    return vec3(value.r <= 0.0031308 ? 12.92*value.r : 1.055*pow(value.r,1/2.4)-0.055,
-                  value.g <= 0.0031308 ? 12.92*value.g : 1.055*pow(value.g,1/2.4)-0.055,
-                  value.b <= 0.0031308 ? 12.92*value.b : 1.055*pow(value.b,1/2.4)-0.055);
+    return EncodeSRGB(value);
 }
+
+#ifndef OPENRAC_AGX_COMPUTE
+vec3 BloomTap(ivec2 pixel)
+{
+    ivec2 size=textureSize(tex_T0,0);
+    pixel=clamp(pixel,ivec2(0),size-ivec2(1));
+    vec3 linear=DecodeSRGB(texelFetch(tex_T0,pixel,0).rgb);
+    float peak=max(linear.r,max(linear.g,linear.b));
+    // Smooth knee: ordinary surfaces contribute almost nothing; clipped emissive pixels remain strong.
+    float gate=smoothstep(0.50,0.86,peak);
+    return linear*gate*gate;
+}
+
+vec3 BloomAt(ivec2 pixel)
+{
+    if(bloom_strength<=0.) return vec3(0);
+    int nearRadius=max(1,int(round(2.0*bloom_radius)));
+    int midRadius=max(2,int(round(5.0*bloom_radius)));
+    int farRadius=max(3,int(round(10.0*bloom_radius)));
+    vec3 result=BloomTap(pixel)*0.10;
+    result+=0.075*(BloomTap(pixel+ivec2( nearRadius,0))
+                  +BloomTap(pixel+ivec2(-nearRadius,0))
+                  +BloomTap(pixel+ivec2(0, nearRadius))
+                  +BloomTap(pixel+ivec2(0,-nearRadius)));
+    result+=0.075*(BloomTap(pixel+ivec2( midRadius, midRadius))
+                  +BloomTap(pixel+ivec2(-midRadius, midRadius))
+                  +BloomTap(pixel+ivec2( midRadius,-midRadius))
+                  +BloomTap(pixel+ivec2(-midRadius,-midRadius)));
+    result+=0.075*(BloomTap(pixel+ivec2( farRadius,0))
+                  +BloomTap(pixel+ivec2(-farRadius,0))
+                  +BloomTap(pixel+ivec2(0, farRadius))
+                  +BloomTap(pixel+ivec2(0,-farRadius)));
+    return result;
+}
+#endif
 
 void main() {
 #ifdef OPENRAC_AGX_COMPUTE
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     if(any(greaterThanEqual(pixel,imageSize(target_colour)))) return;
-    // Each invocation reads only the texel it subsequently owns and writes; no filtering.
+    // Compute remains the in-place AgX-only path; bloom uses the separate-source raster fallback.
     vec4 source = texelFetch(tex_T0,pixel,0);
-#else
-    vec4 source = texelFetch(tex_T0, ivec2(gl_FragCoord.xy), 0);
-#endif
-    // Existing world storage is display-referred UNORM, not scene-linear HDR.
-    vec3 linear = mix(source.rgb / 12.92, pow((source.rgb + 0.055) / 1.055, vec3(2.4)),
-                      greaterThan(source.rgb, vec3(0.04045)));
+    vec3 linear = DecodeSRGB(source.rgb);
     vec4 result = vec4(AgXDisplay(linear * exp2(exposure_ev)), source.a);
-#ifdef OPENRAC_AGX_COMPUTE
     imageStore(target_colour,pixel,result);
 #else
-    colour = result;
+    ivec2 pixel=ivec2(gl_FragCoord.xy);
+    vec4 source=texelFetch(tex_T0,pixel,0);
+    vec3 linear=DecodeSRGB(source.rgb);
+    linear+=BloomAt(pixel)*bloom_strength;
+    vec3 display=agx_enabled!=0 ? AgXDisplay(linear*exp2(exposure_ev)) : EncodeSRGB(linear);
+    colour=vec4(display,source.a);
 #endif
 }

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include <cfenv>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -30,6 +31,7 @@ void test_temporal_settings(const std::filesystem::path& file) {
         CHECK(settings::get().motion_blur);
         CHECK(settings::get().motion_blur_strength == .8f);
     }
+
     std::ofstream(file) << "temporal_quality = unsupported\ntemporal_sharpness = nan\nmotion_blur "
                            "= invalid\nmotion_blur_strength = nan\n";
     settings::load(file);
@@ -41,6 +43,7 @@ void test_temporal_settings(const std::filesystem::path& file) {
 
 void test_lily_momentum(const std::filesystem::path& file) {
     using namespace openrac;
+
     for (const float value : {0.f, .25f, .65f, 1.f}) {
         std::ofstream(file) << "lily_momentum = " << value << "\n";
         settings::load(file);
@@ -49,6 +52,7 @@ void test_lily_momentum(const std::filesystem::path& file) {
         settings::load(file);
         CHECK(settings::get().lily_momentum == value);
     }
+
     for (const char* invalid : {"nan", "inf", "-0.1", "1.1", "bad"}) {
         std::ofstream(file) << "lily_momentum = " << invalid << "\n";
         settings::load(file);
@@ -56,14 +60,40 @@ void test_lily_momentum(const std::filesystem::path& file) {
     }
 }
 
-// HDR output: off with no key (the picture as always), its three modes and levels round-trip, and
+// HDR output: off with no key (the picture as always), its two modes and levels round-trip, and
 // values out of range keep the defaults.
+void test_prepared_cloud_settings(const std::filesystem::path& file) {
+    using namespace openrac;
+    std::ofstream(file) << "cloud_enabled = 0\ncloud_resolution = 80\ncloud_seed = "
+                           "42\ncloud_density = 0.03\ncloud_base = -50\ncloud_red = 0.5\n";
+    settings::load(file);
+    settings::save();
+    settings::load(file);
+    const auto& clouds = settings::get().clouds;
+    CHECK(!clouds.enabled && clouds.resolution == 80 && clouds.seed == 42);
+    CHECK(clouds.density == .03f && clouds.base == -50 && clouds.colour[0] == .5f);
+    std::ofstream(file) << "cloud_resolution = 33\ncloud_density = nan\ncloud_seed = -1\n";
+    settings::load(file);
+    CHECK(settings::get().clouds.resolution == 64);
+    CHECK(settings::get().clouds.density == .018f && settings::get().clouds.seed == 1);
+    const int previous = std::fegetround();
+    std::fesetround(FE_TOWARDZERO);
+    std::ofstream(file) << "cloud_density = 0.123456789\n";
+    settings::load(file);
+    settings::save();
+    settings::load(file);
+    CHECK(settings::get().clouds.density == .123456789f);
+    CHECK(std::fegetround() == FE_TOWARDZERO);
+    std::fesetround(previous);
+}
+
 void test_hdr_settings(const std::filesystem::path& file) {
     using namespace openrac;
     std::ofstream(file) << "vsync = on\n";
     settings::load(file);
     CHECK(settings::get().hdr == hdr::Mode::Off);
     CHECK(settings::get().hdr_paper_white == 0 && settings::get().hdr_peak == 0);
+
     for (std::size_t n = 0; n < std::size(hdr::kModeKeys); ++n) {
         std::ofstream(file) << "hdr = " << hdr::kModeKeys[n]
                             << "\nhdr_paper_white = 250\nhdr_peak = 1400\n";
@@ -74,9 +104,15 @@ void test_hdr_settings(const std::filesystem::path& file) {
         CHECK(settings::get().hdr == static_cast<hdr::Mode>(n));
         CHECK(settings::get().hdr_paper_white == 250 && settings::get().hdr_peak == 1400);
     }
+
     // The launcher's word over the file's, and another word changes nothing.
-    CHECK(settings::set_hdr_mode("auto") && settings::get().hdr == hdr::Mode::Auto);
-    CHECK(!settings::set_hdr_mode("bright") && settings::get().hdr == hdr::Mode::Auto);
+    CHECK(settings::set_hdr_mode("off") && settings::get().hdr == hdr::Mode::Off);
+    CHECK(settings::set_hdr_mode("on") && settings::get().hdr == hdr::Mode::On);
+    CHECK(!settings::set_hdr_mode("bright") && settings::get().hdr == hdr::Mode::On);
+    // The ranges' tops: the brightest screens on sale.
+    std::ofstream(file) << "hdr_paper_white = 1000\nhdr_peak = 10000\n";
+    settings::load(file);
+    CHECK(settings::get().hdr_paper_white == 1000 && settings::get().hdr_peak == 10000);
     std::ofstream(file) << "hdr = bright\nhdr_paper_white = 5000\nhdr_peak = -1\n";
     settings::load(file);
     CHECK(settings::get().hdr == hdr::Mode::Off);
@@ -119,10 +155,12 @@ void test_agx_preview(const std::filesystem::path& file) {
     CHECK(settings::Settings{}.agx_preview);
     CHECK(settings::Settings{}.agx_exposure == .25f);
     CHECK(settings::Settings{}.agx_brightness == .5f);
+
     for (float brightness : {0.f, .5f, 1.f}) {
         std::ofstream(file) << "agx_preview = 1\nagx_exposure = 1.5\nagx_brightness = "
                             << brightness << "\n";
         settings::load(file);
+
         for (int n = 0; n < 2; ++n) {
             const auto& s = settings::get();
             CHECK(s.agx_exposure == 1.5f);
@@ -132,12 +170,14 @@ void test_agx_preview(const std::filesystem::path& file) {
             settings::load(file);
         }
     }
+
     for (const char* invalid : {"nan", "-0.01", "1.01"}) {
         std::ofstream(file) << "agx_exposure = 0.25\nagx_brightness = " << invalid << "\n";
         settings::load(file);
         CHECK(settings::get().agx_brightness == .5f);
         CHECK(settings::get().adjusted_agx_exposure() == .25f);
     }
+
     std::ofstream(file) << "agx_preview = invalid\nagx_exposure = nan\n";
     settings::load(file);
     CHECK(settings::get().agx_preview);
@@ -160,6 +200,7 @@ void test_motion_blur_tuning(const std::filesystem::path& file) {
       << "motion_blur_min_motion = 1.25\nmotion_blur_spread = 0.75\n"
       << "motion_blur_depth_tolerance = 0.025\nmotion_blur_cutscene_multiplier = 1.5\n";
     settings::load(file);
+
     for (int roundtrip = 0; roundtrip < 2; ++roundtrip) {
         const auto& blur = settings::get().motion_blur_settings;
         CHECK(blur.max_radius == 96 && blur.samples == 48);
@@ -168,6 +209,7 @@ void test_motion_blur_tuning(const std::filesystem::path& file) {
         settings::save();
         settings::load(file);
     }
+
     std::ofstream(
         file
     ) << "motion_blur_radius = 129\nmotion_blur_samples = 7\n"
@@ -183,6 +225,7 @@ void test_motion_blur_tuning(const std::filesystem::path& file) {
 // Missing/invalid keys leave experimental volumetrics off; every tier survives save/load.
 void test_volumetric_quality(const std::filesystem::path& file) {
     using namespace openrac;
+
     for (std::size_t n = 0; n < std::size(renderer::kVolumetricQualityKeys); ++n) {
         std::ofstream(file) << "volumetric_quality = " << renderer::kVolumetricQualityKeys[n]
                             << "\n";
@@ -192,6 +235,7 @@ void test_volumetric_quality(const std::filesystem::path& file) {
         settings::load(file);
         CHECK(settings::get().volumetric_quality == static_cast<renderer::VolumetricQuality>(n));
     }
+
     std::ofstream(file) << "volumetric_quality = invalid\n";
     settings::load(file);
     CHECK(settings::get().volumetric_quality == renderer::VolumetricQuality::Off);
@@ -203,6 +247,7 @@ void test_volumetric_quality(const std::filesystem::path& file) {
 void test_shadow_quality(const std::filesystem::path& file) {
     using namespace openrac;
     CHECK(settings::Settings{}.shadow_quality == renderer::ShadowQuality::High);
+
     for (std::size_t n = 0; n < std::size(renderer::kShadowQualityKeys); ++n) {
         std::ofstream(file) << "shadow_quality = " << renderer::kShadowQualityKeys[n] << "\n";
         settings::load(file);
@@ -211,6 +256,7 @@ void test_shadow_quality(const std::filesystem::path& file) {
         settings::load(file);
         CHECK(settings::get().shadow_quality == static_cast<renderer::ShadowQuality>(n));
     }
+
     std::ofstream(file) << "shadow_quality = invalid\n";
     settings::load(file);
     CHECK(settings::get().shadow_quality == renderer::ShadowQuality::High);
@@ -247,6 +293,7 @@ void test_frame_counter_modes(const std::filesystem::path& file) {
     namespace settings = openrac::settings;
     using settings::FrameCounter;
     settings::get().show_fps = FrameCounter::Off;
+
     for (const auto expected : {FrameCounter::Basic, FrameCounter::Timings, FrameCounter::Off}) {
         settings::step_frame_counter(1);
         CHECK(settings::get().show_fps == expected);
@@ -254,19 +301,33 @@ void test_frame_counter_modes(const std::filesystem::path& file) {
         settings::load(file);
         CHECK(settings::get().show_fps == expected);
     }
+
     settings::step_frame_counter(-1);
     CHECK(settings::get().show_fps == FrameCounter::Timings);
     CHECK(std::string(settings::name(FrameCounter::Timings)) == "CPU / GPU");
+
     for (const char* value : {"1", "on", "true", "yes"}) {
         std::ofstream(file) << "show_fps = " << value << "\n";
         settings::load(file);
         CHECK(settings::get().show_fps == FrameCounter::Basic);
     }
+
     for (const char* value : {"0", "off", "3", "-1", "invalid"}) {
         std::ofstream(file) << "show_fps = " << value << "\n";
         settings::load(file);
         CHECK(settings::get().show_fps == FrameCounter::Off);
     }
+}
+
+void test_gpu_breadcrumbs_setting(const std::filesystem::path& file) {
+    namespace settings = openrac::settings;
+    std::ofstream(file) << "show_fps = 0\n";
+    settings::load(file);
+    CHECK(settings::get().gpu_breadcrumbs);
+    settings::get().gpu_breadcrumbs = false;
+    settings::save();
+    settings::load(file);
+    CHECK(!settings::get().gpu_breadcrumbs);
 }
 
 // Returns the whole of `file` as text.
@@ -336,9 +397,11 @@ void test_first_start_display(const std::filesystem::path& file) {
     using settings::DisplayMode;
     const auto mode_after = [&](const char* text, bool scripted) {
         std::filesystem::remove(file);
+
         if (text != nullptr) {
             std::ofstream(file) << text;
         }
+
         settings::load(file);
         settings::first_start_display(scripted);
         return settings::get().display_mode;
@@ -382,15 +445,26 @@ void test_menu_bar_key(const std::filesystem::path& file) {
     std::ofstream(file) << "menu_bar_key = \n";
     settings::load(file);
     CHECK(settings::get().menu_bar_key == "`");
-    // The controller button: R4 by default, any name kept, "none" too.
-    CHECK(settings::get().menu_bar_button == "leftstick");
+    // The controller button: Start+Select by default, any name kept, "none" too.
+    CHECK(settings::get().menu_bar_button == "start+back");
     settings::get().menu_bar_button = "none";
     settings::save();
     settings::load(file);
     CHECK(settings::get().menu_bar_button == "none");
-    std::ofstream(file) << "menu_bar_button = misc1\n";
+    std::ofstream(file) << "menu_button = misc1\n";
     settings::load(file);
     CHECK(settings::get().menu_bar_button == "misc1");
+    // An older file's menu_bar_button: its old default, L3, becomes Start+Select; another pick
+    // carries over; menu_button wins over it, before or after it.
+    std::ofstream(file) << "menu_bar_button = leftstick\n";
+    settings::load(file);
+    CHECK(settings::get().menu_bar_button == "start+back");
+    std::ofstream(file) << "menu_bar_button = paddle1\n";
+    settings::load(file);
+    CHECK(settings::get().menu_bar_button == "paddle1");
+    std::ofstream(file) << "menu_button = leftstick\nmenu_bar_button = paddle1\n";
+    settings::load(file);
+    CHECK(settings::get().menu_bar_button == "leftstick");
     std::filesystem::remove(file);
 }
 
@@ -401,9 +475,11 @@ int main() {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto folder =
         std::filesystem::temp_directory_path() / ("openrac-settings-" + std::to_string(stamp));
+
     if (!std::filesystem::create_directory(folder)) {
         return 1;
     }
+
     const auto file = folder / "settings.ini";
     settings::load(file);
     CHECK(settings::get().gtao);
@@ -425,8 +501,10 @@ int main() {
     test_motion_blur_tuning(file);
     test_shadow_quality(file);
     test_volumetric_quality(file);
+    test_prepared_cloud_settings(file);
     test_sunlight_settings(file);
     test_frame_counter_modes(file);
+    test_gpu_breadcrumbs_setting(file);
     test_game_options_load_from_the_file(file);
     test_game_options_are_saved_when_they_change(file);
     test_bindings_survive_a_save(file);
@@ -440,6 +518,7 @@ int main() {
     settings::save();
     settings::load(file);
     CHECK(settings::get().anisotropy == 0);
+
     for (int samples : settings::kAnisotropies) {
         std::ofstream(file) << "anisotropy = " << samples << "\n";
         settings::load(file);
@@ -449,6 +528,7 @@ int main() {
         settings::load(file);
         CHECK(settings::get().anisotropy == samples);
     }
+
     for (const char* value : {"auto", "invalid"}) {
         std::ofstream(file) << "anisotropy = " << value << "\n";
         settings::load(file);
@@ -456,15 +536,23 @@ int main() {
         CHECK(settings::get().anisotropy_samples(false) == 1);
     }
 
-    for (auto filter : {renderer::TextureFilter::Normal, renderer::TextureFilter::EdgeAware}) {
+    for (auto filter : {
+             renderer::TextureFilter::Normal,
+             renderer::TextureFilter::EdgeAware,
+             renderer::TextureFilter::EdgeAware4x,
+             renderer::TextureFilter::EdgeAware8x,
+         }) {
         settings::get().texture_filter = filter;
         settings::save();
         settings::get().texture_filter = renderer::TextureFilter::Normal;
         settings::load(file);
         CHECK(settings::get().texture_filter == filter);
     }
+
     CHECK(std::string(settings::name(renderer::TextureFilter::EdgeAware)) == "Edge-aware (2x)");
-    CHECK(std::string(settings::name(renderer::TextureFilter::Count)) == "Edge-aware (2x)");
+    CHECK(std::string(settings::name(renderer::TextureFilter::EdgeAware4x)) == "Edge-aware (4x)");
+    CHECK(std::string(settings::name(renderer::TextureFilter::EdgeAware8x)) == "Edge-aware (8x)");
+    CHECK(std::string(settings::name(renderer::TextureFilter::Count)) == "Edge-aware (8x)");
     std::ofstream(file) << "texture_filter = bspline\n";
     settings::load(file);
     CHECK(settings::get().texture_filter == renderer::TextureFilter::EdgeAware);
@@ -568,17 +656,20 @@ int main() {
                            "probe_gi_multiplier = -1\n";
     settings::load(file);
     CHECK(options.probe_gi_multiplier == 1.0f);
+
     for (float multiplier : {0.0f, 5.0f}) {
         options.probe_gi_multiplier = multiplier;
         settings::save();
         settings::load(file);
         CHECK(options.probe_gi_multiplier == multiplier);
     }
+
     std::ofstream(file) << "probe_normal_bias = nan\nprobe_normal_bias = 3\n"
                            "probe_normal_bias = -1\nprobe_view_bias = inf\n"
                            "probe_view_bias = 3\nprobe_view_bias = -1\n";
     settings::load(file);
     CHECK(options.probe_normal_bias == 0.5f && options.probe_view_bias == 0.5f);
+
     for (float bias : {0.0f, 2.0f}) {
         options.probe_normal_bias = bias;
         options.probe_view_bias = 2.0f - bias;
@@ -587,12 +678,14 @@ int main() {
         CHECK(options.probe_normal_bias == bias);
         CHECK(options.probe_view_bias == 2.0f - bias);
     }
+
     for (auto quality : {renderer::GtaoQuality::Quality, renderer::GtaoQuality::Performance}) {
         options.gtao_settings.quality = quality;
         settings::save();
         settings::load(file);
         CHECK(options.gtao_settings.quality == quality);
     }
+
     // The depth hierarchy remains independently switchable and survives a save/load cycle.
     for (bool enabled : {false, true}) {
         options.gtao_settings.hi_z = enabled;
@@ -600,6 +693,7 @@ int main() {
         settings::load(file);
         CHECK(options.gtao_settings.hi_z == enabled);
     }
+
     std::ofstream(file) << "gtao_quality = quality\n";
     settings::load(file);
     CHECK(options.gtao_settings.quality == renderer::GtaoQuality::Quality);

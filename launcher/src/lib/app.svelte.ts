@@ -1,8 +1,10 @@
 // The UI's shared state: settings, the library, navigation, toasts and the
 // job queue. Pages read `app` and call the functions below; nothing else
 // talks to the Rust side except through api.ts.
+import { SvelteMap } from "svelte/reactivity";
 import { hidePaths } from "./paths";
-import { bakeFailure, type BakeFailure } from "./bakeFailure";
+import { bakeCacheBusy, bakeFailure, type BakeFailure } from "./bakeFailure";
+import { toolFailure } from "./toolErrors";
 import {
   api,
   ask,
@@ -65,6 +67,8 @@ interface AppState {
     text: string;
     kind: "info" | "error";
     bake?: BakeNotice;
+    /** A failed task's last output lines, folders cut to their names. */
+    details?: string;
   }[];
   update: UpdateInfo | null;
   showUpdateModal: boolean;
@@ -169,6 +173,11 @@ export const clock = $state({ now: Date.now() });
 export const jobs = $state<{ list: Job[]; selected: number | null }>({ list: [], selected: null });
 const queue = new Queue(jobs.list);
 
+// A stopped lighting bake already keeps verified levels and region checkpoints on disk.
+// One automatic retry per version uses those checkpoints; a persistent real error is then shown
+// instead of looping forever.
+const bakeResumeAttempts = new SvelteMap<string, number>();
+
 // ---- Android: the set-up goes on in the background -----------------------------------------
 
 /** How long the notification stays after the work ends: the next job of a chain starts within it,
@@ -216,9 +225,9 @@ function expire(id: number) {
 }
 
 /** Says something for a moment; an error stays until it is dismissed, as it may need reading twice. */
-export function toast(text: string, kind: "info" | "error" = "info", bake?: BakeNotice) {
+export function toast(text: string, kind: "info" | "error" = "info", bake?: BakeNotice, details?: string) {
   const id = ++toastId;
-  app.toasts.push({ id, text, kind, bake });
+  app.toasts.push({ id, text, kind, bake, details });
   // No more than four errors at once: the oldest gives way.
   const errors = app.toasts.filter((t) => t.kind === "error");
   if (errors.length > 4 && errors[0]) expire(errors[0].id);
@@ -317,7 +326,9 @@ export async function start() {
       }
     }
     app.info = await api.appInfo();
-    if (app.info.noCompositing) stopSlides();
+    // WKWebView can leave the snapshot layer black after a page transition even while the
+    // live document and jobs keep updating. Use ordinary page changes on macOS.
+    if (app.info.noCompositing || app.info.platform === "macos") stopSlides();
     if (app.info.platform === "linux" && !app.info.noCompositing) watchFirstDraw();
     if (app.info.safeRenderingAfterCrash) {
       toast("The launcher crashed last time, so Safe rendering is now on (Settings, Advanced).");
@@ -365,6 +376,37 @@ async function prepareTools() {
   }
 }
 
+/** The catalogue version for KEY, when the current library has it. */
+function versionByKey(key: string): VersionView | null {
+  for (const game of app.library?.games ?? []) {
+    const found = game.versions.find((v) => v.key === key);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Syncs the selected folder backend around a game. Before Play a conflict or provider error stops
+ * the start; after Play the local save always remains valid and an error is only reported. */
+async function syncCloudForPlay(versionKey: string, before: boolean): Promise<boolean> {
+  const version = versionByKey(versionKey);
+  if (!version?.serial) return true;
+  try {
+    if (!(await api.launcherAddonEnabled("save-backup-sync"))) return true;
+    const configured = await api.cloudSavesConfig();
+    if (!configured.folder) return true;
+    const result = await api.cloudSavesSync(version.serial, "auto");
+    if (result.action === "downloaded") app.savesChanged++;
+    if (result.action === "conflict") {
+      toast("Cloud save conflict: choose which save to keep in the Saves panel before playing.", "error");
+      return false;
+    }
+    return true;
+  } catch (e) {
+    toast(`Cloud save sync failed: ${errorText(e)}`, "error");
+    return !before;
+  }
+}
+
 /**
  * A job ended: what the launcher does about it. Called once per job, whether
  * its exit event came before the start call returned or after it (the queue
@@ -377,15 +419,19 @@ function handleExit(job: Job) {
     app.reportsChanged++;
     // The game may have saved: the Saves list reads the card again, without leaving the page.
     app.savesChanged++;
+    void syncCloudForPlay(version, false);
     void countCrashes();
   }
   // The game stopping on its own is not a failed task: the Play page says what happened.
   if (job.state === "failed" && played) void gameStopped(job);
   // Setting a game up says why it stopped itself (installFromDisc).
   else if (job.state === "failed" && job.actionId === "probe-bake" && version !== null) {
-    const failure = bakeFailure(job);
-    toast(failure.title, "error", { failure, version, jobKey: job.key });
-  } else if (job.state === "failed" && !job.actionId.startsWith("install:")) toast(`${job.title} failed`, "error");
+    void handleBakeFailure(job, version);
+  } else if (job.state === "failed" && !job.actionId.startsWith("install:"))
+    toast(`${job.title} failed`, "error", undefined, toolFailure(job.lines).details || undefined);
+  if (job.state === "succeeded" && job.actionId === "probe-bake" && version !== null) {
+    bakeResumeAttempts.delete(version);
+  }
   // Played to the end since: the notice folds to a line (CrashNotice), the report still a click away.
   if (job.state === "succeeded" && played && app.stopped && version.startsWith(`${app.stopped.game}/`)) {
     app.stopped = { ...app.stopped, playedSince: true };
@@ -398,6 +444,55 @@ function handleExit(job: Job) {
   void refresh();
   updateDiscordPresence();
   pump();
+}
+
+async function handleBakeFailure(job: Job, versionKey: string) {
+  const failure = bakeFailure(job);
+  if (bakeCacheBusy(failure)) {
+    toast("Lighting preparation is already running. Its checkpoints are safe; this second start was ignored.");
+    return;
+  }
+
+  const [game, name] = versionKey.split("/");
+  if (!game || !name) {
+    toast(failure.title, "error", { failure, version: versionKey, jobKey: job.key });
+    return;
+  }
+
+  const view = await api.enhancedView(game, name).catch(() => null);
+  const bake = view?.bake;
+  if (!bake?.partial) {
+    toast(failure.title, "error", { failure, version: versionKey, jobKey: job.key });
+    return;
+  }
+
+  const attempts = bakeResumeAttempts.get(versionKey) ?? 0;
+  if (attempts >= 1) {
+    toast(failure.title, "error", { failure, version: versionKey, jobKey: job.key });
+    return;
+  }
+
+  const version = app.library?.games.find((g) => g.id === game)?.versions.find((v) => v.key === versionKey);
+  const action = version?.actions.find((a) => a.id === "probe-bake" && a.thisPlatform);
+  const busy = jobs.list.some(
+    (j) =>
+      j.actionId === "probe-bake" &&
+      j.scope.kind === "version" &&
+      j.scope.key === versionKey &&
+      (j.state === "queued" || j.state === "running"),
+  );
+  if (!action || busy) {
+    toast(
+      `Lighting preparation stopped, but ${bake.partial} checkpoint${bake.partial === 1 ? "" : "s"} were kept. Use Resume from checkpoint.`,
+    );
+    return;
+  }
+
+  bakeResumeAttempts.set(versionKey, attempts + 1);
+  toast(
+    `Lighting preparation stopped. ${bake.ready}/${bake.levels} levels are complete and ${bake.partial} checkpoint${bake.partial === 1 ? "" : "s"} were kept. Resuming from there.`,
+  );
+  void run({ kind: "version", key: versionKey }, action);
 }
 
 /** With Enhanced graphics on (core/src/enhanced.rs), bakes the lighting of the levels whose bake is
@@ -540,7 +635,8 @@ export async function refresh() {
   const discs = ++discsSeq;
   let scan: { found: FoundDisc[]; choices: DiscChoice[] } = { found: [], choices: [] };
   try {
-    if (app.config.discsDir) scan = await api.scanDiscs();
+    // A developer's disc switch also draws on the discs set up without a games folder.
+    if (app.config.discsDir || app.config.developer) scan = await api.scanDiscs();
   } catch {
     // A folder that went away: the game pages ask for an image as before.
   }
@@ -617,6 +713,12 @@ function taskOf(actionId: string): string | null {
   if (actionId === "port-build" || actionId === "build") return "Building the game";
   if (actionId === "editor-extract" || actionId === "editor-import") return "Preparing the level editor";
   return null;
+}
+
+/** Whether a game runs now: mods load at its start, so changing them waits for it to close. */
+export function gameRunning(): boolean {
+  if (onAndroid) return !!app.game?.running;
+  return jobs.list.some((j) => PLAY_ACTIONS.includes(j.actionId) && j.state === "running");
 }
 
 export function updateDiscordPresence(page: Page = app.page, version: string | null = app.version) {
@@ -754,6 +856,7 @@ export async function run(scope: Scope, action: ActionView, given?: number | Run
   const key = inputs === undefined ? "" : JSON.stringify(inputs);
   if (alreadyAsked(scope, action.id, key)) return;
   if (!(await asked(requestKey(scope, action.id, key), () => acceptWarning(scope, action)))) return;
+  if (action.kind === "play" && scope.kind === "version" && !(await syncCloudForPlay(scope.key, true))) return;
   if (action.detached) {
     const started = await asked(requestKey(scope, action.id, key), () =>
       guard(api.runAction(scope, action.id, inputs)),
@@ -804,6 +907,7 @@ async function chainSteps(
   key: string,
 ): Promise<boolean> {
   for (const action of actions) {
+    if (action.kind === "play" && scope.kind === "version" && !(await syncCloudForPlay(scope.key, true))) return false;
     if (action.detached) {
       const started = await guard(api.runAction(scope, action.id, inputs));
       if (!started) return false;

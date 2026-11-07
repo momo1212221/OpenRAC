@@ -20,8 +20,9 @@
 //! share. The `texture_pack` setting in the version's settings file switches the pack on or off.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
-use std::io::{Read, Write};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::differences::{read_switch, settings_file, with_value, write_settings};
@@ -30,6 +31,8 @@ use crate::differences::{read_switch, settings_file, with_value, write_settings}
 pub const MANIFEST: &str = "openrac-texture-pack.json";
 /// The port's setting that reads the pack (port/game/common/settings.h); on unless it says 0.
 pub const SWITCH: &str = "texture_pack";
+/// Launcher-only switch: prepare/reuse the persistent Ultra4K pack before Play.
+pub const ULTRA_SWITCH: &str = "offline_ultra_textures";
 /// The environment variable that makes the game save its textures (port/common/env.cpp).
 pub const DUMP_ENV: &str = "OPENRAC_DUMP_TEXTURES";
 
@@ -53,7 +56,7 @@ pub struct Folder {
     pub count: u32,
 }
 
-/// The Texture packs section of a game's page.
+/// The Texture packs section of a game's Mods tab.
 #[derive(Debug, Clone, Serialize, ts_rs::TS)]
 #[ts(rename = "TexturePackView")]
 #[serde(rename_all = "camelCase")]
@@ -64,6 +67,12 @@ pub struct View {
     pub enabled: bool,
     /// Whether the next Play saves the textures.
     pub dumping: bool,
+    /// Whether the launcher prepares/reuses the persistent Ultra4K pack before Play.
+    pub ultra_enabled: bool,
+    /// Whether a completed Ultra4K pack is present for the current sources.
+    pub ultra_ready: bool,
+    pub ultra_textures: u32,
+    pub ultra_bytes: u64,
     pub pack_count: u32,
     /// Of those, the animated ones (a folder of frames or a GIF named by the texture).
     pub pack_animated: u32,
@@ -155,7 +164,11 @@ pub fn title(id: &str) -> String {
     match id {
         "rac1-pal" => "Ratchet & Clank (PAL)".into(),
         "rac1-ntsc" => "Ratchet & Clank (NTSC-U)".into(),
+        "rac1-pal1" => "Ratchet & Clank (PAL v1.00)".into(),
+        "rac1-jp" => "Ratchet & Clank (Japan)".into(),
         "rac2-ntsc" => "Going Commando (NTSC-U)".into(),
+        "rac2-pal" => "Going Commando (PAL)".into(),
+        "rac2-ntsc2" => "Going Commando (NTSC-U v2.00)".into(),
         "rac3-ntsc" => "Up Your Arsenal (NTSC-U)".into(),
         "rac4-ntsc" => "Deadlocked (NTSC-U)".into(),
         other => other.into(),
@@ -236,6 +249,12 @@ fn items_under(root: &Path) -> Vec<Item> {
     out
 }
 
+/// The player's hand-made/imported pack items. The generated Ultra4K cache is local build
+/// output, not part of the editable/shareable pack.
+fn user_items(root: &Path) -> Vec<Item> {
+    items_under(root).into_iter().filter(|item| !item.rel.starts_with(ULTRA_FOLDER)).collect()
+}
+
 /// The folder a texture counts under: `Planets/<planet>` for a planet's, else its top folder
 /// (empty at the top).
 fn group_of(rel: &Path) -> String {
@@ -283,11 +302,17 @@ fn count_folders(items: &[Item]) -> Vec<Folder> {
 pub fn view(data_home: &Path, data: &Path, game: &str, version: &str) -> Result<View, String> {
     let id = id(game, version)?;
     let settings = std::fs::read_to_string(settings_file(data_home, game, version)).unwrap_or_default();
-    let pack = items_under(&pack_dir(data, &id));
+    let pack_root = pack_dir(data, &id);
+    let pack = user_items(&pack_root);
     let dump = items_under(&dump_dir(data_home, &id));
+    let ultra = read_ultra_stamp(&pack_root);
     Ok(View {
         enabled: read_switch(&settings, SWITCH).unwrap_or(true),
         dumping: dump_flag(data_home, &id).is_file(),
+        ultra_enabled: read_switch(&settings, ULTRA_SWITCH).unwrap_or(true),
+        ultra_ready: ultra.is_some(),
+        ultra_textures: ultra.as_ref().map_or(0, |s| s.textures),
+        ultra_bytes: ultra.as_ref().map_or(0, |s| s.bytes),
         pack_count: pack.len() as u32,
         pack_animated: pack.iter().filter(|i| i.animated).count() as u32,
         pack: count_folders(&pack),
@@ -303,6 +328,29 @@ pub fn set_enabled(data_home: &Path, game: &str, version: &str, on: bool) -> Res
     let file = settings_file(data_home, game, version);
     let text = std::fs::read_to_string(&file).unwrap_or_default();
     write_settings(&file, &with_value(&text, SWITCH, if on { "1" } else { "0" }))
+}
+
+/// Enables/disables offline Ultra4K preparation without removing cached or imported pictures.
+pub fn set_ultra_enabled(data_home: &Path, _data: &Path, game: &str, version: &str, on: bool) -> Result<(), String> {
+    id(game, version)?;
+    let file = settings_file(data_home, game, version);
+    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    write_settings(&file, &with_value(&text, ULTRA_SWITCH, if on { "1" } else { "0" }))
+}
+
+/// Explicit cache deletion, separate from disabling its use. The native lock prevents deletion
+/// while another preparation owns this cache; imported pictures are outside Ultra4K.
+pub fn delete_ultra(data: &Path, game: &str, version: &str) -> Result<(), String> {
+    let pack = pack_dir(data, &id(game, version)?);
+    if !pack.is_dir() {
+        return Ok(());
+    }
+    let _lock = acquire_ultra_lock(&pack)?;
+    let ultra = pack.join(ULTRA_FOLDER);
+    if ultra.exists() {
+        std::fs::remove_dir_all(&ultra).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// Switches saving the textures on or off for the next Play.
@@ -324,6 +372,488 @@ pub fn set_dumping(data_home: &Path, game: &str, version: &str, on: bool) -> Res
 pub fn play_env(data_home: &Path, game: &str, version: &str) -> Option<(String, String)> {
     let id = id(game, version).ok()?;
     dump_flag(data_home, &id).is_file().then(|| (DUMP_ENV.to_string(), dump_dir(data_home, &id).display().to_string()))
+}
+
+/// The launcher-built, persistent high-resolution pack. It is deliberately a subfolder of the
+/// player's pack: hand-made/imported textures outside it win, and a rebuild never deletes them.
+pub const ULTRA_FOLDER: &str = "Ultra4K";
+const ULTRA_STAMP: &str = "openrac-ultra4k.json";
+const ULTRA_ALGORITHM: u32 = 2;
+const ULTRA_SCALE: u32 = 8;
+const ULTRA_MAX_EDGE: u32 = 4096;
+
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
+#[ts(rename = "UltraTextureBuild")]
+#[serde(rename_all = "camelCase")]
+pub struct UltraTextureBuild {
+    pub enabled: bool,
+    pub cached: bool,
+    pub source_files: u32,
+    pub textures: u32,
+    pub skipped_custom: u32,
+    pub bytes: u64,
+    pub max_edge: u32,
+    pub scale: u32,
+}
+
+impl UltraTextureBuild {
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            cached: true,
+            source_files: 0,
+            textures: 0,
+            skipped_custom: 0,
+            bytes: 0,
+            max_edge: ULTRA_MAX_EDGE,
+            scale: ULTRA_SCALE,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct UltraStamp {
+    algorithm: u32,
+    source_fingerprint: String,
+    source_files: u32,
+    textures: u32,
+    skipped_custom: u32,
+    bytes: u64,
+    max_edge: u32,
+    scale: u32,
+}
+
+fn read_ultra_stamp(pack: &Path) -> Option<UltraStamp> {
+    let ultra = pack.join(ULTRA_FOLDER);
+    let text = std::fs::read_to_string(ultra.join(ULTRA_STAMP)).ok()?;
+    let stamp: UltraStamp = serde_json::from_str(&text).ok()?;
+    if stamp.algorithm != ULTRA_ALGORITHM || stamp.max_edge != ULTRA_MAX_EDGE || stamp.scale != ULTRA_SCALE {
+        return None;
+    }
+    let pictures = png_files(&ultra);
+    if pictures.len() as u32 != stamp.textures {
+        return None;
+    }
+    let bytes: u64 = pictures.iter().filter_map(|path| std::fs::metadata(path).ok().map(|m| m.len())).sum();
+    (bytes == stamp.bytes).then_some(stamp)
+}
+
+#[derive(Debug, Clone)]
+struct UltraSource {
+    path: PathBuf,
+    width: u32,
+    height: u32,
+}
+
+fn png_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_dir() {
+                stack.push(path);
+            } else if kind.is_file() && path.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")) {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+fn source_fingerprint(port: &Path, dump: &Path, pack: &Path) -> (String, u32) {
+    let mut sources: Vec<(String, PathBuf)> = Vec::new();
+    for path in png_files(port) {
+        sources.push(("port".into(), path));
+    }
+    for path in png_files(dump) {
+        sources.push(("dump".into(), path));
+    }
+    // A hand-made/imported texture changes which generated hashes must be omitted, so it is part
+    // of the fingerprint too. Never fingerprint our own generated folder.
+    for item in items_under(pack) {
+        if !item.rel.starts_with(ULTRA_FOLDER) {
+            sources.push(("custom".into(), pack.join(item.rel)));
+        }
+    }
+    sources.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+    let mut digest = Sha256::new();
+    digest.update(ULTRA_ALGORITHM.to_le_bytes());
+    digest.update(ULTRA_SCALE.to_le_bytes());
+    digest.update(ULTRA_MAX_EDGE.to_le_bytes());
+    for (kind, path) in &sources {
+        digest.update(kind.as_bytes());
+        digest.update([0]);
+        digest.update(path.to_string_lossy().as_bytes());
+        digest.update([0]);
+        if let Ok(meta) = std::fs::metadata(path) {
+            digest.update(meta.len().to_le_bytes());
+            if let Ok(time) =
+                meta.modified().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).map_err(std::io::Error::other))
+            {
+                digest.update(time.as_secs().to_le_bytes());
+                digest.update(time.subsec_nanos().to_le_bytes());
+            }
+        }
+    }
+    (format!("{:x}", digest.finalize()), sources.len() as u32)
+}
+
+fn png_rgba(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
+    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut decoder = png::Decoder::new(BufReader::new(file));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut raw =
+        vec![0; reader.output_buffer_size().ok_or_else(|| format!("{}: decoded PNG is too large", path.display()))?];
+    let info = reader.next_frame(&mut raw).map_err(|e| format!("{}: {e}", path.display()))?;
+    raw.truncate(info.buffer_size());
+    let pixels = match info.color_type {
+        png::ColorType::Rgba => raw,
+        png::ColorType::Rgb => raw.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        png::ColorType::GrayscaleAlpha => raw.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        png::ColorType::Grayscale => raw.iter().flat_map(|v| [*v, *v, *v, 255]).collect(),
+        png::ColorType::Indexed => return Err(format!("{} stayed indexed after PNG expansion", path.display())),
+    };
+    Ok((info.width, info.height, pixels))
+}
+
+fn image_hash(width: u32, height: u32, pixels: &[u8]) -> u64 {
+    let mut h = 1469598103934665603u64;
+    let mut mix = |byte: u8| {
+        h ^= u64::from(byte);
+        h = h.wrapping_mul(1099511628211u64);
+    };
+    for side in [width, height] {
+        for byte in side.to_le_bytes() {
+            mix(byte);
+        }
+    }
+    for &byte in pixels {
+        mix(byte);
+    }
+    h
+}
+
+fn png_dimensions(path: &Path) -> Result<(u32, u32), String> {
+    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let decoder = png::Decoder::new(BufReader::new(file));
+    let reader = decoder.read_info().map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok((reader.info().width, reader.info().height))
+}
+
+fn ultra_dimensions(width: u32, height: u32) -> (u32, u32) {
+    let longest = width.max(height).max(1);
+    let scale = (ULTRA_SCALE as f64).min(ULTRA_MAX_EDGE as f64 / longest as f64).max(1.0);
+    (((width as f64 * scale).round() as u32).max(1), ((height as f64 * scale).round() as u32).max(1))
+}
+
+#[cfg(any(not(target_os = "macos"), test))]
+fn write_rgba_png(path: &Path, width: u32, height: u32, pixels: &[u8]) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut encoder = png::Encoder::new(file, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().map_err(|e| format!("{}: {e}", path.display()))?;
+    writer.write_image_data(pixels).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Portable fallback used when the OS has no native offline resampler. Interpolation happens in
+/// premultiplied-alpha space so transparent texture edges do not grow dark/coloured halos.
+#[cfg(any(not(target_os = "macos"), test))]
+fn resize_rgba(width: u32, height: u32, pixels: &[u8], out_width: u32, out_height: u32) -> Vec<u8> {
+    if width == out_width && height == out_height {
+        return pixels.to_vec();
+    }
+    let mut out = vec![0u8; out_width as usize * out_height as usize * 4];
+    let sx = width as f32 / out_width as f32;
+    let sy = height as f32 / out_height as f32;
+    let sample = |x: u32, y: u32| {
+        let at = ((y * width + x) * 4) as usize;
+        let a = pixels[at + 3] as f32 / 255.0;
+        [pixels[at] as f32 * a, pixels[at + 1] as f32 * a, pixels[at + 2] as f32 * a, pixels[at + 3] as f32]
+    };
+    for oy in 0..out_height {
+        let fy = ((oy as f32 + 0.5) * sy - 0.5).clamp(0.0, height.saturating_sub(1) as f32);
+        let y0 = fy.floor() as u32;
+        let y1 = (y0 + 1).min(height - 1);
+        let ty = fy - y0 as f32;
+        for ox in 0..out_width {
+            let fx = ((ox as f32 + 0.5) * sx - 0.5).clamp(0.0, width.saturating_sub(1) as f32);
+            let x0 = fx.floor() as u32;
+            let x1 = (x0 + 1).min(width - 1);
+            let tx = fx - x0 as f32;
+            let p00 = sample(x0, y0);
+            let p10 = sample(x1, y0);
+            let p01 = sample(x0, y1);
+            let p11 = sample(x1, y1);
+            let mut mixed = [0.0f32; 4];
+            for c in 0..4 {
+                let top = p00[c] + (p10[c] - p00[c]) * tx;
+                let bottom = p01[c] + (p11[c] - p01[c]) * tx;
+                mixed[c] = top + (bottom - top) * ty;
+            }
+            let at = ((oy * out_width + ox) * 4) as usize;
+            let alpha = mixed[3].clamp(0.0, 255.0);
+            if alpha > 0.001 {
+                let unpremultiply = 255.0 / alpha;
+                out[at] = (mixed[0] * unpremultiply).round().clamp(0.0, 255.0) as u8;
+                out[at + 1] = (mixed[1] * unpremultiply).round().clamp(0.0, 255.0) as u8;
+                out[at + 2] = (mixed[2] * unpremultiply).round().clamp(0.0, 255.0) as u8;
+            }
+            out[at + 3] = alpha.round() as u8;
+        }
+    }
+    out
+}
+
+#[cfg(any(not(target_os = "macos"), test))]
+fn portable_resample(input: &Path, output: &Path, width: u32, height: u32) -> Result<(), String> {
+    let (source_width, source_height, pixels) = png_rgba(input)?;
+    let resized = resize_rgba(source_width, source_height, &pixels, width, height);
+    write_rgba_png(output, width, height, &resized)
+}
+
+fn folder_bytes(root: &Path) -> u64 {
+    png_files(root).into_iter().filter_map(|p| std::fs::metadata(p).ok().map(|m| m.len())).sum()
+}
+
+struct UltraBuildLock {
+    path: PathBuf,
+}
+
+impl Drop for UltraBuildLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// One Ultra build per game data folder, even when two launcher windows/agents point at it. A
+/// crashed process can leave a lock behind; after fifteen minutes it is considered stale. Normal
+/// builds refresh the lock's mtime before each expensive phase, so a live long build is not stolen.
+fn acquire_ultra_lock(pack: &Path) -> Result<UltraBuildLock, String> {
+    use std::io::ErrorKind;
+    use std::time::{Duration, SystemTime};
+
+    let path = pack.join(format!(".{ULTRA_FOLDER}.lock"));
+    for _ in 0..480 {
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => {
+                use std::io::Write as _;
+                let _ = writeln!(file, "{}", std::process::id());
+                return Ok(UltraBuildLock { path });
+            }
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                let stale = std::fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| SystemTime::now().duration_since(t).ok())
+                    .is_some_and(|age| age > Duration::from_secs(15 * 60));
+                if stale {
+                    let _ = std::fs::remove_file(&path);
+                    continue;
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            Err(e) => return Err(format!("cannot lock Ultra texture build: {e}")),
+        }
+    }
+    Err("another launcher is still preparing Ultra textures".into())
+}
+
+fn touch_ultra_lock(lock: &UltraBuildLock) {
+    // Rewriting the tiny file refreshes its modification time without changing lock ownership.
+    let _ = std::fs::write(&lock.path, format!("{}\n", std::process::id()));
+}
+
+/// Builds all static exported world textures, plus every texture already observed by the runtime
+/// dumper (notably HUD/interface), into a persistent 8x pack capped at a 4096-pixel edge. The
+/// expensive resampling happens here, before Play. Existing user/imported pack pictures are never
+/// replaced: their hashes are omitted from Ultra4K.
+pub fn prepare_ultra4k(data_home: &Path, data: &Path, game: &str, version: &str) -> Result<UltraTextureBuild, String> {
+    #[cfg(target_os = "macos")]
+    use std::process::{Command, Stdio};
+
+    let id = id(game, version)?;
+    let settings = std::fs::read_to_string(settings_file(data_home, game, version)).unwrap_or_default();
+    if !read_switch(&settings, ULTRA_SWITCH).unwrap_or(true) {
+        return Ok(UltraTextureBuild::disabled());
+    }
+    let port = data.join("port").join(version);
+    if !port.is_dir() {
+        return Err(format!("{} has no exported level textures yet", port.display()));
+    }
+    let dump = dump_dir(data_home, &id);
+    let pack = pack_dir(data, &id);
+    std::fs::create_dir_all(&pack).map_err(|e| format!("{}: {e}", pack.display()))?;
+    let lock = acquire_ultra_lock(&pack)?;
+    let ultra = pack.join(ULTRA_FOLDER);
+    let (fingerprint, source_files) = source_fingerprint(&port, &dump, &pack);
+    let previous = read_ultra_stamp(&pack);
+    if let Some(stamp) = previous.as_ref() {
+        if stamp.source_fingerprint == fingerprint {
+            return Ok(UltraTextureBuild {
+                enabled: true,
+                cached: true,
+                source_files: stamp.source_files,
+                textures: stamp.textures,
+                skipped_custom: stamp.skipped_custom,
+                bytes: stamp.bytes,
+                max_edge: stamp.max_edge,
+                scale: stamp.scale,
+            });
+        }
+    }
+
+    let custom: HashSet<String> = items_under(&pack)
+        .into_iter()
+        .filter(|item| !item.rel.starts_with(ULTRA_FOLDER))
+        .map(|item| item.hash)
+        .collect();
+    let mut sources: BTreeMap<String, UltraSource> = BTreeMap::new();
+
+    // Dumped textures already have the exact pack hash in their file name. Prefer these so the
+    // Interface/Shared pictures that do not exist in the static level export are included too.
+    for path in png_files(&dump) {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()).and_then(texture_name) else { continue };
+        if custom.contains(&name) || sources.contains_key(&name) {
+            continue;
+        }
+        let (width, height) = png_dimensions(&path)?;
+        sources.insert(name, UltraSource { path, width, height });
+    }
+
+    let mut skipped_custom = 0u32;
+    touch_ultra_lock(&lock);
+    // Static exported level textures are palette PNGs. Decode them exactly as the renderer does,
+    // then reproduce texture_pack::image_hash so the generated PNG replaces the right texture.
+    for path in png_files(&port) {
+        let (width, height, rgba) = png_rgba(&path)?;
+        let hash = format!("{:016x}", image_hash(width, height, &rgba));
+        if custom.contains(&hash) {
+            skipped_custom += 1;
+            continue;
+        }
+        sources.entry(hash).or_insert(UltraSource { path, width, height });
+    }
+
+    let staging = pack.join(format!(".{ULTRA_FOLDER}-building-{}", std::process::id()));
+    let input = staging.join("input");
+    let output = staging.join("output");
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::create_dir_all(&input).map_err(|e| format!("{}: {e}", input.display()))?;
+    std::fs::create_dir_all(&output).map_err(|e| format!("{}: {e}", output.display()))?;
+
+    let build = (|| -> Result<(), String> {
+        let mut groups: BTreeMap<(u32, u32), Vec<PathBuf>> = BTreeMap::new();
+        for (hash, source) in &sources {
+            let generated = output.join(format!("{hash}.png"));
+            // A source hash identifies the exact original dimensions and texels. When only the
+            // source set changed, a generated picture with that same hash and the same algorithm
+            // is still valid: link/copy it into the new staging pack instead of resampling it.
+            if previous.is_some() {
+                let old = ultra.join(format!("{hash}.png"));
+                if old.is_file() {
+                    if std::fs::hard_link(&old, &generated).is_err() {
+                        std::fs::copy(&old, &generated).map_err(|e| format!("{}: {e}", generated.display()))?;
+                    }
+                    continue;
+                }
+            }
+            let staged = input.join(format!("{hash}.png"));
+            if std::fs::hard_link(&source.path, &staged).is_err() {
+                std::fs::copy(&source.path, &staged).map_err(|e| format!("{}: {e}", staged.display()))?;
+            }
+            groups.entry(ultra_dimensions(source.width, source.height)).or_default().push(staged);
+        }
+
+        for ((width, height), files) in groups {
+            touch_ultra_lock(&lock);
+            #[cfg(target_os = "macos")]
+            {
+                // CoreGraphics is considerably faster than the portable CPU fallback on Apple
+                // hardware. Batching also avoids thousands of process launches.
+                for batch in files.chunks(128) {
+                    let status = Command::new("/usr/bin/sips")
+                        .arg("-z")
+                        .arg(height.to_string())
+                        .arg(width.to_string())
+                        .arg("--out")
+                        .arg(&output)
+                        .args(batch)
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::piped())
+                        .status()
+                        .map_err(|e| format!("cannot start macOS texture resampler: {e}"))?;
+                    if !status.success() {
+                        return Err(format!("macOS texture resampler stopped with {status}"));
+                    }
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                // Windows/Linux builds have no dependency on a platform image utility: decode,
+                // resize and encode in-process so the same launcher bundle works everywhere.
+                for file in &files {
+                    let name = file.file_name().ok_or_else(|| format!("{} has no file name", file.display()))?;
+                    portable_resample(file, &output.join(name), width, height)?;
+                    touch_ultra_lock(&lock);
+                }
+            }
+        }
+        Ok(())
+    })();
+    if let Err(e) = build {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(e);
+    }
+
+    let bytes = folder_bytes(&output);
+    let stamp = UltraStamp {
+        algorithm: ULTRA_ALGORITHM,
+        source_fingerprint: fingerprint,
+        source_files,
+        textures: sources.len() as u32,
+        skipped_custom,
+        bytes,
+        max_edge: ULTRA_MAX_EDGE,
+        scale: ULTRA_SCALE,
+    };
+    std::fs::write(output.join(ULTRA_STAMP), serde_json::to_vec_pretty(&stamp).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("could not write Ultra texture stamp: {e}"))?;
+
+    touch_ultra_lock(&lock);
+    let previous_dir = pack.join(format!(".{ULTRA_FOLDER}-previous-{}", std::process::id()));
+    let had_previous = ultra.is_dir();
+    if had_previous {
+        let _ = std::fs::remove_dir_all(&previous_dir);
+        std::fs::rename(&ultra, &previous_dir).map_err(|e| format!("{}: {e}", ultra.display()))?;
+    }
+    if let Err(e) = std::fs::rename(&output, &ultra) {
+        if had_previous {
+            let _ = std::fs::rename(&previous_dir, &ultra);
+        }
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(format!("{}: {e}", ultra.display()));
+    }
+    if had_previous {
+        let _ = std::fs::remove_dir_all(&previous_dir);
+    }
+    let _ = std::fs::remove_dir_all(&staging);
+    Ok(UltraTextureBuild {
+        enabled: true,
+        cached: false,
+        source_files,
+        textures: sources.len() as u32,
+        skipped_custom,
+        bytes,
+        max_edge: ULTRA_MAX_EDGE,
+        scale: ULTRA_SCALE,
+    })
 }
 
 /// A folder of the pack or the dump to open, made when it is not there yet. `sub` is one of the
@@ -355,6 +885,9 @@ struct Scanned {
     manifest: Manifest,
     skipped: u32,
 }
+
+/// What a mod's .zip is told when it is read as a texture pack.
+pub const NOT_A_PACK_BUT_A_MOD: &str = "This .zip is a mod, not a texture pack.";
 
 /// The folders a pack keeps at its top; a single other top folder (the pack zipped with its own
 /// folder) is taken off.
@@ -414,6 +947,11 @@ fn scan(archive: &mut zip::ZipArchive<std::fs::File>, id: &str) -> Result<Scanne
             skipped += 1;
             continue;
         }
+        // A mod's manifest anywhere: the .zip is a mod (which may carry pictures of its own), not
+        // a texture pack. The launcher's Add a mod then installs it as one.
+        if file_name == crate::plugins::MANIFEST {
+            return Err(NOT_A_PACK_BUT_A_MOD.into());
+        }
         if rel == MANIFEST {
             let mut text = String::new();
             archive
@@ -468,7 +1006,7 @@ fn scan(archive: &mut zip::ZipArchive<std::fs::File>, id: &str) -> Result<Scanne
     if let Some(game) = manifest.game.as_deref() {
         if game != id {
             return Err(format!(
-                "This pack is for {}, not {}. Add it on that game's page instead.",
+                "This pack is for {}, not {}. Add it on that game's Mods tab instead.",
                 title(game),
                 title(id)
             ));
@@ -499,7 +1037,7 @@ pub fn preview_import(data: &Path, game: &str, version: &str, source: &Path) -> 
     let id = id(game, version)?;
     let scanned = scan(&mut open_zip(source)?, &id)?;
     let current: std::collections::HashSet<String> =
-        items_under(&pack_dir(data, &id)).into_iter().map(|i| i.hash).collect();
+        user_items(&pack_dir(data, &id)).into_iter().map(|i| i.hash).collect();
     let items: Vec<Item> = scanned.items.iter().map(|(i, _)| i.clone()).collect();
     Ok(Preview {
         textures: items.len() as u32,
@@ -591,13 +1129,42 @@ pub fn import(
 
 fn replace_with(pack: &Path, staging: &Path, id: &str) -> Result<Option<PathBuf>, String> {
     let mut kept = None;
+    let parent = pack.parent().unwrap_or_else(|| Path::new("."));
+    let held_ultra = parent.join(format!(".{id}.Ultra4K.keep-{}", std::process::id()));
+    let ultra = pack.join(ULTRA_FOLDER);
+    let had_ultra = ultra.is_dir();
+    if had_ultra {
+        let _ = std::fs::remove_dir_all(&held_ultra);
+        std::fs::rename(&ultra, &held_ultra).map_err(|e| format!("{}: {e}", ultra.display()))?;
+    }
+
     if pack.exists() {
         let stamp = crate::index_apply::stamp(crate::discord::now_sec());
         let old = pack.with_file_name(format!("{id} (before import {stamp})"));
-        std::fs::rename(pack, &old).map_err(|e| format!("{}: {e}", pack.display()))?;
+        if let Err(e) = std::fs::rename(pack, &old) {
+            if had_ultra {
+                let _ = std::fs::rename(&held_ultra, &ultra);
+            }
+            return Err(format!("{}: {e}", pack.display()));
+        }
         kept = Some(old);
     }
-    std::fs::rename(staging, pack).map_err(|e| format!("{}: {e}", pack.display()))?;
+
+    if let Err(e) = std::fs::rename(staging, pack) {
+        if let Some(old) = kept.as_ref() {
+            let _ = std::fs::rename(old, pack);
+        }
+        if had_ultra {
+            let _ = std::fs::create_dir_all(pack);
+            let _ = std::fs::rename(&held_ultra, pack.join(ULTRA_FOLDER));
+        }
+        return Err(format!("{}: {e}", pack.display()));
+    }
+    if had_ultra {
+        if let Err(e) = std::fs::rename(&held_ultra, pack.join(ULTRA_FOLDER)) {
+            return Err(format!("offline Ultra cache could not be restored after import: {e}"));
+        }
+    }
     Ok(kept)
 }
 
@@ -673,7 +1240,7 @@ pub fn export(
     let mut mine: Vec<(PathBuf, Vec<u8>)> = Vec::new();
     let mut textures = 0;
     let mut left_out = 0;
-    for item in items_under(&pack) {
+    for item in user_items(&pack) {
         let mut files = Vec::new();
         for rel in item_files(&pack, &item) {
             files.push((rel.clone(), std::fs::read(pack.join(&rel)).map_err(|e| format!("{}: {e}", rel.display()))?));
@@ -765,6 +1332,37 @@ mod tests {
         }
         assert!(id("rac2", "ntsc").is_ok_and(|i| i == "rac2-ntsc"));
         assert!(id("../x", "ntsc").is_err());
+    }
+
+    #[test]
+    fn portable_resampler_writes_a_real_rgba_png() {
+        let t = tempfile::tempdir().unwrap();
+        let source = t.path().join("source.png");
+        let output = t.path().join("output.png");
+        let pixels = vec![255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 0];
+        write_rgba_png(&source, 2, 2, &pixels).unwrap();
+        portable_resample(&source, &output, 4, 4).unwrap();
+        let (w, h, rgba) = png_rgba(&output).unwrap();
+        assert_eq!((w, h), (4, 4));
+        assert_eq!(rgba.len(), 4 * 4 * 4);
+        assert_eq!(&rgba[..4], &[255, 0, 0, 255]);
+        assert_eq!(&rgba[(3 * 4)..(4 * 4)], &[0, 255, 0, 255]);
+        assert!(rgba.chunks_exact(4).any(|p| p[3] < 255));
+    }
+
+    #[test]
+    fn a_mod_with_pictures_is_not_a_texture_pack() {
+        let t = tempfile::tempdir().unwrap();
+        let zip = t.path().join("mod.zip");
+        make_zip(
+            &zip,
+            &[
+                ("my-mod/openrac-mod.json", br#"{"id":"my-mod"}"#.to_vec()),
+                ("my-mod/Interface/0123456789ABCDEF.png", png(1)),
+            ],
+        );
+        let err = preview_import(&t.path().join("data"), "rac2", "ntsc", &zip).unwrap_err();
+        assert_eq!(err, NOT_A_PACK_BUT_A_MOD);
     }
 
     #[test]
@@ -882,6 +1480,8 @@ mod tests {
         fs::write(pack.join(format!("Planets/Oozla/{HASH_B}.png")), png(5)).unwrap();
         fs::write(pack.join(format!("Interface/{HASH_A}.png")), png(1)).unwrap();
         fs::write(dump.join(format!("Interface/{HASH_A}.png")), png(1)).unwrap(); // unchanged
+        fs::create_dir_all(pack.join(ULTRA_FOLDER)).unwrap();
+        fs::write(pack.join(ULTRA_FOLDER).join(format!("{HASH_C}.png")), png(7)).unwrap();
         fs::write(pack.join("notes.txt"), "mine").unwrap();
         let out = t.path().join("out.zip");
         assert_eq!(export(&home, &data, "rac2", "ntsc", "1.2.3", &out).unwrap(), (1, 1));
@@ -935,7 +1535,68 @@ mod tests {
         assert_eq!(play_env(&home, "rac2", "ntsc"), None);
         assert_eq!(folder(&home, &data, "rac2", "ntsc", true, "Planets/Oozla").unwrap(), dump.join("Planets/Oozla"));
         assert!(folder(&home, &data, "rac2", "ntsc", true, "../x").is_err());
-        assert!(folder(&home, &data, "rac2", "ntsc", false, "").unwrap().is_dir());
+        let pack = folder(&home, &data, "rac2", "ntsc", false, "").unwrap();
+        assert!(pack.is_dir());
+
+        // Offline Ultra has its own visible switch. Turning it off deletes only the generated
+        // Ultra4K cache and leaves a player's hand-made/imported pack picture alone.
+        let custom = pack.join(format!("{HASH_A}.png"));
+        fs::write(&custom, png(9)).unwrap();
+        let ultra = pack.join(ULTRA_FOLDER);
+        fs::create_dir_all(&ultra).unwrap();
+        let generated = ultra.join(format!("{HASH_B}.png"));
+        fs::write(&generated, png(8)).unwrap();
+        let bytes = fs::metadata(&generated).unwrap().len();
+        let mut stamp = UltraStamp {
+            algorithm: ULTRA_ALGORITHM,
+            source_fingerprint: "test".into(),
+            source_files: 7,
+            textures: 1,
+            skipped_custom: 1,
+            bytes,
+            max_edge: ULTRA_MAX_EDGE,
+            scale: ULTRA_SCALE,
+        };
+        fs::write(ultra.join(ULTRA_STAMP), serde_json::to_vec(&stamp).unwrap()).unwrap();
+        let v = view(&home, &data, "rac2", "ntsc").unwrap();
+        assert!(v.ultra_enabled && v.ultra_ready);
+        assert_eq!((v.ultra_textures, v.ultra_bytes, v.pack_count), (1, bytes, 1));
+        assert!(v.pack.iter().all(|folder| folder.path != ULTRA_FOLDER));
+        // A damaged/truncated generated cache is not reported as ready merely because its stamp exists.
+        stamp.bytes += 1;
+        fs::write(ultra.join(ULTRA_STAMP), serde_json::to_vec(&stamp).unwrap()).unwrap();
+        assert!(!view(&home, &data, "rac2", "ntsc").unwrap().ultra_ready);
+        stamp.bytes = bytes;
+        fs::write(ultra.join(ULTRA_STAMP), serde_json::to_vec(&stamp).unwrap()).unwrap();
+        assert!(view(&home, &data, "rac2", "ntsc").unwrap().ultra_ready);
+        set_ultra_enabled(&home, &data, "rac2", "ntsc", false).unwrap();
+        assert!(custom.is_file());
+        assert!(ultra.exists());
+        let v = view(&home, &data, "rac2", "ntsc").unwrap();
+        assert!(!v.ultra_enabled && v.ultra_ready);
+        delete_ultra(&data, "rac2", "ntsc").unwrap();
+        assert!(!ultra.exists() && custom.is_file());
+        set_ultra_enabled(&home, &data, "rac2", "ntsc", true).unwrap();
+        assert!(view(&home, &data, "rac2", "ntsc").unwrap().ultra_enabled);
+    }
+
+    #[test]
+    fn replacing_a_pack_keeps_the_generated_ultra_cache_out_of_the_backup() {
+        let t = tempfile::tempdir().unwrap();
+        let data = t.path().join("data");
+        let pack = pack_dir(&data, "rac2-ntsc");
+        fs::create_dir_all(pack.join(ULTRA_FOLDER)).unwrap();
+        fs::write(pack.join(format!("{HASH_A}.png")), png(1)).unwrap();
+        fs::write(pack.join(ULTRA_FOLDER).join(format!("{HASH_B}.png")), png(8)).unwrap();
+        let zip = t.path().join("replacement.zip");
+        make_zip(&zip, &[(MANIFEST, manifest("rac2-ntsc")), (&format!("{HASH_C}.png"), png(3))]);
+
+        let (_, kept) = import(&data, "rac2", "ntsc", &zip, ImportMode::Replace).unwrap();
+        let kept = kept.unwrap();
+        assert!(pack.join(format!("{HASH_C}.png")).is_file());
+        assert!(pack.join(ULTRA_FOLDER).join(format!("{HASH_B}.png")).is_file());
+        assert!(!kept.join(ULTRA_FOLDER).exists());
+        assert!(kept.join(format!("{HASH_A}.png")).is_file());
     }
 
     #[test]

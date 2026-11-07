@@ -11,6 +11,7 @@
 #include "enhanced/tools/baker/pipeline/coordinator_protocol.h"
 #include "enhanced/tools/baker/pipeline/pipeline_internal.h"
 #include "enhanced/tools/baker/pipeline/stage_file.h"
+#include "enhanced/tools/baker/sources/emission_textures.h"
 #include "enhanced/tools/baker/sources/interior_stage.h"
 #include "enhanced/tools/baker/sources/probe_fingerprint.h"
 
@@ -57,6 +58,7 @@ json::Value stamp(
 
     assets::disc::Sha256 profile_digest;
     profile_digest.update(description);
+    const auto emission = emission_texture_fingerprint(level, options.profiles);
     return parsed(
         "{\"version\":5,\"pipeline\":1,\"planner\":1,\"environment_algorithm\":20,\"source\":"
         + coordinator_string(std::to_string(source ? *source : probe_input_hash(level)))
@@ -67,6 +69,13 @@ json::Value stamp(
         + (std::filesystem::is_regular_file(level / "probe-bake.json")
                ? coordinator_string(bake_json::file_hash(level / "probe-bake.json"))
                : "null")
+        + (std::filesystem::is_regular_file(level / "lighting-environments.json")
+               ? ",\"lighting_environments_sha256\":"
+                     + coordinator_string(
+                         bake_json::file_hash(level / "lighting-environments.json")
+                     )
+               : "")
+        + (emission.empty() ? "" : ",\"emission_textures_sha256\":" + coordinator_string(emission))
         + ",\"moby_whitelist_sha256\":" + moby_hash + ",\"profile\":" + description
         + ",\"regions\":" + bake_json::json_text(settings)
         + ",\"interior\":" + interior_stage_profile()
@@ -96,6 +105,22 @@ bool current(const std::filesystem::path& output, const json::Value& identity) {
         }
 
         const auto result = bake_json::document(output / "bake-result.json");
+        const auto& a = identity["profile"]["atmosphere"];
+        CloudParameters clouds;
+        clouds.enabled = a["enabled"].boolean() && a["cloud_enabled"].boolean();
+        clouds.resolution = unsigned(a["cloud_resolution"].number());
+        clouds.coverage = float(a["cloud_coverage"].number());
+        clouds.density = float(a["cloud_density"].number());
+        clouds.base = float(a["cloud_base"].number());
+        clouds.thickness = float(a["cloud_thickness"].number());
+        clouds.scale = float(a["cloud_scale"].number());
+        clouds.seed = unsigned(a["cloud_seed"].number());
+
+        for (unsigned c = 0; c < 3; ++c) {
+            clouds.colour[c] = float(a["cloud_colour"][c].number());
+        }
+
+        (void)CloudField::load(output / "clouds.orpc", clouds);
 
         // A retained partial result must never count as completed lighting.
         if (!result["verified"].boolean()) {

@@ -69,7 +69,7 @@ vec3 fur_direct_lighting(FurSurfaceData surface, vec3 p, vec4 selector, float vi
         float radius = LOCAL_POSITION(i).w, distance = length(delta);
         if (radius <= 0. || distance >= radius || distance <= 1e-6) continue;
         result += max(LOCAL_COLOUR(i).rgb, vec3(0.)) * LOCAL_ATTENUATION(distance,radius) * LOCAL_CONE(i,delta/distance)
-            * fur_light_response(surface, eye, delta / distance, albedo);
+            * LOCAL_VISIBILITY(p,i) * fur_light_response(surface, eye, delta / distance, albedo);
     }
     return result * surface.coverage;
 }

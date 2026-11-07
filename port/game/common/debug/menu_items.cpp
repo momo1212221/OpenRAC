@@ -97,15 +97,28 @@ constexpr std::array<const char*, 5> kInspectNames =
     {"Main camera", "Shadow cascade 1", "Shadow cascade 2", "Shadow cascade 3", "Shadow cascade 4"};
 
 // HDR's paper whites: 0 is the system's SDR white.
-constexpr std::array<int, 10> kWhites = {0, 80, 100, 120, 160, 203, 250, 300, 400, 500};
+constexpr std::array<int, 13> kWhites =
+    {0, 80, 100, 120, 160, 203, 250, 300, 400, 500, 600, 800, hdr::kPaperWhiteMax};
+// HDR's peaks: 0 is the display's. Up to PQ's 10000 nits, what the brightest screens are sold at.
+constexpr std::array<int, 13> kPeaks =
+    {0, 400, 600, 800, 1000, 1400, 2000, 2500, 3000, 4000, 5000, 6000, hdr::kPeakMax};
 
-int white_index() {
+// The step of `steps` at `value`, or the first above it (a value the file set between steps).
+template <std::size_t N>
+int step_index(const std::array<int, N>& steps, int value) {
     int at = 0;
-    while (at < static_cast<int>(kWhites.size()) - 1
-           && kWhites[at] < settings::get().hdr_paper_white) {
+    while (at < static_cast<int>(N) - 1 && steps[at] < value) {
         ++at;
     }
     return at;
+}
+
+int white_index() {
+    return step_index(kWhites, settings::get().hdr_paper_white);
+}
+
+int peak_index() {
+    return step_index(kPeaks, settings::get().hdr_peak);
 }
 
 // An options row (options_menu.h) as a choice.
@@ -173,6 +186,8 @@ Item item(Id id, std::uint8_t where) {
             return row_choice(kAnisotropy);
         case Id::SceneryDetail:
             return row_choice(kSceneryDetail);
+        case Id::DrawDistance:
+            return row_choice(kDrawDistance);
         case Id::FrameRate:
             return row_choice(kFrameRate);
         case Id::FrameCap:
@@ -198,6 +213,15 @@ Item item(Id id, std::uint8_t where) {
             it.can_raise = at < static_cast<int>(kWhites.size()) - 1;
             return it;
         }
+        case Id::HdrPeak: {
+            it.shown = set.hdr != hdr::Mode::Off;
+            const int at = peak_index();
+            it.value =
+                set.hdr_peak == 0 ? std::string("Display") : std::format("{} nits", set.hdr_peak);
+            it.can_lower = at > 0;
+            it.can_raise = at < static_cast<int>(kPeaks.size()) - 1;
+            return it;
+        }
         case Id::HdrStatus:
             it.shown = set.hdr != hdr::Mode::Off;
             it.value = frontend::hdr_status();
@@ -207,6 +231,10 @@ Item item(Id id, std::uint8_t where) {
             return it;
         case Id::ResponsiveControls:
             it.on = set.responsive_controls;
+            return it;
+        case Id::GpuBreadcrumbs:
+            it.shown = gl::is_vulkan();
+            it.on = set.gpu_breadcrumbs;
             return it;
 
         // ---- Enhanced ----
@@ -344,6 +372,10 @@ Item item(Id id, std::uint8_t where) {
         case Id::TriggerPoint:
         case Id::FaceButtons:
         case Id::PadBackground:
+        case Id::RumbleStrength:
+        case Id::RumbleStyle:
+        case Id::RumbleTriggers:
+        case Id::RumblePhone:
         case Id::ConnectedControllers:
         case Id::PlayersReset:
         case Id::PlayerOne:
@@ -360,6 +392,9 @@ Item item(Id id, std::uint8_t where) {
             it.can_raise = r.can_raise;
             return it;
         }
+        case Id::TouchActionButtons:
+            it.on = set.touch_style == 0;
+            return it;
         case Id::TouchButtonSize:
             it.value = std::format("{}%", set.touch_scale);
             it.can_lower = set.touch_scale > settings::kTouchScales[0];
@@ -386,6 +421,10 @@ Item item(Id id, std::uint8_t where) {
         case Id::ObjectViewer:
             it.shown = s.developer;
             it.on = s.object_viewer.open;
+            return it;
+        case Id::MeatProxyReview:
+            it.shown = s.developer;
+            it.on = s.meat_proxy_review;
             return it;
         case Id::LevelSelect:
             it.shown = s.developer;
@@ -504,6 +543,9 @@ bool act(Id id, int by) {
         case Id::SceneryDetail:
             change_setting(kSceneryDetail, by);
             return false;
+        case Id::DrawDistance:
+            change_setting(kDrawDistance, by);
+            return false;
         case Id::FrameRate:
             change_setting(kFrameRate, by);
             return false;
@@ -518,14 +560,20 @@ bool act(Id id, int by) {
             return false;
         case Id::Hdr: {
             // From Off, it counts from the next start (frontend's apply_hdr says so).
-            const int mode = static_cast<int>(set.hdr);
-            set.hdr = static_cast<hdr::Mode>((mode + by + 3) % 3);
+            const int count = static_cast<int>(hdr::Mode::Count);
+            set.hdr = static_cast<hdr::Mode>((static_cast<int>(set.hdr) + by + count) % count);
             changed();
             return false;
         }
         case Id::HdrPaperWhite:
             set.hdr_paper_white = kWhites[static_cast<std::size_t>(
                 std::clamp(white_index() + by, 0, static_cast<int>(kWhites.size()) - 1)
+            )];
+            changed();
+            return false;
+        case Id::HdrPeak:
+            set.hdr_peak = kPeaks[static_cast<std::size_t>(
+                std::clamp(peak_index() + by, 0, static_cast<int>(kPeaks.size()) - 1)
             )];
             changed();
             return false;
@@ -536,6 +584,10 @@ bool act(Id id, int by) {
             return false;
         case Id::ResponsiveControls:
             change_setting(kResponsiveControls, 1);
+            return false;
+        case Id::GpuBreadcrumbs:
+            set.gpu_breadcrumbs = !set.gpu_breadcrumbs;
+            settings::save();
             return false;
 
         // ---- Enhanced ----
@@ -653,6 +705,10 @@ bool act(Id id, int by) {
         case Id::TriggerPoint:
         case Id::FaceButtons:
         case Id::PadBackground:
+        case Id::RumbleStrength:
+        case Id::RumbleStyle:
+        case Id::RumbleTriggers:
+        case Id::RumblePhone:
         case Id::ConnectedControllers:
         case Id::PlayersReset:
         case Id::PlayerOne:
@@ -660,6 +716,10 @@ bool act(Id id, int by) {
         case Id::MenuOpen:
         case Id::ControlsReset:
             controls_act(id, by);
+            return false;
+        case Id::TouchActionButtons:
+            set.touch_style = set.touch_style == 0 ? 1 : 0;
+            settings::save();
             return false;
         case Id::TouchButtonSize:
             set.touch_scale = settings::step_listed(settings::kTouchScales, set.touch_scale, by);
@@ -687,6 +747,9 @@ bool act(Id id, int by) {
                 set_picker_enabled(true);
             }
             return false;
+        case Id::MeatProxyReview:
+            s.meat_proxy_review = !s.meat_proxy_review;
+            return s.meat_proxy_review;
         case Id::LevelSelect:
             press(SDLK_F1);
             return true;

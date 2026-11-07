@@ -38,7 +38,7 @@ class NativePipeline(unittest.TestCase):
             final = self.exports/f'level_{index:02}'
             level.rename(final)
             manifest = json.loads((final/'manifest.json').read_text())
-            manifest['level'] = 2  # The room fixture has no real level-specific emitters or water.
+            manifest['level'] = 8  # A gameplay level without shipped emission or water recipes.
             manifest['collision'] = 'collision.glb'  # Normal levels explicitly declare floor geometry.
             (final/'manifest.json').write_text(json.dumps(manifest))
             (final/'probe-bake.json').write_text(json.dumps(dict(version=1,
@@ -79,10 +79,16 @@ class NativePipeline(unittest.TestCase):
 
     def test_native_flow_never_starts_python_for_normal_exports_and_reuses_cache(self):
         (self.levels[0]/'bake-inputs/gameplay.bin').unlink()
+        (self.exports/'cloud-profile.json').write_text(json.dumps(dict(version=1,
+            atmosphere=dict(cloud_seed=17, cloud_resolution=32))))
         self.run_bake()
         paths = [self.cache/f'level_{i:02}'/'sparse.orpg' for i in range(2)]
+        clouds = [self.cache/f'level_{i:02}'/'clouds.orpc' for i in range(2)]
+        self.assertTrue(all(path.stat().st_size > 56 for path in clouds))
+        cloud_times = [path.stat().st_mtime_ns for path in clouds]
         before = [p.stat().st_mtime_ns for p in paths]
         result = self.run_bake()
+        self.assertEqual(cloud_times, [path.stat().st_mtime_ns for path in clouds])
         self.assertEqual(before,[p.stat().st_mtime_ns for p in paths])
         self.assertEqual(result.stdout.count('up to date'),2)
         records = json.loads((self.cache/'bake-all-result.json').read_text())['levels']
@@ -91,6 +97,40 @@ class NativePipeline(unittest.TestCase):
         self.run_bake()
         self.assertNotEqual(before[0],paths[0].stat().st_mtime_ns)
         self.assertEqual(before[1],paths[1].stat().st_mtime_ns)
+
+    def test_refreshes_shipped_lighting_profiles_without_replacing_local_edits(self):
+        profiles = self.root/'profiles'
+        tracked = profiles/'rac1-ntsc/level_08'
+        tracked.mkdir(parents=True)
+        name = 'lighting-environments.json'
+        profile = {'version': 1, 'barriers': [], 'sources': []}
+        (tracked/name).write_text(json.dumps(profile))
+        self.run_bake('--profiles-dir', profiles)
+        self.assertEqual((self.levels[0]/name).read_bytes(), (tracked/name).read_bytes())
+        self.assertIn('up to date', self.run_bake('--profiles-dir', profiles).stdout)
+
+        local_edit = json.dumps(profile, indent=3)
+        (self.levels[1]/name).write_text(local_edit)
+        (tracked/name).write_text(json.dumps(profile, indent=2))
+        result = self.run_bake('--profiles-dir', profiles)
+        self.assertIn('level_00: baked', result.stdout)
+        self.assertEqual((self.levels[0]/name).read_bytes(), (tracked/name).read_bytes())
+        self.assertEqual((self.levels[1]/name).read_text(), local_edit)
+        self.assertEqual(self.run_bake('--profiles-dir', profiles).stdout.count('up to date'), 2)
+
+    def test_interior_authoring_rejects_zero_area_barriers(self):
+        level = self.levels[0]
+        (level/'lighting-environments.json').write_text(json.dumps({
+            'version': 1, 'barriers': [[[0, 0, 0], [1, 1, 1], [2, 2, 2]]], 'sources': [],
+        }))
+        output = self.root/'inference'
+        output.mkdir()
+        result = subprocess.run([str(BAKER), '--prepare-level-interiors', str(level),
+            str(level/'bake-inputs/gameplay.bin'), str(output)], capture_output=True, text=True,
+            timeout=20)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('barrier 0 has zero area', result.stderr)
+        self.assertFalse((level/'probe-interiors.json').exists())
 
     def test_parallel_emission_hashing_matches_serial_preparation(self):
         profiles = self.root/'profiles'
@@ -130,6 +170,92 @@ class NativePipeline(unittest.TestCase):
                          (level/'probe-emission.json').read_bytes())
         generated = json.loads((level/'probe-emission.json').read_text())['_catalog_defaults']
         self.assertTrue(all(f'textures/hash-{index:02}.png' in generated for index in range(24)))
+
+    def test_emission_recipe_composes_local_pixels_and_refreshes_the_cache(self):
+        def chunk(kind, data):
+            return struct.pack('>I', len(data))+kind+data+struct.pack('>I', zlib.crc32(kind+data))
+
+        def write_row(path, width, colour_type, pixels):
+            path.write_bytes(b'\x89PNG\r\n\x1a\n'
+                +chunk(b'IHDR', struct.pack('>IIBBBBB', width, 1, 8, colour_type, 0, 0, 0))
+                +chunk(b'IDAT', zlib.compress(b'\0'+bytes(pixels)))+chunk(b'IEND', b''))
+
+        def read_rgb_row(path):
+            png = path.read_bytes()
+            chunks = []
+            offset = 8
+            while offset < len(png):
+                length, kind = struct.unpack_from('>I4s', png, offset)
+                if kind == b'IDAT':
+                    chunks.append(png[offset+8:offset+8+length])
+                offset += length+12
+            method, *pixels = zlib.decompress(b''.join(chunks))
+            # A single row has no above-neighbour values for the PNG filters.
+            for i in range(3, len(pixels)):
+                left = pixels[i-3]
+                predictor = left if method in (1, 4) else left//2 if method == 3 else 0
+                pixels[i] = (pixels[i]+predictor) & 255
+            return pixels
+
+        profiles = self.root/'recipe profiles'
+        tracked = profiles/'rac1-ntsc/level_08'
+        masks = tracked/'emission-masks'
+        masks.mkdir(parents=True)
+        mask = masks/'light-mask.png'
+        write_row(mask, 3, 0, [0, 128, 255])
+        (tracked/'material-overrides.json').write_text('{"version":1,"overrides":[]}')
+        recipe_path = tracked/'emission-textures.json'
+        recipes = {
+            'version': 1, 'textures': [{
+                'output': 'light-emission.png', 'mask': mask.name, 'mode': 'source',
+                'source': 'textures/fixture.png',
+            }, {
+                'output': 'tinted-emission.png', 'mask': mask.name, 'mode': 'tint',
+                'source': 'textures/fixture.png', 'colour': [255, 128, 0],
+            }],
+        }
+        recipe_path.write_text(json.dumps(recipes))
+        for level in self.levels:
+            folder = level/'textures'
+            folder.mkdir(exist_ok=True)
+            write_row(folder/'fixture.png', 3, 2, [100, 160, 200]*3)
+        self.run_bake('--profiles-dir', profiles)
+        generated = self.levels[0]/'materials/level/textures/light-emission.png'
+        fingerprint_cmd = [str(BAKER), '--print-emission-fingerprint', str(self.levels[0]), str(profiles)]
+        fingerprint = subprocess.check_output(fingerprint_cmd, text=True).strip()
+        stamp = json.loads((self.cache/'level_00/openrac-bake.json').read_text())
+        self.assertEqual(stamp['emission_textures_sha256'], fingerprint)
+        self.assertEqual(read_rgb_row(generated), [0, 0, 0, 50, 80, 100, 100, 160, 200])
+        self.assertEqual(read_rgb_row(generated.with_name('tinted-emission.png')),
+                         [0, 0, 0, 50, 40, 0, 100, 80, 0])
+        self.assertEqual(self.run_bake('--profiles-dir', profiles).stdout.count('up to date'), 2)
+        previous = generated.read_bytes()
+        generated.unlink()
+        self.assertNotEqual(subprocess.run(fingerprint_cmd, capture_output=True).returncode, 0)
+        self.assertEqual(self.run_bake('--profiles-dir', profiles).stdout.count('up to date'), 2)
+        self.assertEqual(generated.read_bytes(), previous)
+        write_row(mask, 3, 0, [255, 0, 255])
+        self.assertNotEqual(subprocess.check_output(fingerprint_cmd, text=True).strip(), fingerprint)
+        self.assertEqual(self.run_bake('--profiles-dir', profiles).stdout.count(': baked'), 2)
+        self.assertEqual(read_rgb_row(generated), [100, 160, 200, 0, 0, 0, 100, 160, 200])
+        write_row(self.levels[0]/'textures/fixture.png', 3, 2, [80, 120, 160]*3)
+        result = self.run_bake('--profiles-dir', profiles)
+        self.assertIn('level_00: baked', result.stdout)
+        self.assertIn('level_01: up to date', result.stdout)
+        self.assertEqual(read_rgb_row(generated), [80, 120, 160, 0, 0, 0, 80, 120, 160])
+        previous = generated.read_bytes()
+        write_row(mask, 2, 0, [255, 0])
+        self.run_bake('--profiles-dir', profiles, success=False)
+        self.assertEqual(generated.read_bytes(), previous)
+        write_row(mask, 3, 2, [255, 255, 255]*3)
+        result = self.run_bake('--profiles-dir', profiles, success=False)
+        self.assertIn('8-bit grayscale PNG', result.stdout)
+        write_row(mask, 3, 0, [255, 0, 255])
+        recipes['textures'][0]['gian'] = 2
+        recipe_path.write_text(json.dumps(recipes))
+        result = self.run_bake('--profiles-dir', profiles, success=False)
+        self.assertIn('unknown emission recipe field: gian', result.stdout)
+        self.assertEqual(generated.read_bytes(), previous)
 
     def test_compression_is_stored_and_format_changes_invalidate_cache(self):
         self.run_bake('--compression', 'bc6h')
@@ -301,9 +427,16 @@ class NativePipeline(unittest.TestCase):
 
     def test_cache_lock_is_shared_with_the_legacy_python_flow(self):
         self.cache.mkdir()
+        status = lambda: subprocess.run(
+            [str(BAKER),'--cache-status',str(self.cache)],capture_output=True,text=True,timeout=10)
+        idle = status()
+        self.assertEqual((idle.returncode,idle.stdout.strip()),(0,'idle'),idle.stderr)
         with diagnostics.cache_lock(self.cache):
+            busy = status()
+            self.assertEqual((busy.returncode,busy.stdout.strip()),(0,'busy'),busy.stderr)
             result = self.run_bake(success=False)
         self.assertIn('busy',result.stdout)
+        self.assertEqual(status().stdout.strip(),'idle')
         self.run_bake()
 
     def test_invalid_controls_dry_run_and_recursive_outputs_do_not_modify_exports(self):

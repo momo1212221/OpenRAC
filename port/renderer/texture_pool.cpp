@@ -750,6 +750,12 @@ void TexturePool::set_upscaled_texture_colours(std::unique_ptr<UpscaledTextureCo
     m_upscaled_texture_colours = std::move(source);
 }
 
+void TexturePool::clear_upscaled_texture_colours() {
+    if (m_upscaled_texture_colours) {
+        m_upscaled_texture_colours->clear_cache();
+    }
+}
+
 void TexturePool::bind_upscaled_texture_colours(
     TextureHandle texture, const Shader& shader, TextureFilter filter, bool repeat_s, bool repeat_t
 ) {
@@ -767,7 +773,9 @@ void TexturePool::bind_upscaled_texture_colours(
     const auto& image = m_entries[texture - 1].image;
     const unsigned cached =
         filter != TextureFilter::Normal && !m_entries[texture - 1].field
-            ? m_upscaled_texture_colours->prepare(source, image.width, image.height, wrap, m_frame)
+            ? m_upscaled_texture_colours->prepare(
+                  source, image.width, image.height, wrap, filter, m_frame
+              )
             : 0;
     // Cache creation uses its compute program. Restore the material before its uniforms.
     shader.use();

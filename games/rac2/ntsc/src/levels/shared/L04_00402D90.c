@@ -60,8 +60,6 @@ extern BatchA_A04_u32 D_001A79F0[] __attribute__((sda));
 
 extern BatchA_A04_u8 D_001395B8[];
 
-INCLUDE_ASM("asm/levels", func_L04_00402D90);
-
 extern void func_L00_002ECFE8(void *a0, void *a1, int a2, unsigned int a3,
                               float f12, float f13, float f14, int t0, int t1);
 
@@ -415,7 +413,8 @@ void func_L04_0040AC30(char *a0, char *a1)
 
 INCLUDE_ASM("asm/levels", func_L04_0040AD28);
 
-INCLUDE_ASM("asm/levels", func_L04_0040BA68);
+/* func_L04_0040BA68 reaches its small globals off $gp, so its body lives in
+   L04_00402D90-select-g8.c. */
 
 typedef unsigned int L04Quad __attribute__((mode(TI)));
 extern int func_0030FF98(float);
@@ -479,8 +478,6 @@ void func_L04_0040C0C0(L04Quad *position, L04Quad *direction, int count, int mod
         func_002C2210(point, 30, 0x7f7f7f7f, 1, -sign, velocity, size * 0.07f, size * 0.7f, 0.003f, 0);
     }
 }
-
-INCLUDE_ASM("asm/levels", func_L04_0040C368);
 
 INCLUDE_ASM("asm/levels", func_L04_0040C880);
 
@@ -582,11 +579,8 @@ void func_L04_0040CE30(char *a0)
     }
 }
 
-INCLUDE_ASM("asm/levels", func_L04_0040D148);
-
 INCLUDE_ASM("asm/levels", func_L04_0040DCA8);
 
-INCLUDE_ASM("asm/levels", func_L04_0040DF90);
 
 extern BatchA_A04_u8 D_00188660[];
 

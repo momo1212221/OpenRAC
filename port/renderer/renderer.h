@@ -131,6 +131,13 @@ struct EffectStrip {
     bool fogged = false;
     std::array<float, 4> fog{};
     std::uint32_t fog_colour = 0;
+    // Sent before the world's mobys (OPENRAC_WORLD_MOBYS_MARKER), from a draw callback list the
+    // game runs between the ties and the mobys: drawn with the liquids, before the shrubs and the
+    // mobys, writing depth only where the list shows the chip writes it (before_mobys_writes_z).
+    bool before_mobys = false;
+    // The list set ZBUF before the strip: with ZMSK (z_masked), or without (z_written).
+    bool z_masked = false;
+    bool z_written = false;
 };
 
 // A textured quad of the 2D layer the game drew through one of its 2D routines (rac1:
@@ -168,6 +175,8 @@ struct RenderTarget;
 
 struct FrameInput {
     TextureFilter texture_filter = TextureFilter::Normal;
+    bool local_lights = true;
+    bool authored_object_lights = false;
     ShadowQuality shadow_quality = ShadowQuality::High;
     VolumetricQuality volumetric_quality = VolumetricQuality::Off;
     bool sun_pixel_shadow = false;
@@ -200,6 +209,8 @@ struct FrameInput {
     Camera camera;
     // Opt-in developer inspection: render from camera, but retain visibility from this camera.
     std::optional<Camera> culling_camera;
+    // Detached views can leave the baked PVS grid without inheriting gameplay's last cell.
+    bool keep_pvs_history = true;
     // Opt-in culling preview: 0 for the main camera, 1-4 for near-to-far shadow cascades.
     std::optional<unsigned> culling_inspection;
     // The frame's world effect quads, in the order the game drew them.
@@ -486,8 +497,9 @@ private:
         std::size_t index, const FrameInput& input, RenderState& state, bool opaque_batched
     );
     FrameBuffer m_selection_depth;
-    // Owns smooth normals and matching depth; allocated only for enhanced lighting or AO.
+    // Owns smooth normals and owns depth when it cannot borrow the world attachment.
     FrameBuffer m_surface_prepass;
+    bool m_surface_prepass_shared_depth = false;
     TexturePool m_textures;
     std::vector<std::unique_ptr<BucketRenderer>> m_renderers;
     FrameStats m_stats;

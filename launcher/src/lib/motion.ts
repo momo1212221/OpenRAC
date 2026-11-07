@@ -18,6 +18,8 @@ export let slides = !reduced && typeof document !== "undefined" && "startViewTra
  *  launcher turns it off) crashed in a view transition whenever a page was opened. */
 export function stopSlides(): void {
   slides = false;
+  sliding?.skipTransition();
+  sliding = null;
   if (typeof document !== "undefined") delete document.documentElement.dataset.motion;
 }
 

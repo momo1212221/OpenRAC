@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 
+#include "enhanced/lighting/cloud_field.h"
 #include "enhanced/lighting/probes.h"
 
 namespace openrac::lighting {
@@ -43,9 +44,14 @@ struct BakeTexture {
 };
 
 // Colour controls shared by ordinary material and emission-texture sampling.
+// Default fraction of the original terrain vertex lighting used to tint enhanced diffuse.
+inline constexpr float kTerrainVertexAlbedoStrength = .5f;
+
 struct BakeMaterialOptions {
     Float3 texture_tint{1, 1, 1};       // GS/sRGB modulation before decoding.
     bool terrain_vertex_albedo = true;  // Decode authored terrain after filtering and tinting.
+    float terrain_vertex_albedo_strength =
+        kTerrainVertexAlbedoStrength;  // Blend from neutral to the authored multiplier.
 };
 
 // Barycentric texture sampling: linear RGB and alpha. Repeat wrapping, as
@@ -106,9 +112,43 @@ struct BakeTraversalSettings {
     float minimum_swim_depth = 1;  // Shallower water uses supported walking floors.
 };
 
+struct BakeAtmosphereSettings {
+    bool cloud_enabled = true;
+    unsigned cloud_resolution = 64;
+    std::shared_ptr<const CloudField> cloud_field;
+    bool enabled = true;
+    float fog_density = .00022f;
+    Float3 fog_colour{.65f, .70f, .75f};
+    float fog_base = 0;
+    float fog_falloff = 0;
+    float distance = 750;
+    float cloud_coverage = .58f;
+    float cloud_density = .018f;
+    Float3 cloud_colour{.95f, .97f, 1.0f};
+    float cloud_base = 90;
+    float cloud_thickness = 50;
+    float cloud_scale = .035f;
+    std::uint32_t cloud_seed = 1;
+};
+
+inline CloudParameters cloud_parameters(const BakeAtmosphereSettings& a) {
+    return {
+        a.enabled && a.cloud_enabled,
+        a.cloud_resolution,
+        a.cloud_coverage,
+        a.cloud_density,
+        a.cloud_base,
+        a.cloud_thickness,
+        a.cloud_scale,
+        a.cloud_seed,
+        a.cloud_colour
+    };
+}
+
 struct BakeSettings {
     ProbeTextureFormat texture_format = ProbeTextureFormat::R11G11B10;  // Offline storage policy.
     BakeTraversalSettings traversal{};
+    BakeAtmosphereSettings atmosphere{};
     bool use_level_sky = true;
     float sky_intensity = 1.0f;
     float surface_emission_scale = 1.0f;  // Bake-only gain for geometric emissive surfaces.
@@ -118,6 +158,8 @@ struct BakeSettings {
     // Optional world-space light travel direction; absent preserves authored primary directions.
     std::optional<Float3> sunlight_direction;
     bool terrain_vertex_albedo = true;  // preserve authored terrain shading as an artistic tint
+    float terrain_vertex_albedo_strength =
+        kTerrainVertexAlbedoStrength;  // Fraction of authored terrain tint to retain.
     // Each probe pairs this many primary directions with independent emitter samples.
     std::uint32_t rays_per_probe = 256;
     std::uint32_t bounces = 3;

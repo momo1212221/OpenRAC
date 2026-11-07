@@ -19,6 +19,7 @@
 #include <string_view>
 
 #include "common/hdr.h"
+#include "enhanced/lighting/cloud_settings.h"
 #include "renderer/gtao_settings.h"
 #include "renderer/motion_blur_settings.h"
 #include "renderer/shadow_settings.h"
@@ -86,7 +87,7 @@ inline constexpr int kGameplayFovStep = 5;
 
 struct Settings {
     DisplayMode display_mode = DisplayMode::Windowed;
-    int monitor = 0;  // 0: the display the window is on; n: the nth display, counted from 1
+    int monitor = 0;       // 0: the display the window is on; n: the nth display, counted from 1
     int window_width = 0;  // the window's size when last windowed; 0 x 0: the port's default
     int window_height = 0;
     Aspect aspect = Aspect::Standard;
@@ -95,16 +96,19 @@ struct Settings {
     Hud hud = Hud::Centre;
     int gameplay_fov =
         kDefaultGameplayFov;  // Vertical field of view as a percentage of the gameplay camera.
-    int render_scale = 100;  // the frame's resolution, as a percentage of the window's picture
-    int msaa = 1;            // samples a pixel: 1 (off), 2, 4, 8, 16
+    int render_scale = 100;   // the frame's resolution, as a percentage of the window's picture
+    int msaa = 1;             // samples a pixel: 1 (off), 2, 4, 8, 16
     renderer::GtaoSettings gtao_settings;
     // Enhanced rendering at all (port/enhanced; the launcher's Mods entry): read at start, Vulkan
     // only. Off, nothing of it is made and the game draws as a build without it.
     bool enhanced_rendering = false;
     bool enhanced_graphics = true;  // F4 within it; retains individual feature preferences
     bool enhanced_shadows = true;   // cascades and Ratchet map; off restores original shadows
+    bool ray_tracing = true;        // hardware RT where the active backend exposes it
     renderer::ShadowQuality shadow_quality = renderer::ShadowQuality::High;
     renderer::VolumetricQuality volumetric_quality = renderer::VolumetricQuality::Off;
+    lighting::CloudParameters
+        clouds;  // Pending preparation preferences; runtime uses the verified cache.
     bool rim_light = true;
     // A texture pack from <data>/texture_packs/<game id>/ (docs/port/TEXTURE_PACKS.md); takes
     // effect at the next start.
@@ -138,28 +142,43 @@ struct Settings {
     bool agx_preview = true;                 // SDR-only AgX colour treatment experiment.
     float agx_exposure = 0.25f;              // Base exposure in stops, before AgX.
     float agx_brightness = 0.5f;             // 0..1 adds -0.8..+0.8 EV; midpoint is neutral.
+    bool bloom = true;                       // Scene-linear glow before the native-resolution HUD.
+    float bloom_strength = 0.35f;            // 0..1 intensity of bright emissive neighbourhoods.
+    float bloom_radius = 1.0f;               // 0.5..2 spatial spread of the bounded bloom taps.
 
     float adjusted_agx_exposure() const { return agx_exposure + (agx_brightness - .5f) * 1.6f; }
 
     bool motion_blur = true;  // Motion relative to the tracking focus.
     renderer::MotionBlurSettings motion_blur_settings;
     float lily_momentum = .25f;  // Tilt response time in seconds; zero follows waves immediately.
-    float motion_blur_strength = 0.5f;       // Exposure strength in [0, 1].
-    float temporal_sharpness = 0.2f;         // AMD RCAS strength in [0, 1].
+    float motion_blur_strength = 0.5f;  // Exposure strength in [0, 1].
+    float temporal_sharpness = 0.2f;    // AMD RCAS strength in [0, 1].
     renderer::TextureFilter texture_filter = renderer::TextureFilter::EdgeAware;
+    bool local_lights = true;  // Native projectiles/explosions from the game.
+    bool authored_object_lights =
+        false;           // Extra lamp/object emitters layered on top of the original look.
     int anisotropy = 0;  // 0: mode default; otherwise 1 (off), 2, 4, 8, 16
     // Scenery detail: false draws every tie and shrub, however far (the port's default); true,
     // "Original", leaves out the ties and shrubs beyond the game's draw distances (a low-end option,
     // scene::LevelScene::choose_scenery; levels exported before it have no shrub limits). Both draw
     // each one at its most detailed LOD.
     bool original_lod = false;
+    // Draw distance: how far the game's own culls reach, in percent of the game's (100, Original:
+    // each moby's, tie's and shrub's own distance, at most the level's caps; 400 the default); 0
+    // Unlimited, no distance limit. What the game hides by its visibility mask or a bit of its
+    // records stays hidden at any setting. Applied to the mobys of both games and to Going
+    // Commando's ties, shrubs and terrain (rac1's ties and shrubs follow Scenery detail).
+    int draw_distance = 400;
+
+    // The draw distance's factor: 1 at Original, 0 Unlimited.
+    float draw_distance_scale() const { return static_cast<float>(draw_distance) / 100.0f; }
 
     int anisotropy_samples(bool enhanced) const {
         return anisotropy ? anisotropy : enhanced ? 4 : 1;
     }
 
     // HDR output (common/hdr.h, docs/port/HDR.md), off by default: the picture goes to the screen
-    // as it always did. On or auto (with the Vulkan renderer), the same picture is shown on an HDR
+    // as it always did. On (with the Vulkan renderer), the same picture is shown on an HDR
     // screen with the game's white at paper white. From off, it takes effect at the next start.
     hdr::Mode hdr = hdr::Mode::Off;
     int hdr_paper_white = 0;  // nits of the game's white; 0: the system's SDR white, else 203
@@ -169,14 +188,17 @@ struct Settings {
     FrameRate frame_rate = FrameRate::Display;
     int frame_cap = 60;                         // FrameRate::Capped's frames a second
     FrameCounter show_fps = FrameCounter::Off;  // Counter mode in the picture's corner.
+    bool gpu_breadcrumbs = true;
     // The key that opens and closes the menu, by its place on the keyboard: an SDL scancode name
     // ("`", the key under Escape; "F4", "M"), or "Alt" (either Alt pressed and let go by itself).
     std::string menu_bar_key = "`";
-    // The controller button that does the same: an SDL gamepad button name ("leftstick", L3;
-    // "paddle1", the Steam Controller's R4; "misc1"), or "none".
-    std::string menu_bar_button = "leftstick";
+    // The controller button that does the same (settings.ini's menu_button): "start+back", Start and
+    // Select pressed together, which the game never sees (platform/menu_chord.h); an SDL gamepad
+    // button name ("paddle1", the Steam Controller's R4; "misc1"); or "none".
+    std::string menu_bar_button = "start+back";
     bool mute_unfocused = false;  // silence while another window has the keyboard
-    bool skip_cutscenes = true;   // Start skips an in-game cutscene (without the game's L1 L2 R1 R2 hold)
+    bool skip_cutscenes =
+        true;  // Start skips an in-game cutscene (without the game's L1 L2 R1 R2 hold)
     // Lower input latency, off by default (the timing players know). Reads the pad again just
     // before each tick (frontend.h refresh_pads), and turns the camera in the frames between ticks
     // with the right stick as it is now (frontend/camera_latch.h, the picture only). The game's
@@ -191,6 +213,9 @@ struct Settings {
     // The on-screen pad (platform/touch_pad.h): its controls' size and the camera's speed, in
     // percent of the pad's own, and where the player moved its groups (TouchPad::layout()).
     int touch_scale = 75;
+    // Its buttons: 0 the game's actions as icons, changing with what the game is doing (the Arc
+    // style, game/common/frontend/touch_controls.h), 1 the DualShock's (Classic).
+    int touch_style = 0;
     int touch_camera = 100;
     std::string touch_layout;
     bool verbose_log =
@@ -226,7 +251,7 @@ void save();
 // set_muted(true) holds the factor at 0 whatever the volume is (the window lost the keyboard).
 void set_volume(int volume);
 
-// HDR output's mode by its file name ("off", "auto", "on"), as the launcher's OPENRAC_HDR asks for
+// HDR output's mode by its file name ("off", "on"), as the launcher's OPENRAC_HDR asks for
 // it over the file's: false, with nothing changed, for another word.
 bool set_hdr_mode(std::string_view name);
 void set_muted(bool muted);
@@ -258,6 +283,8 @@ inline constexpr int kFrameCapMax = 1000;
 inline constexpr int kRenderScales[] = {50, 75, 100, 125, 150, 200};
 inline constexpr int kSampleCounts[] = {1, 2, 4, 8, 16};
 inline constexpr int kAnisotropies[] = {1, 2, 4, 8, 16};
+// Draw distance's steps, in percent of the game's; 0 is Unlimited, the last.
+inline constexpr int kDrawDistances[] = {100, 150, 200, 400, 0};  // 400 the default
 
 // What the drawer offers for the on-screen pad's size and camera speed, in percent; a file may
 // hold any whole number between the first and the last.

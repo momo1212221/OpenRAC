@@ -37,6 +37,7 @@ constexpr const char* kLabels[kRows] = {
     "Anti-aliasing",
     "Anisotropic filtering",
     "Scenery detail",
+    "Draw distance",
     "VSync",
     "HDR",
     "Frame rate",
@@ -80,6 +81,11 @@ constexpr Words kWords[] = {
       "Szeneriedetails",
       "Detalle del escenario",
       "Dettaglio scenario"}},
+    {{"Draw distance",
+      "Distance d'affichage",
+      "Sichtweite",
+      "Distancia de dibujado",
+      "Distanza di visualizzazione"}},
     {{"VSync", "Synchro verticale", "VSync", "Sincronía vertical", "Sincronia verticale"}},
     {{"HDR", "HDR", "HDR", "HDR", "HDR"}},
     {{"Frame rate", "Fréquence d'images", "Bildrate", "Fotogramas", "Frequenza fotogrammi"}},
@@ -330,6 +336,10 @@ std::string value_of(int row) {
         }
         case kSceneryDetail:
             return s.original_lod ? "Original" : "Full";
+        case kDrawDistance:
+            return s.draw_distance == 100 ? std::string("Original")
+                   : s.draw_distance == 0 ? std::string("Unlimited")
+                                          : std::format("{}%", s.draw_distance);
         case kVSync:
             return settings::name(s.vsync);
         case kHdr:
@@ -399,6 +409,9 @@ void step_value(int row, int by) {
             break;
         case kSceneryDetail:
             s.original_lod = !s.original_lod;
+            break;
+        case kDrawDistance:
+            s.draw_distance = stepped(settings::kDrawDistances, s.draw_distance, by);
             break;
         case kVSync:
             s.vsync = stepped_enum(s.vsync, by);
@@ -702,6 +715,10 @@ struct Made {
 };
 Made m;
 
+// Better Pause Menu owns its live Options-side widgets through the mod API.
+// Keep the port responsible only for constructing the native Video/mod rows; it must not
+// overwrite a mod's geometry or picture/hint screens every frame.
+
 // ---- Menu item mapping ----
 
 int count_items(gaddr items, gaddr* camera, gaddr* sound) {
@@ -794,6 +811,7 @@ Rows make_rows(gaddr camera, gaddr sound, int title_text, int row_text) {
 }
 
 void make(gaddr items) {
+    // A new level program owns new menu data; old guest addresses are no longer safe to restore.
     gaddr camera = 0, sound = 0;
     const int count = count_items(items, &camera, &sound);
     m = Made{};

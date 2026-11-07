@@ -28,7 +28,17 @@ import type { Differences } from "./generated/Differences";
 import type { DiscChoice } from "./generated/DiscChoice";
 import type { DiscState } from "./generated/DiscState";
 import type { EnhancedView } from "./generated/EnhancedView";
+import type { ToolRoot } from "./generated/ToolRoot";
+import type { ToolFile } from "./generated/ToolFile";
 import type { FoundDisc } from "./generated/FoundDisc";
+import type { Applied } from "./generated/Applied";
+import type { Choices } from "./generated/Choices";
+import type { ModProfile } from "./generated/ModProfile";
+import type { Review } from "./generated/Review";
+import type { ReviewMod } from "./generated/ReviewMod";
+import type { ShareMod } from "./generated/ShareMod";
+import type { SharePreview } from "./generated/SharePreview";
+import type { Shared } from "./generated/Shared";
 import type { GameSaveStatus } from "./generated/GameSaveStatus";
 import type { GameView } from "./generated/GameView";
 import type { ImportedSaves } from "./generated/ImportedSaves";
@@ -130,6 +140,7 @@ export const onAndroid =
 
 export type { TextureFolder, TexturePackImportMode, TexturePackPreview, TexturePackView };
 export type { ExportedTexturePack, ImportedTexturePack };
+export type { ToolFile, ToolRoot };
 export type { ActionArea };
 export type { ActionKind };
 export type { ActionState };
@@ -149,6 +160,7 @@ export type { DiscChoice };
 export type { DiscState };
 export type { EnhancedView };
 export type { FoundDisc };
+export type { Applied, Choices, ModProfile, Review, ReviewMod, ShareMod, SharePreview, Shared };
 export type { GameSaveStatus };
 export type { GameView };
 export type { JobEvent };
@@ -216,6 +228,30 @@ export interface AppInfo {
   noCompositing: boolean;
   /** The last start's window crashed before it drew a click, and Safe rendering was turned on. */
   safeRenderingAfterCrash: boolean;
+  /** Hardware detected on this device and the safe renderer/profile recommendation. */
+  graphics: GraphicsCapabilities;
+}
+
+export interface GraphicsCapabilities {
+  architecture: string;
+  gpus: string[];
+  vendor: string;
+  nvidiaRtx: boolean;
+  amdGpu: boolean;
+  cudaAvailable: boolean;
+  appleSilicon: boolean;
+  rendererBackend: string;
+  computeBackend: string;
+  hardwareRayTracing: boolean;
+  rayTracingRendererReady: boolean;
+  offlineTextureBackend: string;
+  recommendedProfile: string;
+}
+
+export interface AutoGraphicsResult {
+  applied: boolean;
+  profile: string;
+  graphics: GraphicsCapabilities;
 }
 
 /** The games folder looked through (scan_discs, src-tauri/src/lib.rs). */
@@ -260,6 +296,41 @@ export interface RunInputs {
   option?: string;
 }
 
+export type CloudSyncStrategy = "auto" | "use-local" | "use-cloud";
+
+export interface CloudConfigView {
+  folder: string | null;
+  cloudDir: string | null;
+}
+
+export interface CloudSnapshotInfo {
+  id: string;
+  parents: string[];
+  created: string;
+  device: string;
+  contentSha256: string;
+}
+
+export interface CloudSaveStatus {
+  enabled: boolean;
+  folder: string | null;
+  cloudDir: string | null;
+  state: string;
+  snapshots: number;
+  heads: CloudSnapshotInfo[];
+  latest: CloudSnapshotInfo | null;
+  localHasSaves: boolean;
+  localChanged: boolean;
+  cloudChanged: boolean;
+  conflict: boolean;
+}
+
+export interface CloudSyncResult {
+  action: string;
+  message: string;
+  status: CloudSaveStatus;
+}
+
 /** What a gameplay mod is: code the game loads (a library), Luau scripts the game runs sandboxed,
  *  or data only (docs/port/MODS.md, section 11). */
 export type ModKind = PluginView["kind"];
@@ -273,7 +344,24 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   return mockCall(command, args) as Promise<T>;
 }
 
+/** A command whose body is raw bytes (a file a mod's page saves), with what describes them in headers. */
+async function callRaw<T>(command: string, body: Uint8Array, headers: Record<string, string>): Promise<T> {
+  if (inTauri) return invoke<T>(command, body, { headers });
+  const { mockCall } = await import("./mock");
+  return mockCall(command, { headers, size: body.byteLength }) as Promise<T>;
+}
+
 export const api = {
+  graphicsDeleteTextureCache: (game: string, version: string) =>
+    call<null>("graphics_delete_texture_cache", { game, version }),
+  launcherAddonEnabled: (id: string, game = "", version = "") =>
+    call<boolean>("launcher_addon_enabled", { id, game, version }),
+  launcherAddonsView: (game: string, version: string) =>
+    call<EnhancedView[]>("launcher_addons_view", { game, version }),
+  launcherAddonsSetEnabled: (game: string, version: string, id: string, enabled: boolean) =>
+    call<EnhancedView[]>("launcher_addons_set_enabled", { game, version, id, enabled }),
+  launcherAddonsSetSetting: (game: string, version: string, id: string, key: string, value: unknown) =>
+    call<EnhancedView[]>("launcher_addons_set_setting", { game, version, id, key, value }),
   appInfo: () => call<AppInfo>("app_info"),
   getConfig: () => call<Config>("get_config"),
   saveConfig: (config: Config) => call<Config>("save_config", { config }),
@@ -318,6 +406,11 @@ export const api = {
   setDiscordStatus: (status: DiscordStatus) => call<null>("set_discord_status", { status }),
   inspectSaves: (serial: string) => call<GameSaveStatus>("inspect_saves", { serial }),
   backupSaves: (serial: string, note?: string) => call<SaveBackupInfo>("backup_saves", { serial, note }),
+  cloudSavesConfig: () => call<CloudConfigView>("cloud_saves_config"),
+  cloudSavesSetFolder: (folder: string | null) => call<CloudConfigView>("cloud_saves_set_folder", { folder }),
+  cloudSavesStatus: (serial: string) => call<CloudSaveStatus>("cloud_saves_status", { serial }),
+  cloudSavesSync: (serial: string, strategy: CloudSyncStrategy = "auto") =>
+    call<CloudSyncResult>("cloud_saves_sync", { serial, strategy }),
   restoreBackup: (serial: string, backupName: string) => call<null>("restore_backup", { serial, backupName }),
   /** The game's saves copied in from a PCSX2 memory card (a card file, or a folder card's
    *  _pcsx2_superblock), after a backup of the card. */
@@ -409,16 +502,31 @@ export const api = {
   /** A version's texture pack and the textures the game saved (core texture_packs.rs). */
   texturePacks: (game: string, version: string) => call<TexturePackView>("texture_packs_view", { game, version }),
   /** Switches the pack on or off, or saving the textures at the next Play. */
-  texturePacksSet: (game: string, version: string, change: { enabled?: boolean; dumping?: boolean }) =>
+  texturePacksSet: (game: string, version: string, change: { enabled?: boolean; dumping?: boolean; ultra?: boolean }) =>
     call<TexturePackView>("texture_packs_set", {
       game,
       version,
       enabled: change.enabled ?? null,
       dumping: change.dumping ?? null,
+      ultra: change.ultra ?? null,
     }),
   /** Opens a folder of the pack, or of the saved textures (`dump`); `folder` "" is the whole one. */
   texturePacksOpen: (game: string, version: string, dump: boolean, folder = "") =>
     call<null>("texture_packs_open", { game, version, dump, folder }),
+  /** Builds/caches the persistent Ultra 4K texture pack before Play; a no-op when Enhanced is off. */
+  enhancedAutoConfigure: (game: string, version: string) =>
+    call<AutoGraphicsResult>("enhanced_auto_configure", { game, version }),
+  texturePacksPrepareUltra: (game: string, version: string) =>
+    call<{
+      enabled: boolean;
+      cached: boolean;
+      sourceFiles: number;
+      textures: number;
+      skippedCustom: number;
+      bytes: number;
+      maxEdge: number;
+      scale: number;
+    }>("texture_packs_prepare_ultra", { game, version }),
   texturePacksPreview: (game: string, version: string, source: string) =>
     call<TexturePackPreview>("texture_packs_preview", { game, version, source }),
   texturePacksImport: (game: string, version: string, source: string, mode: TexturePackImportMode) =>
@@ -426,6 +534,52 @@ export const api = {
   /** Saves the pack as a .zip where the player chooses; `saved` is empty when they backed out. */
   texturePacksExport: (game: string, version: string) =>
     call<ExportedTexturePack>("texture_packs_export", { game, version }),
+  aiTextureBake: (
+    game: string,
+    version: string,
+    options: { mode: "faithful" | "balanced" | "enhanced"; preserveMicrodetail: boolean; preserveStars: boolean },
+  ) =>
+    call<{
+      processed: number;
+      model: string;
+      mode: string;
+      preservedMicrodetails: number;
+      preservedStars: number;
+      output: string;
+      backup: string;
+    }>("ai_texture_bake", { game, version, options }),
+  aiMeshBake: (game: string, version: string, mode: "faithful" | "balanced" | "enhanced") =>
+    call<{
+      available: boolean;
+      discovered: number;
+      processed: number;
+      backend: string;
+      output: string;
+      backup: string;
+    }>("ai_mesh_bake", { game, version, mode }),
+  // A mod's own page (core/src/mod_tools.rs, src-tauri/src/mod_tool.rs, lib/modTool.ts).
+  modToolList: (game: string, version: string, root: ToolRoot) =>
+    call<ToolFile[]>("mod_tool_list", { game, version, root }),
+  modToolRead: (game: string, version: string, root: ToolRoot, path: string, start?: number, length?: number) =>
+    call<ArrayBuffer>("mod_tool_read", { game, version, root, path, start: start ?? null, length: length ?? null }),
+  modToolStoreGet: (id: string, key: string) => call<unknown>("mod_tool_store_get", { id, key }),
+  modToolStoreSet: (id: string, key: string, value: unknown) => call<null>("mod_tool_store_set", { id, key, value }),
+  /** Saves a file the page made where the player chooses: the name it was saved under, or "" (backed out). */
+  modToolSave: (id: string, name: string, extension: string, bytes: Uint8Array) =>
+    callRaw<string>("mod_tool_save", bytes, {
+      "x-mod": encodeURIComponent(id),
+      "x-name": encodeURIComponent(name),
+      "x-extension": encodeURIComponent(extension),
+    }),
+  /** Starts saving a large file in parts: its number, 0 when the player backed out. */
+  modToolSaveStart: (id: string, name: string, extension: string) =>
+    call<number>("mod_tool_save_start", { id, name, extension }),
+  modToolSaveWrite: (token: number, bytes: Uint8Array) =>
+    callRaw<null>("mod_tool_save_write", bytes, { "x-token": String(token) }),
+  /** Ends it: kept (the name it was saved under) or dropped (""). */
+  modToolSaveEnd: (token: number, keep: boolean) => call<string>("mod_tool_save_end", { token, keep }),
+  /** A small file the player picks: its bytes, empty when they backed out. */
+  modToolOpen: (extension: string) => call<ArrayBuffer>("mod_tool_open", { extension }),
   enhancedView: (game: string, version: string) => call<EnhancedView | null>("enhanced_view", { game, version }),
   enhancedSetEnabled: (game: string, version: string, enabled: boolean) =>
     call<EnhancedView | null>("enhanced_set_enabled", { game, version, enabled }),
@@ -452,13 +606,32 @@ export const api = {
     call<RemoteInstalled>("plugins_update", { game, version, id }),
   pluginsSources: (game: string) => call<ModSources>("plugins_sources", { game }),
   pluginsSetPin: (game: string, id: string, pin: boolean) => call<ModSources>("plugins_set_pin", { game, id, pin }),
+  /** Mod codes (core/src/modset.rs): what a code of this game's mods would hold, and making one. */
+  modsetSharePreview: (game: string) => call<SharePreview>("modset_share_preview", { game }),
+  modsetShare: (game: string, version: string, extras: string[]) =>
+    call<Shared>("modset_share", { game, version, extras }),
+  /** Names the party the game joins on starting (a mod code's link, after Apply). */
+  modsetJoin: (game: string, party: string) => call<null>("modset_join", { game, party }),
+  /** What a code would change, with nothing changed. `text`: a code, short or long, or its link. */
+  modsetReview: (game: string, version: string, text: string) => call<Review>("modset_review", { game, version, text }),
+  modsetApply: (game: string, version: string, set: string, code: string | null, choices: Choices) =>
+    call<Applied>("modset_apply", { game, version, set, code, choices }),
+  modsetProfiles: (game: string) => call<ModProfile[]>("modset_profiles", { game }),
+  modsetRestore: (game: string, id: string) => call<null>("modset_restore", { game, id }),
+  /** The link that opened the launcher, once. */
+  modsetTakeLink: () => call<string | null>("modset_take_link"),
   /** The mod hub (core/src/index.rs, resolver.rs, index_apply.rs, deeplink.rs): their errors are
    *  ModError (modErrorOf), with the fix the page offers. */
   deeplinkParse: (url: string) => call<DeepLinkInstall>("deeplink_parse", { url }),
   /** Where the launcher stands in the player's Steam library. */
-  steamState: () => call<SteamState>("steam_state"),
-  /** Adds the launcher to Steam's library, or updates it. Steam may be open. */
-  steamAdd: () => call<SteamState>("steam_add"),
+  steamState: (version: string | null = null) => call<SteamState>("steam_state", { version }),
+  /** Adds the launcher to Steam's library, or with a version that game (it starts the launcher
+   *  with --play), or updates it. Steam may be open. */
+  steamAdd: (version: string | null = null) => call<SteamState>("steam_add", { version }),
+  /** A desktop shortcut that starts a game (Linux): the path it wrote. */
+  shortcutCreate: (version: string) => call<string>("shortcut_create", { version }),
+  /** The game a `--play` start could not start, once; the page shows it. */
+  startupGame: () => call<string | null>("startup_game"),
   /** Every mod index, checked (or its cached copy); with a game, its revoked mods are turned off. */
   indexFetch: (game: string | null = null, version: string | null = null) =>
     call<IndexView>("index_fetch", { game, version }),
@@ -750,6 +923,12 @@ export async function pickIso(title: string, copying?: (progress: DiscCopy) => v
   return typeof picked === "string" ? picked : null;
 }
 
+/** A mod code's link came in (modsetTakeLink has it). */
+export async function onModsetLink(handler: () => void): Promise<UnlistenFn> {
+  if (!inTauri) return () => undefined;
+  return listen("modset-link", handler);
+}
+
 /** `disc-copy` events: a picked image's copy (Android) or a .chd's unpacking. */
 export async function onDiscCopy(handler: (progress: DiscCopy) => void): Promise<UnlistenFn> {
   if (!inTauri) return () => undefined;
@@ -784,6 +963,14 @@ export async function onJobEvent(handler: (event: JobEvent) => void): Promise<Un
     offOutput();
     offExit();
   };
+}
+
+/** The game a `--play` start of an open launcher could not start (`open-game`): its version key. */
+export async function onOpenGame(handler: (key: string) => void): Promise<UnlistenFn> {
+  if (!inTauri) return () => undefined;
+  return listen<string>("open-game", (e) => {
+    handler(e.payload);
+  });
 }
 
 /** Each mod applied (index_apply's `index-apply` events). */
