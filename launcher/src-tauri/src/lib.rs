@@ -777,7 +777,6 @@ fn enhanced_auto_configure(game: String, version: String) -> Result<AutoGraphics
             ("shadow_quality", serde_json::Value::String("high".into())),
             ("gtao", serde_json::Value::Bool(true)),
             ("gtao_quality", serde_json::Value::String("quality".into())),
-            ("offline_ultra_textures", serde_json::Value::Bool(true)),
             ("texture_filter", serde_json::Value::String("normal".into())),
             ("temporal_quality", serde_json::Value::String("native-aa".into())),
             ("volumetric_quality", serde_json::Value::String("high".into())),
@@ -791,7 +790,6 @@ fn enhanced_auto_configure(game: String, version: String) -> Result<AutoGraphics
             ("shadow_quality", serde_json::Value::String("medium".into())),
             ("gtao", serde_json::Value::Bool(true)),
             ("gtao_quality", serde_json::Value::String("medium".into())),
-            ("offline_ultra_textures", serde_json::Value::Bool(true)),
             ("texture_filter", serde_json::Value::String("normal".into())),
             ("temporal_quality", serde_json::Value::String("quality".into())),
             ("volumetric_quality", serde_json::Value::String("medium".into())),
@@ -946,6 +944,11 @@ async fn texture_packs_prepare_ultra(
         &game,
         &version,
     ) {
+        return Ok(texture_packs::UltraTextureBuild::disabled());
+    }
+    let settings = std::fs::read_to_string(openrac_launcher_core::differences::settings_file(&home, &game, &version))
+        .unwrap_or_default();
+    if !openrac_launcher_core::differences::read_switch(&settings, texture_packs::ULTRA_SWITCH).unwrap_or(true) {
         return Ok(texture_packs::UltraTextureBuild::disabled());
     }
     let _preparation = openrac_launcher_core::launcher_addons::begin_preparation(

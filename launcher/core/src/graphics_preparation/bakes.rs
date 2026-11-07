@@ -492,7 +492,6 @@ mod tests {
         dir
     }
 
-    #[cfg(unix)]
     #[test]
     fn cloud_preferences_resolve_to_one_version_wide_bake_profile() {
         let defaults = cloud_profile("");
@@ -527,6 +526,7 @@ mod tests {
         assert_eq!(resolved["atmosphere"]["cloud_seed"], 17);
     }
 
+    #[cfg(unix)]
     #[test]
     fn unix_busy_status_tracks_the_kernel_lock_not_the_lock_files_presence() {
         use std::fs::OpenOptions;
