@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2026 the OpenRAC contributors
 
-#import <Metal/Metal.h>
-
 #include <cstdint>
 #include <dlfcn.h>
 
 #include "platform/ray_tracing.h"
 #include "platform/window.h"
+
+#import <Metal/Metal.h>
 
 namespace openrac::platform {
 namespace {
@@ -34,9 +34,8 @@ RayTracingSupport macos_metal_ray_tracing_support() {
         RayTracingSupport support;
         support.backend = RayTracingBackend::Metal;
         support.supported = true;
-        support.from_render =
-            [device respondsToSelector:@selector(supportsRaytracingFromRender)]
-            && device.supportsRaytracingFromRender;
+        support.from_render = [device respondsToSelector:@selector(supportsRaytracingFromRender)]
+                              && device.supportsRaytracingFromRender;
 #if defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 140000
         if (@available(macOS 14.0, *)) {
             support.hardware_accelerated = [device supportsFamily:MTLGPUFamilyApple9];
@@ -56,14 +55,19 @@ bool macos_ray_tracing_acceleration_structure_self_test(std::string& error) {
         }
 
         const float triangle[] = {
-            -1.0f, -1.0f, 0.0f,
-             1.0f, -1.0f, 0.0f,
-             0.0f,  1.0f, 0.0f,
+            -1.0f,
+            -1.0f,
+            0.0f,
+            1.0f,
+            -1.0f,
+            0.0f,
+            0.0f,
+            1.0f,
+            0.0f,
         };
-        id<MTLBuffer> vertices =
-            [device newBufferWithBytes:triangle
-                               length:sizeof(triangle)
-                              options:MTLResourceStorageModeShared];
+        id<MTLBuffer> vertices = [device newBufferWithBytes:triangle
+                                                     length:sizeof(triangle)
+                                                    options:MTLResourceStorageModeShared];
         if (vertices == nil) {
             error = "could not allocate Metal ray-tracing vertex buffer";
             return false;
@@ -79,15 +83,14 @@ bool macos_ray_tracing_acceleration_structure_self_test(std::string& error) {
 
         MTLPrimitiveAccelerationStructureDescriptor* descriptor =
             [MTLPrimitiveAccelerationStructureDescriptor descriptor];
-        descriptor.geometryDescriptors = @[ geometry ];
+        descriptor.geometryDescriptors = @[geometry];
 
         const MTLAccelerationStructureSizes sizes =
             [device accelerationStructureSizesWithDescriptor:descriptor];
         id<MTLAccelerationStructure> structure =
             [device newAccelerationStructureWithSize:sizes.accelerationStructureSize];
-        id<MTLBuffer> scratch =
-            [device newBufferWithLength:sizes.buildScratchBufferSize
-                                options:MTLResourceStorageModePrivate];
+        id<MTLBuffer> scratch = [device newBufferWithLength:sizes.buildScratchBufferSize
+                                                    options:MTLResourceStorageModePrivate];
         id<MTLCommandQueue> queue = [device newCommandQueue];
         if (structure == nil || scratch == nil || queue == nil) {
             error = "could not allocate Metal acceleration-structure resources";
@@ -136,21 +139,20 @@ kernel void openrac_rt_self_test(
         NSString* ray_source = [NSString stringWithUTF8String:kRayTestSource];
 
         NSError* library_error = nil;
-        id<MTLLibrary> library =
-            [device newLibraryWithSource:ray_source options:nil error:&library_error];
+        id<MTLLibrary> library = [device newLibraryWithSource:ray_source
+                                                      options:nil
+                                                        error:&library_error];
         id<MTLFunction> function = [library newFunctionWithName:@"openrac_rt_self_test"];
         NSError* pipeline_error = nil;
         id<MTLComputePipelineState> pipeline =
             function != nil
                 ? [device newComputePipelineStateWithFunction:function error:&pipeline_error]
                 : nil;
-        id<MTLBuffer> result =
-            [device newBufferWithLength:sizeof(std::uint32_t)
-                                options:MTLResourceStorageModeShared];
+        id<MTLBuffer> result = [device newBufferWithLength:sizeof(std::uint32_t)
+                                                   options:MTLResourceStorageModeShared];
         if (library == nil || function == nil || pipeline == nil || result == nil) {
-            NSString* message =
-                pipeline_error != nil ? pipeline_error.localizedDescription
-                                      : library_error.localizedDescription;
+            NSString* message = pipeline_error != nil ? pipeline_error.localizedDescription
+                                                      : library_error.localizedDescription;
             error = message.UTF8String != nullptr ? message.UTF8String
                                                   : "could not create Metal ray-query pipeline";
             return false;
@@ -162,8 +164,7 @@ kernel void openrac_rt_self_test(
         [compute setComputePipelineState:pipeline];
         [compute setAccelerationStructure:structure atBufferIndex:0];
         [compute setBuffer:result offset:0 atIndex:1];
-        [compute dispatchThreads:MTLSizeMake(1, 1, 1)
-          threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+        [compute dispatchThreads:MTLSizeMake(1, 1, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
         [compute endEncoding];
         [trace_command commit];
         [trace_command waitUntilCompleted];

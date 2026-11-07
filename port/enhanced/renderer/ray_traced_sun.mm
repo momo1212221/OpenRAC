@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2026 the OpenRAC contributors
 
-#import <Metal/Metal.h>
+#include "enhanced/renderer/ray_traced_sun.h"
 
 #include <algorithm>
 #include <cmath>
 #include <vector>
 
-#include "enhanced/renderer/ray_traced_sun.h"
 #include "platform/ray_tracing.h"
 #include "scene/level.h"
+
+#import <Metal/Metal.h>
 
 namespace openrac::enhanced {
 namespace {
@@ -24,7 +25,8 @@ struct RayReceiver {
 };
 
 bool opaque_caster(const scene::LevelData& level, const scene::Primitive& primitive) {
-    if (primitive.material < 0 || static_cast<std::size_t>(primitive.material) >= level.materials.size()) {
+    if (primitive.material < 0
+        || static_cast<std::size_t>(primitive.material) >= level.materials.size()) {
         return false;
     }
     const scene::Material& material = level.materials[static_cast<std::size_t>(primitive.material)];
@@ -44,9 +46,7 @@ bool finite(const renderer::Vec3& v) {
 }
 
 void append_static_layer(
-    const scene::LevelData& level,
-    scene::Layer layer,
-    std::vector<Packed3>& triangles
+    const scene::LevelData& level, scene::Layer layer, std::vector<Packed3>& triangles
 ) {
     const auto& instances = level.instances[static_cast<std::size_t>(layer)];
     for (const scene::Instance& instance : instances) {
@@ -81,14 +81,10 @@ void append_static_layer(
                     continue;
                 }
                 const renderer::Vec3 a{
-                    world[1][0] - world[0][0],
-                    world[1][1] - world[0][1],
-                    world[1][2] - world[0][2]
+                    world[1][0] - world[0][0], world[1][1] - world[0][1], world[1][2] - world[0][2]
                 };
                 const renderer::Vec3 b{
-                    world[2][0] - world[0][0],
-                    world[2][1] - world[0][1],
-                    world[2][2] - world[0][2]
+                    world[2][0] - world[0][0], world[2][1] - world[0][1], world[2][2] - world[0][2]
                 };
                 const renderer::Vec3 area = renderer::cross(a, b);
                 if (renderer::dot(area, area) <= 1e-10f) {
@@ -108,8 +104,7 @@ void append_terrain_receivers(
     std::vector<std::uint32_t>& receiver_vertices
 ) {
     std::vector<bool> seen(level.vertices.size(), false);
-    const auto& instances =
-        level.instances[static_cast<std::size_t>(scene::Layer::Terrain)];
+    const auto& instances = level.instances[static_cast<std::size_t>(scene::Layer::Terrain)];
     for (const scene::Instance& instance : instances) {
         if (instance.model >= level.models.size() || instance.stand_in || instance.lighting_only) {
             continue;
@@ -132,8 +127,9 @@ void append_terrain_receivers(
                 const scene::Vertex& vertex = level.vertices[index];
                 const renderer::Vec3 world =
                     renderer::transform_point(instance.matrix, point(vertex));
-                renderer::Vec3 n =
-                    renderer::normalize(renderer::transform_vector(instance.matrix, normal(vertex)));
+                renderer::Vec3 n = renderer::normalize(
+                    renderer::transform_vector(instance.matrix, normal(vertex))
+                );
                 if (!finite(world) || !finite(n) || renderer::dot(n, n) < 0.25f) {
                     continue;
                 }
@@ -157,9 +153,7 @@ void append_terrain_receivers(
 }  // namespace
 
 RayTracedSunStats ray_trace_static_sun_metal(
-    scene::LevelData& level,
-    renderer::Vec3 sunlight_travel,
-    std::string& error
+    scene::LevelData& level, renderer::Vec3 sunlight_travel, std::string& error
 ) {
     RayTracedSunStats stats;
     const platform::RayTracingSupport support = platform::ray_tracing_support();
@@ -193,10 +187,9 @@ RayTracedSunStats ray_trace_static_sun_metal(
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
         id<MTLCommandQueue> queue = [device newCommandQueue];
-        id<MTLBuffer> vertices =
-            [device newBufferWithBytes:triangles.data()
-                               length:triangles.size() * sizeof(Packed3)
-                              options:MTLResourceStorageModeShared];
+        id<MTLBuffer> vertices = [device newBufferWithBytes:triangles.data()
+                                                     length:triangles.size() * sizeof(Packed3)
+                                                    options:MTLResourceStorageModeShared];
         if (device == nil || queue == nil || vertices == nil) {
             error = "could not allocate Metal ray-tracing scene resources";
             return stats;
@@ -211,14 +204,13 @@ RayTracedSunStats ray_trace_static_sun_metal(
 
         MTLPrimitiveAccelerationStructureDescriptor* descriptor =
             [MTLPrimitiveAccelerationStructureDescriptor descriptor];
-        descriptor.geometryDescriptors = @[ geometry ];
+        descriptor.geometryDescriptors = @[geometry];
         const MTLAccelerationStructureSizes sizes =
             [device accelerationStructureSizesWithDescriptor:descriptor];
         id<MTLAccelerationStructure> structure =
             [device newAccelerationStructureWithSize:sizes.accelerationStructureSize];
-        id<MTLBuffer> scratch =
-            [device newBufferWithLength:sizes.buildScratchBufferSize
-                                options:MTLResourceStorageModePrivate];
+        id<MTLBuffer> scratch = [device newBufferWithLength:sizes.buildScratchBufferSize
+                                                    options:MTLResourceStorageModePrivate];
         if (structure == nil || scratch == nil) {
             error = "could not allocate Metal sunlight acceleration structure";
             return stats;
@@ -269,8 +261,9 @@ kernel void openrac_static_sun(
 )metal";
         NSString* source = [NSString stringWithUTF8String:kSource];
         NSError* library_error = nil;
-        id<MTLLibrary> library =
-            [device newLibraryWithSource:source options:nil error:&library_error];
+        id<MTLLibrary> library = [device newLibraryWithSource:source
+                                                      options:nil
+                                                        error:&library_error];
         id<MTLFunction> function = [library newFunctionWithName:@"openrac_static_sun"];
         NSError* pipeline_error = nil;
         id<MTLComputePipelineState> pipeline =
@@ -279,23 +272,21 @@ kernel void openrac_static_sun(
                 : nil;
         id<MTLBuffer> receiver_buffer =
             [device newBufferWithBytes:receivers.data()
-                               length:receivers.size() * sizeof(RayReceiver)
-                              options:MTLResourceStorageModeShared];
-        id<MTLBuffer> visibility =
-            [device newBufferWithLength:receivers.size() * sizeof(float)
-                                options:MTLResourceStorageModeShared];
+                                length:receivers.size() * sizeof(RayReceiver)
+                               options:MTLResourceStorageModeShared];
+        id<MTLBuffer> visibility = [device newBufferWithLength:receivers.size() * sizeof(float)
+                                                       options:MTLResourceStorageModeShared];
         if (pipeline == nil || receiver_buffer == nil || visibility == nil) {
-            NSString* message =
-                pipeline_error != nil ? pipeline_error.localizedDescription
-                                      : library_error.localizedDescription;
+            NSString* message = pipeline_error != nil ? pipeline_error.localizedDescription
+                                                      : library_error.localizedDescription;
             error = message.UTF8String ?: "could not create Metal sunlight ray-query pipeline";
             return stats;
         }
 
-        const float travel[4] = {
-            sunlight_travel[0], sunlight_travel[1], sunlight_travel[2], 0.0f};
-        id<MTLBuffer> travel_buffer =
-            [device newBufferWithBytes:travel length:sizeof(travel) options:MTLResourceStorageModeShared];
+        const float travel[4] = {sunlight_travel[0], sunlight_travel[1], sunlight_travel[2], 0.0f};
+        id<MTLBuffer> travel_buffer = [device newBufferWithBytes:travel
+                                                          length:sizeof(travel)
+                                                         options:MTLResourceStorageModeShared];
         id<MTLCommandBuffer> command = [queue commandBuffer];
         id<MTLComputeCommandEncoder> compute = [command computeCommandEncoder];
         [compute setComputePipelineState:pipeline];
@@ -305,20 +296,20 @@ kernel void openrac_static_sun(
         [compute setBuffer:travel_buffer offset:0 atIndex:3];
         const NSUInteger width = std::min<NSUInteger>(pipeline.maxTotalThreadsPerThreadgroup, 256);
         [compute dispatchThreads:MTLSizeMake(receivers.size(), 1, 1)
-          threadsPerThreadgroup:MTLSizeMake(width, 1, 1)];
+            threadsPerThreadgroup:MTLSizeMake(width, 1, 1)];
         [compute endEncoding];
         [command commit];
         [command waitUntilCompleted];
         if (command.status != MTLCommandBufferStatusCompleted) {
-            error = command.error.localizedDescription.UTF8String ?: "Metal sunlight ray query failed";
+            error =
+                command.error.localizedDescription.UTF8String ?: "Metal sunlight ray query failed";
             return stats;
         }
 
         level.rt_sun_visibility.assign(level.vertices.size(), 1.0f);
         const float* values = static_cast<const float*>(visibility.contents);
         for (std::size_t i = 0; i < receiver_vertices.size(); ++i) {
-            level.rt_sun_visibility[receiver_vertices[i]] =
-                std::clamp(values[i], 0.0f, 1.0f);
+            level.rt_sun_visibility[receiver_vertices[i]] = std::clamp(values[i], 0.0f, 1.0f);
         }
         stats.active = true;
         return stats;

@@ -346,7 +346,9 @@ void GifInterpreter::write_register(std::uint8_t address, std::uint64_t value) {
             } else if ((value >> 48) == kFrameMarker) {
                 draw_frame_snapshot();
             } else if ((value >> 48) == kHudSideMarker) {
-                hud_side(static_cast<std::int32_t>(value & 0xFFFFFFFFu), (value & kHudStretch) != 0);
+                hud_side(
+                    static_cast<std::int32_t>(value & 0xFFFFFFFFu), (value & kHudStretch) != 0
+                );
             } else if ((value >> 48) == kWholeMarker) {
                 m_whole = (value & 1u) != 0;
                 m_state_dirty = true;

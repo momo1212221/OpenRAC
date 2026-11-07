@@ -327,8 +327,7 @@ void LocalLights::bind(
     ensure_buffers();
     std::array<int, 4> viewport{};
     glGetIntegerv(GL_VIEWPORT, viewport.data());
-    const bool same_view = camera
-                           && viewport == std::array<int, 4>{0, 0, m_width, m_height}
+    const bool same_view = camera && viewport == std::array<int, 4>{0, 0, m_width, m_height}
                            && renderer::multiply(camera->projection, camera->view) == m_clip;
     const bool tiled = m_ready && !reference && same_view;
     const bool shadowed = m_enabled && m_depth && depth_matched && same_view;

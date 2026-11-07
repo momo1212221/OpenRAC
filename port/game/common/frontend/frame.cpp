@@ -1585,11 +1585,10 @@ TickMobys pose_mobys(
 
     const bool inspect_bones = debug_overlay::picker_snapshot_needed();
 #ifdef OPENRAC_LIGHT_AUTHORING
-    auto attached_catalog =
-        enhanced_graphics_available() && settings::get().enhanced_graphics
-                && settings::get().authored_object_lights
-            ? enhanced::current_object_lights(g->level.game)
-            : nullptr;
+    auto attached_catalog = enhanced_graphics_available() && settings::get().enhanced_graphics
+                                    && settings::get().authored_object_lights
+                                ? enhanced::current_object_lights(g->level.game)
+                                : nullptr;
     if (attached_catalog && attached_catalog->objects.empty()) {
         attached_catalog.reset();
     }

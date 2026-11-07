@@ -758,7 +758,8 @@ static gaddr remote_hit_source_moby(int32_t oclass, const float position[3]) {
         remote_hit_source* source = &remote_hit_sources[i];
         if (source->moby != 0 && source->loads == loads && source->oclass == oclass) {
             for (unsigned c = 0; c < 3; ++c) {
-                GREF(float, source->moby + MOBY_POS + 4u * c) = position != NULL ? position[c] : 0.0f;
+                GREF(float, source->moby + MOBY_POS + 4u * c) =
+                    position != NULL ? position[c] : 0.0f;
             }
             return source->moby;
         }
