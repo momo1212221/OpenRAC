@@ -541,11 +541,18 @@ fn run_action(
     let inputs = openrac_launcher_core::actions::Inputs { level, path, option };
     if id == openrac_launcher_core::enhanced::BAKE_ACTION || library::is_play(&config, &scope, &id) {
         if let Scope::Version(key) = &scope {
-            openrac_launcher_core::enhanced::sync_cloud_profile(
-                &config,
-                key,
+            if openrac_launcher_core::launcher_addons::enabled(
                 &openrac_launcher_core::saves::data_home(),
-            )?;
+                openrac_launcher_core::graphics_preparation::ID,
+                &key.split_once('/').unwrap_or(("", "")).0,
+                &key.split_once('/').unwrap_or(("", "")).1,
+            ) {
+                openrac_launcher_core::graphics_preparation::sync_cloud_profile(
+                    &config,
+                    key,
+                    &openrac_launcher_core::saves::data_home(),
+                )?;
+            }
         }
     }
     let plan = library::plan(&config, &scope, &id, &inputs)?;
@@ -632,7 +639,7 @@ fn run_action(
 /// version that has none.
 #[tauri::command]
 async fn enhanced_view(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
     game: String,
     version: String,
 ) -> Result<Option<openrac_launcher_core::enhanced::EnhancedView>, String> {
@@ -640,10 +647,9 @@ async fn enhanced_view(
     if !enhanced::supported(&game, &version) {
         return Ok(None);
     }
-    let config = state.config.lock().unwrap().clone();
     let home = openrac_launcher_core::saves::data_home();
     tauri::async_runtime::spawn_blocking(move || {
-        let bake = enhanced::version_bake_status(&config, &format!("{game}/{version}"));
+        let bake = Default::default();
         Some(enhanced::view(&home, &game, &version, bake))
     })
     .await
@@ -667,6 +673,74 @@ async fn enhanced_set_enabled(
     enhanced_view(state, game, version).await
 }
 
+// ---- Independent launcher mods ----
+#[tauri::command]
+fn graphics_delete_texture_cache(state: State<'_, AppState>, game: String, version: String) -> Result<(), String> {
+    openrac_launcher_core::texture_packs::delete_ultra(&game_data_dir(&state, &game)?, &game, &version)
+}
+
+#[tauri::command]
+fn launcher_addon_enabled(id: String, game: String, version: String) -> bool {
+    openrac_launcher_core::launcher_addons::enabled(&openrac_launcher_core::saves::data_home(), &id, &game, &version)
+}
+
+#[tauri::command]
+async fn launcher_addons_view(
+    state: State<'_, AppState>,
+    game: String,
+    version: String,
+) -> Result<Vec<openrac_launcher_core::enhanced::EnhancedView>, String> {
+    use openrac_launcher_core::{graphics_preparation as prep, launcher_addons as addons};
+    let config = state.config.lock().unwrap().clone();
+    let home = openrac_launcher_core::saves::data_home();
+    addons::initialize(&home, &game, &version)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut result = vec![addons::backup_view(&home, &game, &version)];
+        if openrac_launcher_core::enhanced::supported(&game, &version) {
+            let bake = prep::version_bake_status(&config, &format!("{game}/{version}"));
+            result.insert(0, prep::view(&home, &game, &version, bake));
+        }
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn launcher_addons_set_enabled(
+    state: State<'_, AppState>,
+    game: String,
+    version: String,
+    id: String,
+    enabled: bool,
+) -> Result<Vec<openrac_launcher_core::enhanced::EnhancedView>, String> {
+    use openrac_launcher_core::{graphics_preparation as prep, launcher_addons as addons};
+    let home = openrac_launcher_core::saves::data_home();
+    if id == prep::ID && !enabled {
+        let config = state.config.lock().unwrap().clone();
+        if prep::version_bake_status(&config, &format!("{game}/{version}")).busy {
+            return Err("Stop lighting preparation before disabling its mod".into());
+        }
+    }
+    addons::set_enabled(&home, &id, &game, &version, enabled)?;
+    launcher_addons_view(state, game, version).await
+}
+#[tauri::command]
+async fn launcher_addons_set_setting(
+    state: State<'_, AppState>,
+    game: String,
+    version: String,
+    id: String,
+    key: String,
+    value: serde_json::Value,
+) -> Result<Vec<openrac_launcher_core::enhanced::EnhancedView>, String> {
+    if id != openrac_launcher_core::graphics_preparation::ID || !openrac_launcher_core::graphics_preparation::owns(&key)
+    {
+        return Err("Not a graphics preparation setting".into());
+    }
+    set_graphics_setting(state.clone(), game.clone(), version.clone(), key, value).await?;
+    launcher_addons_view(state, game, version).await
+}
+
 // ---- Texture packs (core/src/texture_packs.rs) ----
 
 /// The game's folder in the install folder (`{data}`), where its texture pack lives.
@@ -686,7 +760,12 @@ fn enhanced_auto_configure(game: String, version: String) -> Result<AutoGraphics
     let file = differences::settings_file(&home, &game, &version);
     let settings = std::fs::read_to_string(&file).unwrap_or_default();
     let graphics = graphics_capabilities();
-    if !differences::read_switch(&settings, enhanced::SWITCH).unwrap_or(false)
+    if !openrac_launcher_core::launcher_addons::enabled(
+        &home,
+        openrac_launcher_core::graphics_preparation::ID,
+        &game,
+        &version,
+    ) || !differences::read_switch(&settings, enhanced::SWITCH).unwrap_or(false)
         || !differences::read_switch(&settings, "hardware_auto").unwrap_or(true)
     {
         return Ok(AutoGraphicsResult { applied: false, profile: "manual".into(), graphics });
@@ -859,14 +938,22 @@ async fn texture_packs_prepare_ultra(
     game: String,
     version: String,
 ) -> Result<openrac_launcher_core::texture_packs::UltraTextureBuild, String> {
-    use openrac_launcher_core::{enhanced, texture_packs};
+    use openrac_launcher_core::texture_packs;
     let home = openrac_launcher_core::saves::data_home();
-    let settings = std::fs::read_to_string(openrac_launcher_core::differences::settings_file(&home, &game, &version))
-        .unwrap_or_default();
-    let data = game_data_dir(&state, &game)?;
-    if enhanced::play_additions(&settings, &data, &version).is_none() {
+    if !openrac_launcher_core::launcher_addons::enabled(
+        &home,
+        openrac_launcher_core::graphics_preparation::ID,
+        &game,
+        &version,
+    ) {
         return Ok(texture_packs::UltraTextureBuild::disabled());
     }
+    let _preparation = openrac_launcher_core::launcher_addons::begin_preparation(
+        &openrac_launcher_core::saves::data_home(),
+        &game,
+        &version,
+    )?;
+    let data = game_data_dir(&state, &game)?;
 
     let g = game.clone();
     let v = version.clone();
@@ -890,7 +977,13 @@ async fn texture_packs_prepare_ultra(
     }
     if result.enabled {
         // Offline Ultra owns the enlargement. Keep only sampling/filtering work in the game itself.
-        enhanced::set_setting(&home, &game, &version, "texture_filter", &serde_json::Value::from("normal"))?;
+        openrac_launcher_core::enhanced::set_setting(
+            &home,
+            &game,
+            &version,
+            "texture_filter",
+            &serde_json::Value::from("normal"),
+        )?;
         texture_packs::set_enabled(&home, &game, &version, true)?;
         texture_packs::set_dumping(&home, &game, &version, false)?;
     }
@@ -1027,6 +1120,17 @@ async fn ai_mesh_bake(
     version: String,
     mode: String,
 ) -> Result<asset_ai::MeshBake, String> {
+    openrac_launcher_core::launcher_addons::require(
+        &openrac_launcher_core::saves::data_home(),
+        openrac_launcher_core::graphics_preparation::ID,
+        &game,
+        &version,
+    )?;
+    let _preparation = openrac_launcher_core::launcher_addons::begin_preparation(
+        &openrac_launcher_core::saves::data_home(),
+        &game,
+        &version,
+    )?;
     let data = game_data_dir(&state, &game)?;
     tauri::async_runtime::spawn_blocking(move || asset_ai::bake_meshes(&data, &version, &mode))
         .await
@@ -1044,10 +1148,21 @@ async fn ai_texture_bake(
     options: AiTextureBakeOptions,
 ) -> Result<AiTextureBakeResult, String> {
     use openrac_launcher_core::texture_packs;
+    let _preparation = openrac_launcher_core::launcher_addons::begin_preparation(
+        &openrac_launcher_core::saves::data_home(),
+        &game,
+        &version,
+    )?;
     let data = game_data_dir(&state, &game)?;
     let home = openrac_launcher_core::saves::data_home();
+    openrac_launcher_core::launcher_addons::require(
+        &home,
+        openrac_launcher_core::graphics_preparation::ID,
+        &game,
+        &version,
+    )?;
     let dump = texture_packs::folder(&home, &data, &game, &version, true, "")?;
-    let pack = texture_packs::folder(&home, &data, &game, &version, false, "")?;
+    let pack = texture_packs::folder(&home, &data, &game, &version, false, "")?.join("PreparedAI");
 
     fn upscayl_paths() -> (PathBuf, PathBuf) {
         #[cfg(target_os = "macos")]
@@ -1342,9 +1457,22 @@ async fn enhanced_delete_bakes(
     enhanced_view(state, game, version).await
 }
 
-/// Sets one of Enhanced graphics' settings for a version, in its settings file.
+/// Renderer controls cannot change the separately owned preparation settings.
 #[tauri::command]
 async fn enhanced_set_setting(
+    state: State<'_, AppState>,
+    game: String,
+    version: String,
+    key: String,
+    value: serde_json::Value,
+) -> Result<Option<openrac_launcher_core::enhanced::EnhancedView>, String> {
+    if openrac_launcher_core::graphics_preparation::owns(&key) {
+        return Err("Use Graphics preparation for this setting".into());
+    }
+    set_graphics_setting(state, game, version, key, value).await
+}
+
+async fn set_graphics_setting(
     state: State<'_, AppState>,
     game: String,
     version: String,
@@ -1873,6 +2001,12 @@ fn inspect_saves(serial: String) -> openrac_launcher_core::saves::GameSaveStatus
 
 #[tauri::command]
 fn backup_saves(serial: String, note: Option<String>) -> Result<openrac_launcher_core::saves::SaveBackupInfo, String> {
+    openrac_launcher_core::launcher_addons::require(
+        &openrac_launcher_core::saves::data_home(),
+        openrac_launcher_core::launcher_addons::BACKUP_ID,
+        "",
+        "",
+    )?;
     openrac_launcher_core::saves::backup_saves(&serial, note.as_deref())
 }
 
@@ -1901,6 +2035,12 @@ async fn cloud_saves_sync(
     serial: String,
     strategy: Option<String>,
 ) -> Result<cloud_saves::CloudSyncResult, String> {
+    openrac_launcher_core::launcher_addons::require(
+        &openrac_launcher_core::saves::data_home(),
+        openrac_launcher_core::launcher_addons::BACKUP_ID,
+        "",
+        "",
+    )?;
     let in_use = card_check(&app).await?;
     let version = launcher_version(&app);
     let strategy = cloud_saves::Strategy::parse(strategy.as_deref())?;
@@ -1939,6 +2079,12 @@ async fn card_check(app: &AppHandle) -> Result<impl Fn(&Path, &str) -> Result<Op
 /// Restores a backup of the card; refused while the game runs with it, as an edit is.
 #[tauri::command]
 async fn restore_backup(app: AppHandle, serial: String, backup_name: String) -> Result<(), String> {
+    openrac_launcher_core::launcher_addons::require(
+        &openrac_launcher_core::saves::data_home(),
+        openrac_launcher_core::launcher_addons::BACKUP_ID,
+        "",
+        "",
+    )?;
     let in_use = card_check(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let card = openrac_launcher_core::saves::get_memcard_dir(&serial);
@@ -3516,6 +3662,11 @@ pub fn run() {
             editor_state,
             reset_apply,
             plugins_list,
+            graphics_delete_texture_cache,
+            launcher_addon_enabled,
+            launcher_addons_view,
+            launcher_addons_set_enabled,
+            launcher_addons_set_setting,
             enhanced_view,
             enhanced_set_enabled,
             texture_packs_view,

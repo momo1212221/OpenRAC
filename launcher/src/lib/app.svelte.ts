@@ -391,6 +391,7 @@ async function syncCloudForPlay(versionKey: string, before: boolean): Promise<bo
   const version = versionByKey(versionKey);
   if (!version?.serial) return true;
   try {
+    if (!(await api.launcherAddonEnabled("save-backup-sync"))) return true;
     const configured = await api.cloudSavesConfig();
     if (!configured.folder) return true;
     const result = await api.cloudSavesSync(version.serial, "auto");

@@ -352,6 +352,16 @@ async function callRaw<T>(command: string, body: Uint8Array, headers: Record<str
 }
 
 export const api = {
+  graphicsDeleteTextureCache: (game: string, version: string) =>
+    call<null>("graphics_delete_texture_cache", { game, version }),
+  launcherAddonEnabled: (id: string, game = "", version = "") =>
+    call<boolean>("launcher_addon_enabled", { id, game, version }),
+  launcherAddonsView: (game: string, version: string) =>
+    call<EnhancedView[]>("launcher_addons_view", { game, version }),
+  launcherAddonsSetEnabled: (game: string, version: string, id: string, enabled: boolean) =>
+    call<EnhancedView[]>("launcher_addons_set_enabled", { game, version, id, enabled }),
+  launcherAddonsSetSetting: (game: string, version: string, id: string, key: string, value: unknown) =>
+    call<EnhancedView[]>("launcher_addons_set_setting", { game, version, id, key, value }),
   appInfo: () => call<AppInfo>("app_info"),
   getConfig: () => call<Config>("get_config"),
   saveConfig: (config: Config) => call<Config>("save_config", { config }),

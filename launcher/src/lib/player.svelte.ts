@@ -576,16 +576,18 @@ async function play(v: VersionView): Promise<void> {
     const { beforePlay } = await import("./modAutoUpdate.svelte");
     await beforePlay(v.key);
   }
-  const auto = await api.enhancedAutoConfigure(v.game, v.name);
-  if (auto.applied) {
-    const gpu = auto.graphics.gpus[0] ?? "this GPU";
-    toast(`Graphics auto-tuned for ${gpu}: ${auto.profile}.`);
-  }
-  toast("Checking pre-rendered Ultra textures…");
-  const ultra = await api.texturePacksPrepareUltra(v.game, v.name);
-  if (ultra.enabled && !ultra.cached) {
-    const mib = Math.round(ultra.bytes / (1024 * 1024));
-    toast(`Ultra textures ready: ${ultra.textures.toLocaleString()} pre-rendered (${mib.toLocaleString()} MiB).`);
+  if (await api.launcherAddonEnabled("graphics-preparation", v.game, v.name)) {
+    const auto = await api.enhancedAutoConfigure(v.game, v.name);
+    if (auto.applied) {
+      const gpu = auto.graphics.gpus[0] ?? "this GPU";
+      toast(`Graphics auto-tuned for ${gpu}: ${auto.profile}.`);
+    }
+    toast("Checking pre-rendered Ultra textures…");
+    const ultra = await api.texturePacksPrepareUltra(v.game, v.name);
+    if (ultra.enabled && !ultra.cached) {
+      const mib = Math.round(ultra.bytes / (1024 * 1024));
+      toast(`Ultra textures ready: ${ultra.textures.toLocaleString()} pre-rendered (${mib.toLocaleString()} MiB).`);
+    }
   }
   showLaunch(v.game, v.title);
   const modded = app.config?.playWithMods ? action(fresh, "play-edited") : undefined;

@@ -7,7 +7,7 @@
   // Shared, each planet) open that folder. Hashes, paths and the environment the game is started
   // with stay out of sight: they are in the docs.
   import Icon from "./Icon.svelte";
-  import { api, type TextureFolder, type TexturePackView, type VersionView } from "$lib/api";
+  import { ask, api, type TextureFolder, type TexturePackView, type VersionView } from "$lib/api";
   import { toast } from "$lib/app.svelte";
   import { grouped } from "$lib/format";
   import { TEXTURES } from "$lib/modsText";
@@ -17,12 +17,14 @@
   let {
     version,
     reload = 0,
+    preparationControls = false,
     onshow,
     folded = false,
     open = $bindable(false),
   }: {
     version: VersionView;
     reload?: number;
+    preparationControls?: boolean;
     /** Show it in My mods: where the pack's row is (left out where the row is on the same page). */
     onshow?: () => void;
     /** A fold under My mods' lists (no tabs: Android, a launcher without the level editor). */
@@ -77,6 +79,19 @@
     work(async () => {
       await api.texturePacksOpen(version.game, version.name, dump, folder?.path ?? "");
     });
+  const deleteUltra = () =>
+    work(async () => {
+      if (
+        !(await ask(
+          "Delete the generated Ultra texture cache? Imported packs and original files stay intact.",
+          "Delete cache",
+        ))
+      )
+        return;
+      await api.graphicsDeleteTextureCache(version.game, version.name);
+      await load();
+    });
+
   const prepareUltra = () =>
     work(async () => {
       const done = await api.texturePacksPrepareUltra(version.game, version.name);
@@ -99,7 +114,7 @@
       toast(
         change.ultra
           ? "Ultra textures will be prepared before Play and reused afterwards."
-          : "Offline Ultra textures are off; the generated Ultra4K pack was removed.",
+          : "Offline Ultra textures are off; the generated pack is kept for later.",
       );
     });
 </script>
@@ -129,43 +144,46 @@
   {#if failed}
     <p class="muted"><Icon name="warn" size={14} /> {failed}</p>
   {:else if view}
-    <div class="ultra-card">
-      <div class="ultra-copy">
-        <h3>Ultra textures before Play</h3>
-        <p class="muted">
-          Pre-render known game textures once at 8×, up to 4K, save them as a permanent texture pack and reuse them.
-          Runtime 2×/4×/8× upscaling stays off while you play.
-        </p>
-        {#if view.ultraReady}
-          <p class="ultra-status">
-            <Icon name="check" size={14} />
-            {grouped(view.ultraTextures)} textures ready · {grouped(Math.round(view.ultraBytes / (1024 * 1024)))} MiB
+    {#if preparationControls}<div class="ultra-card">
+        <div class="ultra-copy">
+          <h3>Ultra textures before Play</h3>
+          <p class="muted">
+            Pre-render known game textures once at 8×, up to 4K, save them as a permanent texture pack and reuse them.
+            Runtime 2×/4×/8× upscaling stays off while you play.
           </p>
-        {:else if view.ultraEnabled}
-          <p class="ultra-status muted">Not prepared yet. It will be built before Play, or you can prepare it now.</p>
-        {:else}
-          <p class="ultra-status muted">Off. No generated Ultra4K pack is used.</p>
-        {/if}
+          {#if view.ultraReady}
+            <p class="ultra-status">
+              <Icon name="check" size={14} />
+              {grouped(view.ultraTextures)} textures ready · {grouped(Math.round(view.ultraBytes / (1024 * 1024)))} MiB
+            </p>
+          {:else if view.ultraEnabled}
+            <p class="ultra-status muted">Not prepared yet. It will be built before Play, or you can prepare it now.</p>
+          {:else}
+            <p class="ultra-status muted">Off. No generated Ultra4K pack is used.</p>
+          {/if}
+        </div>
+        <div class="controls ultra-controls">
+          <label class="toggle">
+            <span>{view.ultraEnabled ? "On" : "Off"}</span>
+            <input
+              type="checkbox"
+              class="switch"
+              role="switch"
+              aria-label="Pre-render Ultra textures before Play"
+              checked={view.ultraEnabled}
+              disabled={busy}
+              onchange={(e) => void set({ ultra: e.currentTarget.checked })}
+            />
+          </label>
+          <button class="primary small" disabled={busy || !view.ultraEnabled} onclick={() => void prepareUltra()}>
+            {#if busy}<span class="spinner"></span>{/if}{view.ultraReady ? "Check / rebuild now" : "Prepare now"}
+          </button>
+        </div>
       </div>
-      <div class="controls ultra-controls">
-        <label class="toggle">
-          <span>{view.ultraEnabled ? "On" : "Off"}</span>
-          <input
-            type="checkbox"
-            class="switch"
-            role="switch"
-            aria-label="Pre-render Ultra textures before Play"
-            checked={view.ultraEnabled}
-            disabled={busy}
-            onchange={(e) => void set({ ultra: e.currentTarget.checked })}
-          />
-        </label>
-        <button class="primary small" disabled={busy || !view.ultraEnabled} onclick={() => void prepareUltra()}>
-          {#if busy}<span class="spinner"></span>{/if}{view.ultraReady ? "Check / rebuild now" : "Prepare now"}
-        </button>
-      </div>
-    </div>
-
+      {#if view.ultraReady}<button class="ghost small" disabled={busy} onclick={() => void deleteUltra()}
+          >Delete generated texture cache</button
+        >{/if}
+    {/if}
     <ol class="steps">
       <li>
         <div>

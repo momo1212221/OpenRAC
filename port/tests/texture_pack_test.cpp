@@ -3,6 +3,7 @@
 //
 // Texture packs (renderer/texture_pack.h): names by hash, replacement at any size, the dump,
 // animated replacements (frame by tick, the folder and GIF loaders) and the dump's cycle groups.
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -42,10 +43,12 @@ bool save(const fs::path& file, const Rgba8Image& image) {
 
 Rgba8Image solid(int w, int h, std::uint8_t red) {
     Rgba8Image image(w, h);
+
     for (std::size_t i = 0; i < image.pixels.size(); i += 4) {
         image.pixels[i] = red;
         image.pixels[i + 3] = 255;
     }
+
     return image;
 }
 
@@ -64,10 +67,12 @@ std::optional<Rgba8Image> load_frame(const fs::path& file) {
 // A fake GIF of three frames, with the delays a GIF gives.
 std::optional<texture_pack::Animation> load_gif(const fs::path&) {
     texture_pack::Animation gif;
+
     for (const std::uint8_t red : {std::uint8_t{1}, std::uint8_t{2}, std::uint8_t{3}}) {
         gif.frames.push_back(solid(4, 4, red));
         gif.durations_us.push_back(50000);
     }
+
     return gif;
 }
 
@@ -83,6 +88,7 @@ texture_pack::Animation ticks(std::size_t count, texture_pack::AnimationMode mod
 // Writes frames 1..count of `side` texels square (red = the frame's number) into `folder`.
 void write_frames(const fs::path& folder, int count, int side) {
     fs::create_directories(folder);
+
     for (int i = 1; i <= count; ++i) {
         const fs::path file = folder / std::format("{:04}.png", i);
         std::ofstream(file) << "png";
@@ -95,16 +101,20 @@ void check_frame_at() {
     using texture_pack::AnimationMode;
     const auto loop = ticks(3, AnimationMode::Loop);
     std::vector<std::size_t> seen;
+
     for (std::uint64_t t = 0; t < 7; ++t) {
         seen.push_back(texture_pack::frame_at(loop, t));
     }
+
     CHECK((seen == std::vector<std::size_t>{0, 1, 2, 0, 1, 2, 0}));
 
     const auto ping = ticks(4, AnimationMode::PingPong);
     seen.clear();
+
     for (std::uint64_t t = 0; t < 9; ++t) {
         seen.push_back(texture_pack::frame_at(ping, t));
     }
+
     CHECK((seen == std::vector<std::size_t>{0, 1, 2, 3, 2, 1, 0, 1, 2}));
 
     const auto once = ticks(3, AnimationMode::Once);
@@ -215,6 +225,7 @@ void check_cycles(const fs::path& root) {
     texture_pack::CycleWatch watch;
     std::optional<std::vector<std::uint64_t>> cycle;
     std::uint64_t frame = 0;
+
     for (const std::uint64_t hash : {7, 7, 5, 5, 9, 7, 5, 9, 7}) {
         // A slot showing 7, 5, 9 and over again; reported once, when seen twice.
         if (auto found = watch.see(1, hash, frame += 3)) {
@@ -222,32 +233,40 @@ void check_cycles(const fs::path& root) {
             cycle = found;
         }
     }
+
     CHECK(cycle && (*cycle == std::vector<std::uint64_t>{5, 9, 7}));
     // A pingpong lists its middle frame twice.
     std::optional<std::vector<std::uint64_t>> ping;
+
     for (const std::uint64_t hash : {1, 2, 3, 2, 1, 2, 3, 2, 1}) {
         if (auto found = watch.see(2, hash, frame += 3)) {
             ping = found;
         }
     }
+
     CHECK(ping && (*ping == std::vector<std::uint64_t>{1, 2, 3, 2}));
     // Changes too far apart, or new textures every time (a fade), are no cycle.
     bool any = false;
+
     for (const std::uint64_t hash : {1, 2, 1, 2, 1}) {
         frame += texture_pack::CycleWatch::kMaxFrameGap + 1;
         any = any || watch.see(3, hash, frame).has_value();
     }
+
     for (std::uint64_t hash = 100; hash < 200; ++hash) {
         any = any || watch.see(4, hash, frame += 3).has_value();
     }
+
     // Two textures taking turns every tick, or within one tick, are two things in one slot.
     for (const std::uint64_t hash : {1, 2, 1, 2, 1, 2, 1, 2}) {
         any = any || watch.see(5, hash, ++frame).has_value();
     }
+
     for (int tick = 0; tick < 8; ++tick) {
         frame += 3;
         any = any || watch.see(6, 1, frame).has_value() || watch.see(6, 2, frame).has_value();
     }
+
     CHECK(!any);
 
     // Written under Animated/<first>/, each frame once, order.txt in full.
@@ -295,6 +314,36 @@ int main() {
     auto other = solid(2, 2, 99);
     CHECK(!texture_pack::replace(other) && other.width == 2);
     CHECK(texture_pack::replaced_count() == 1);
+
+    // Disabling preparation ignores its generated cache, but keeps an imported pack active.
+    fs::create_directories(pack / "Ultra4K");
+    const auto generated = solid(2, 2, 99);
+    const auto generated_name = texture_pack::file_name(texture_pack::image_hash(generated));
+    std::ofstream(pack / "Ultra4K" / generated_name) << "png";
+    disk()[generated_name] = solid(16, 16, 123);
+#ifdef _WIN32
+    _putenv_s("OPENRAC_PREPARED_GRAPHICS", "0");
+#else
+    setenv("OPENRAC_PREPARED_GRAPHICS", "0", 1);
+#endif
+    texture_pack::configure(pack, {}, {load, save});
+    image = generated;
+    CHECK(!texture_pack::replace(image));
+    image = small;
+    CHECK(texture_pack::replace(image));
+#ifdef _WIN32
+    _putenv_s("OPENRAC_PREPARED_GRAPHICS", "1");
+#else
+    setenv("OPENRAC_PREPARED_GRAPHICS", "1", 1);
+#endif
+    texture_pack::configure(pack, {}, {load, save});
+    image = generated;
+    CHECK(texture_pack::replace(image) && image.width == 16);
+#ifdef _WIN32
+    _putenv_s("OPENRAC_PREPARED_GRAPHICS", "");
+#else
+    unsetenv("OPENRAC_PREPARED_GRAPHICS");
+#endif
 
     // A pack file that cannot be read keeps the original.
     disk().clear();

@@ -105,7 +105,7 @@ pub fn bake_meshes(data: &Path, version: &str, mode: &str) -> Result<MeshBake, S
             discovered,
             processed: 0,
             backend: String::new(),
-            output: data.join("mods").join(version).display().to_string(),
+            output: data.join("prepared-graphics").join("meshes").join(version).display().to_string(),
             backup: String::new(),
         });
     };
@@ -149,7 +149,7 @@ pub fn bake_meshes(data: &Path, version: &str, mode: &str) -> Result<MeshBake, S
         relative.push(rel.to_path_buf());
     }
 
-    let overrides = data.join("mods").join(version);
+    let overrides = data.join("prepared-graphics").join("meshes").join(version);
     let backup_root = ai_root.join("backups").join(format!("before-mesh-ai-{}", timestamp()?));
     let mut activated: Vec<(PathBuf, Option<PathBuf>)> = Vec::new();
 

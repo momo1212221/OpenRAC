@@ -70,6 +70,8 @@
     builtIn?: {
       bake: BakeStatus;
       job: Job | null;
+      logJob: Job | null;
+      onfollow: () => void;
       game: string;
       version: string;
       versionView: VersionView;
@@ -175,7 +177,7 @@
   const changed = $derived(shown.filter((s) => s.value !== s.default && String(s.value) !== String(s.default)));
 
   function enhancedParent(key: string): string | null {
-    if (mod.id !== "enhanced-graphics") return null;
+    if (mod.id !== "enhanced-graphics" && mod.id !== "graphics-preparation") return null;
     if (key.startsWith("cloud_") && key !== "cloud_enabled") return "cloud_enabled";
     if (key === "agx_exposure" || key === "agx_brightness") return "agx_preview";
     if (key === "bloom_strength" || key === "bloom_radius") return "bloom";
@@ -239,7 +241,7 @@
   const cannotLoad = $derived(mod.enabled && !purist && (mod.state === "refused" || mod.state === "failed"));
 
   const menu = $derived<MenuItem[]>(
-    builtIn
+    mod.kind === "built-in"
       ? []
       : [
           ...(source
@@ -368,7 +370,7 @@
       {#if menu.length}<Menu label={T.MOD_PAGE.more(mod.name)} items={menu} />{/if}
     </div>
 
-    {#if purist && mod.enabled && !mod.tool}
+    {#if purist && mod.enabled && !mod.tool && mod.kind !== "built-in"}
       <p class="notice"><Icon name="info" size={16} /><span>{T.WITH_MODS.offNotice}</span></p>
     {/if}
     {#if cannotLoad}
@@ -388,7 +390,7 @@
     <details class="more about">
       <summary>{T.MOD_PAGE.about}</summary>
       <div class="about-body">
-        {#if builtIn}<p class="long">{T.ENHANCED.about}</p>
+        {#if mod.id === "enhanced-graphics"}<p class="long">{T.ENHANCED.about}</p>
         {:else if mod.description}<p class="long">{mod.description}</p>{/if}
         <dl>
           <dt>{T.MOD_PAGE.aboutKind}</dt>
@@ -402,7 +404,7 @@
           {/if}
           {#if mod.license}<dt>{T.PANEL.license}</dt>
             <dd>{mod.license}</dd>{/if}
-          {#if !builtIn}
+          {#if mod.kind !== "built-in"}
             <dt>{T.PANEL.folder}</dt>
             <dd class="folder">
               <span class="mono">{mod.path}</span>
@@ -420,12 +422,12 @@
     </details>
   </section>
 
-  {#if builtIn}
+  {#if builtIn && mod.enabled}
     {@const bake = builtIn.bake}
     {@const job = builtIn.job}
     <section class="panel bake" aria-labelledby={`${mod.id}-bake`}>
       <div class="bake-text">
-        <h3 id={`${mod.id}-bake`}>Prepare clouds and lighting</h3>
+        <h3 id={`${mod.id}-bake`}>Prepare lighting, GI, water and clouds</h3>
         <p class="muted small-print">
           Cloud shapes are prepared once and loaded from disk during play. Changes in the Clouds section require
           preparation again and a level reload. Lighting uses the same prepared field.
@@ -464,6 +466,26 @@
           <p class="dim small-print">{T.ENHANCED.fallback}</p>
         {/if}
       </div>
+      {#if !job && bake.busy}<button class="ghost" onclick={builtIn.onfollow}>Show live preparation output</button>{/if}
+      {#if !job && builtIn.logJob}<details>
+          <summary>Preparation log</summary>
+          <pre>{builtIn.logJob.lines
+              .slice(-150)
+              .map((l) => l.line)
+              .join("\n")}</pre>
+        </details>{/if}
+      {#if job}
+        <details>
+          <summary>Live preparation log</summary>
+          <pre>{job.lines
+              .slice(-150)
+              .map((l) => l.line)
+              .join("\n")}</pre>
+        </details>
+        {#if job.id !== null}<button class="ghost" onclick={() => job.id !== null && void api.cancelJob(job.id)}
+            >Stop preparation</button
+          >{/if}
+      {/if}
       {#if !job && !bake.busy && (bake.available || bake.ready + bake.partial + bake.failed > 0)}
         <div class="bake-actions">
           {#if bake.available}
@@ -486,7 +508,7 @@
     </section>
   {/if}
 
-  {#if builtIn}
+  {#if builtIn && mod.enabled}
     <section class="panel texture-tools" aria-labelledby={`${mod.id}-textures`}>
       <div class="texture-head">
         <div>
@@ -559,7 +581,7 @@
       </div>
       {#if textureMessage}<p class="texture-message" role="status">{textureMessage}</p>{/if}
     </section>
-    <TexturePacksBlock version={builtIn.versionView} reload={textureReload} />
+    <TexturePacksBlock preparationControls version={builtIn.versionView} reload={textureReload} />
   {/if}
 
   {#if mod.settings.length}

@@ -184,6 +184,35 @@ const summary = summaryFile as RawSummary;
 
 // ---- made-up state -------------------------------------------------------------------
 
+const preparationKey = (key: string) =>
+  key.startsWith("cloud_") || ["hardware_auto", "ray_tracing", "offline_ultra_textures"].includes(key);
+const mockAddons = [
+  {
+    ...structuredClone(mockEnhanced),
+    mod: {
+      ...structuredClone(mockEnhanced.mod),
+      id: "graphics-preparation",
+      name: "Graphics preparation",
+      enabled: false,
+      description:
+        "Prepare lighting/GI, water, clouds, Ultra textures and AI assets independently of Enhanced graphics.",
+      settings: mockEnhanced.mod.settings.filter((s) => preparationKey(s.key)),
+      presets: [],
+    },
+  },
+  {
+    ...structuredClone(mockEnhanced),
+    mod: {
+      ...structuredClone(mockEnhanced.mod),
+      id: "save-backup-sync",
+      name: "Backup & Cloud Saves",
+      enabled: false,
+      description: "Independent backups, restore and folder-based cloud sync.",
+      settings: [],
+      presets: [],
+    },
+  },
+];
 const platform: Platform = onAndroid ? "android" : "linux";
 
 /** ?android: the Android launcher's GPU driver packages. */
@@ -2882,6 +2911,20 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
         output: "/home/you/OpenRAC/mods/pal",
         backup: "/home/you/OpenRAC/ai_assets/pal/backups/before-mesh-ai-demo",
       });
+    case "graphics_delete_texture_cache":
+      mockTextures.ultraReady = false;
+      return delay(null);
+    case "launcher_addon_enabled":
+      return delay(mockAddons.find((a) => a.mod.id === args.id)?.mod.enabled ?? false);
+    case "launcher_addons_view":
+    case "launcher_addons_set_enabled":
+    case "launcher_addons_set_setting": {
+      const entry = mockAddons.find((a) => a.mod.id === args.id);
+      if (entry && command === "launcher_addons_set_enabled") entry.mod.enabled = !!args.enabled;
+      if (entry && command === "launcher_addons_set_setting")
+        entry.mod.settings = entry.mod.settings.map((s) => (s.key === args.key ? { ...s, value: args.value } : s));
+      return delay(mockAddons.map((a) => ({ ...a, mod: { ...a.mod, state: a.mod.enabled ? "ready" : "off" } })));
+    }
     case "enhanced_view":
     case "enhanced_set_enabled":
     case "enhanced_set_setting":
@@ -2899,7 +2942,15 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
       }
       return delay({
         ...mockEnhanced,
-        mod: { ...mockEnhanced.mod, state: mockEnhanced.mod.enabled ? "ready" : "off" },
+        mod: {
+          ...mockEnhanced.mod,
+          settings: mockEnhanced.mod.settings.filter((s) => !preparationKey(s.key)),
+          presets: (mockEnhanced.mod.presets ?? []).map((p) => ({
+            ...p,
+            values: Object.fromEntries(Object.entries(p.values).filter(([k]) => !preparationKey(k))),
+          })),
+          state: mockEnhanced.mod.enabled ? "ready" : "off",
+        },
       });
     }
     case "modset_share_preview":

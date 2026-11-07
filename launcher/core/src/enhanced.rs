@@ -1,22 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2026 the OpenRAC contributors
 
-//! Enhanced graphics: the experimental probe lighting, modern shadows and ambient occlusion of the
-//! native port (port/enhanced), as a built-in entry of the Mods tab. It is not a mod the player
-//! installs: the game carries the code, off unless `enhanced_rendering = 1` is in the version's
-//! settings file (docs/port/SETTINGS.md), and the entry writes that key and the others it shows
-//! there, a line at a time, as the game fixes are (differences.rs).
-//!
-//! With it on, Play starts the game with the Vulkan renderer, the only one that has it, and with
-//! `--probes <data>/probes/<version>`: the probe bakes made on this computer from the player's own
-//! extracted levels by the `probe-bake` action (openrac-enhanced-baker --bake-all --update).
-//! Each baked level records what it was made from (`openrac-bake.json`); a level whose export or
-//! baker changed since counts as not ready and is baked again. The baker is named by what it says
-//! it bakes (`--print-profile`: its probe format, bake version and quality), not by its file, which
-//! every build of a new commit changes. A level without a bake keeps the
-//! original lighting. Intel Macs ship without the baker (the maintainers' decision: Embree's static
-//! library cannot be built there, tools/build_port.py), so the entry says that there instead of
-//! offering a bake.
+//! Enhanced graphics owns the native renderer and its runtime quality settings.
+//! The independently enabled graphics_preparation module owns the baker, caches,
+//! prepared clouds, Ultra/AI assets and Metal sunlight options. Enabling this
+//! renderer never starts preparation. Their shared port settings and bake formats
+//! let both modules work together; compatibility exports remain for older callers.
 
 use std::path::{Path, PathBuf};
 
@@ -26,8 +15,10 @@ use serde_json::Value;
 use crate::differences::{read_switch, read_value, settings_file, with_value, write_settings};
 use crate::plugins::{check_value, Choice, PluginView, Preset, SettingSpec, SettingView};
 
-mod bakes;
-pub use bakes::{bake_log, bake_status, delete_bakes, sync_cloud_profile, version_bake_status, BakeStatus};
+// Compatibility exports; preparation is owned by its independent module.
+pub use crate::graphics_preparation::{
+    bake_log, bake_status, delete_bakes, sync_cloud_profile, version_bake_status, BakeStatus,
+};
 
 /// The entry's id on the Mods tab (`?mod=enhanced-graphics`).
 pub const ID: &str = "enhanced-graphics";
@@ -54,7 +45,7 @@ pub fn probes_dir(data: &Path, version: &str) -> PathBuf {
     data.join("probes").join(version)
 }
 
-fn spec(key: &str, name: &str, kind: &str, default: Value, description: &str) -> SettingSpec {
+pub(crate) fn spec(key: &str, name: &str, kind: &str, default: Value, description: &str) -> SettingSpec {
     SettingSpec {
         key: key.into(),
         name: name.into(),
@@ -72,12 +63,12 @@ fn spec(key: &str, name: &str, kind: &str, default: Value, description: &str) ->
     }
 }
 
-fn range(mut s: SettingSpec, min: f64, max: f64, step: f64) -> SettingSpec {
+pub(crate) fn range(mut s: SettingSpec, min: f64, max: f64, step: f64) -> SettingSpec {
     (s.min, s.max, s.step) = (Some(min), Some(max), Some(step));
     s
 }
 
-fn group(mut s: SettingSpec, name: &str) -> SettingSpec {
+pub(crate) fn group(mut s: SettingSpec, name: &str) -> SettingSpec {
     s.group = name.into();
     s
 }
@@ -193,16 +184,7 @@ pub fn settings() -> Vec<SettingSpec> {
         .collect();
     anisotropy.group = "textures".into();
     vec![
-        group(
-            spec(
-                "hardware_auto",
-                "Hardware auto tuning",
-                "bool",
-                true.into(),
-                "Detects this device before Play and chooses safe runtime quality automatically. RTX/Apple Silicon can use the Ultra path; weaker or unknown GPUs get a compatible balanced path. Verified ray tracing is enabled only when the detected backend can run it safely.",
-            ),
-            "rendering",
-        ),
+
         group(
             range(
                 spec(
@@ -236,40 +218,9 @@ pub fn settings() -> Vec<SettingSpec> {
             "rendering",
         ),
         texture_filter,
-        group(
-            spec(
-                "offline_ultra_textures",
-                "Ultra textures before Play",
-                "bool",
-                true.into(),
-                "Pre-renders known game textures once at 8x up to a 4096-pixel edge, saves them as a persistent texture pack, and reuses that pack on later starts. This keeps 2x/4x/8x reconstruction out of the render loop.",
-            ),
-            "textures",
-        ),
         anisotropy,
         shadows,
-        group(
-            spec(
-                "ray_tracing",
-                "Ray-traced sunlight",
-                "bool",
-                true.into(),
-                "Uses the native Metal ray-tracing path for static direct-sun visibility on Apple Silicon. M3 and newer Apple GPUs use hardware RT; M1/M2 use the compute fallback once when a level loads, then reuse the result during rendering.",
-            ),
-            "lighting",
-        ),
         volumetric,
-        group(spec("cloud_enabled", "Prepared clouds", "bool", true.into(), "Enable static clouds. Prepare clouds and lighting after changing any cloud setting."), "clouds"),
-        group(range(spec("cloud_resolution", "Cloud preparation quality", "int", 64.into(), "Higher values store a more detailed cloud field; preparation takes longer."), 32.0, 128.0, 16.0), "clouds"),
-        group(range(spec("cloud_coverage", "Cloud coverage threshold", "float", 0.58.into(), "Lower values fill more of the sky."), 0.0, 0.99, 0.01), "clouds"),
-        group(range(spec("cloud_density", "Cloud density", "float", 0.018.into(), "Opacity of the prepared cloud layer."), 0.0, 1.0, 0.001), "clouds"),
-        group(range(spec("cloud_base", "Cloud base height", "float", 90.0.into(), "World-space height of the cloud layer."), -100000.0, 100000.0, 1.0), "clouds"),
-        group(range(spec("cloud_thickness", "Cloud layer thickness", "float", 50.0.into(), "Vertical extent of the prepared clouds."), 0.01, 2000.0, 0.01), "clouds"),
-        group(range(spec("cloud_scale", "Cloud pattern scale", "float", 0.035.into(), "Smaller values produce broader cloud formations."), 1e-05, 1.0, 0.00001), "clouds"),
-        group(range(spec("cloud_seed", "Cloud variation", "int", 1.into(), "A fixed variation number; identical settings reproduce the same clouds."), 0.0, 65535.0, 1.0), "clouds"),
-        group(range(spec("cloud_red", "Cloud red", "float", 0.95.into(), "Linear cloud colour. Prepare again after changing it."), 0.0, 4.0, 0.01), "clouds"),
-        group(range(spec("cloud_green", "Cloud green", "float", 0.97.into(), "Linear cloud colour. Prepare again after changing it."), 0.0, 4.0, 0.01), "clouds"),
-        group(range(spec("cloud_blue", "Cloud blue", "float", 1.0.into(), "Linear cloud colour. Prepare again after changing it."), 0.0, 4.0, 0.01), "clouds"),
         group(
             spec(
                 "local_lights",
@@ -594,7 +545,7 @@ pub fn settings() -> Vec<SettingSpec> {
 }
 
 /// A setting's value as the settings file holds it, or its default.
-fn read_setting(text: &str, spec: &SettingSpec) -> Value {
+pub(crate) fn read_setting(text: &str, spec: &SettingSpec) -> Value {
     if spec.key == "shadow_quality" && read_switch(text, "enhanced_shadows") == Some(false) {
         return "off".into();
     }
@@ -639,11 +590,12 @@ pub struct EnhancedView {
 }
 
 /// The entry for `game`/`version`, its values from the version's settings file in `data_home`.
-pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> EnhancedView {
+pub(crate) fn view_all(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> EnhancedView {
     let text = std::fs::read_to_string(settings_file(data_home, game, version)).unwrap_or_default();
     let enabled = read_switch(&text, SWITCH).unwrap_or(false);
     let settings = settings()
         .into_iter()
+        .chain(crate::graphics_preparation::settings())
         .map(|spec| {
             let value = read_setting(&text, &spec);
             SettingView { spec, value, conflicts: Vec::new() }
@@ -788,6 +740,16 @@ pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> En
     }
 }
 
+/// Renderer settings exclude the independently owned preparation controls.
+pub fn view(home: &Path, game: &str, version: &str, bake: BakeStatus) -> EnhancedView {
+    let mut view = view_all(home, game, version, bake);
+    view.entry.settings.retain(|s| !crate::graphics_preparation::owns(&s.spec.key));
+    for preset in &mut view.entry.presets {
+        preset.values.retain(|key, _| !crate::graphics_preparation::owns(key));
+    }
+    view
+}
+
 /// Switches enhanced rendering on or off for the version.
 pub fn set_enabled(data_home: &Path, game: &str, version: &str, on: bool) -> Result<(), String> {
     let file = settings_file(data_home, game, version);
@@ -797,7 +759,7 @@ pub fn set_enabled(data_home: &Path, game: &str, version: &str, on: bool) -> Res
 
 /// Sets one of the entry's settings, checked as the port would read it.
 pub fn set_setting(data_home: &Path, game: &str, version: &str, key: &str, value: &Value) -> Result<(), String> {
-    let all = settings();
+    let all: Vec<_> = settings().into_iter().chain(crate::graphics_preparation::settings()).collect();
     let spec = all.iter().find(|s| s.key == key).ok_or_else(|| format!("{key} is not an enhanced graphics setting"))?;
     let value = check_value(spec, value).ok_or_else(|| format!("{} cannot be {value}", spec.name))?;
     if key == "cloud_resolution" && value.as_i64().is_none_or(|n| n % 16 != 0) {
@@ -864,7 +826,7 @@ mod tests {
         assert_eq!(read_switch(&text, "cloud_enabled"), Some(true));
         assert_eq!(read_value(&text, "cloud_seed").as_deref(), Some("42"));
         assert_eq!(read_value(&text, "volumetric_quality").as_deref(), Some("medium"));
-        let all = settings();
+        let all = crate::graphics_preparation::settings();
         let red = all.iter().find(|s| s.key == "cloud_red").unwrap();
         assert_eq!(read_setting("cloud_red = 0.949999988\n", red), red.default);
         let coverage = all.iter().find(|s| s.key == "cloud_coverage").unwrap();

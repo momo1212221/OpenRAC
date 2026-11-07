@@ -552,8 +552,18 @@ impl Action {
             None => self.label.clone(),
         };
         let mut env = Vec::new();
+        if self.id == crate::graphics_preparation::BAKE_ACTION {
+            if let Some(v) = ctx.version {
+                crate::launcher_addons::require(
+                    &crate::saves::data_home(),
+                    crate::graphics_preparation::ID,
+                    &v.game,
+                    &v.name,
+                )?;
+            }
+        }
         // The bake transcript identifies the running launcher even when it uses another checkout.
-        if self.id == crate::enhanced::BAKE_ACTION {
+        if self.id == crate::graphics_preparation::BAKE_ACTION {
             env.push(("OPENRAC_LAUNCHER_VERSION".to_string(), env!("CARGO_PKG_VERSION").to_string()));
         }
         // Developer tools on: the native port offers its developer features (a level select in the
@@ -601,13 +611,38 @@ impl Action {
                 if crate::enhanced::supported(&v.game, &v.name) {
                     let file = crate::differences::settings_file(&crate::saves::data_home(), &v.game, &v.name);
                     let text = std::fs::read_to_string(file).unwrap_or_default();
-                    if let Some((more_env, more_args)) =
+                    let preparation = crate::launcher_addons::enabled(
+                        &crate::saves::data_home(),
+                        crate::graphics_preparation::ID,
+                        &v.game,
+                        &v.name,
+                    );
+                    env.push(("OPENRAC_PREPARED_GRAPHICS".into(), if preparation { "1" } else { "0" }.into()));
+                    env.push((
+                        "OPENRAC_ULTRA_TEXTURES".into(),
+                        if crate::differences::read_switch(&text, crate::texture_packs::ULTRA_SWITCH).unwrap_or(true) {
+                            "1"
+                        } else {
+                            "0"
+                        }
+                        .into(),
+                    ));
+                    if preparation {
+                        env.push((
+                            "OPENRAC_PREPARED_MESHES".into(),
+                            Path::new(&data).join("prepared-graphics/meshes").join(&v.name).display().to_string(),
+                        ));
+                    }
+                    if let Some((more_env, mut more_args)) =
                         crate::enhanced::play_additions(&text, Path::new(&data), &v.name)
                     {
                         for (key, value) in more_env {
                             if !env.iter().any(|(k, _)| *k == key) {
                                 env.push((key, value));
                             }
+                        }
+                        if !preparation {
+                            more_args.clear();
                         }
                         args.extend(more_args);
                     }
@@ -1091,6 +1126,18 @@ mod tests {
         std::fs::write(&file, format!("{} = 1\n", crate::enhanced::SWITCH)).unwrap();
         let plan = play.plan(&Context { platform: Platform::Android, ..ctx(&installed) }).unwrap();
         assert!(plan.env.contains(&("OPENRAC_GL_API".to_string(), "vulkan".to_string())), "{:?}", plan.env);
+        assert!(!plan.args.iter().any(|a| a == "--probes"));
+        assert!(plan.env.contains(&("OPENRAC_PREPARED_GRAPHICS".into(), "0".into())));
+        crate::launcher_addons::set_enabled(
+            &crate::saves::data_home(),
+            crate::graphics_preparation::ID,
+            "rac1",
+            "pal",
+            true,
+        )
+        .unwrap();
+        let plan = play.plan(&Context { platform: Platform::Android, ..ctx(&installed) }).unwrap();
+        assert!(plan.env.contains(&("OPENRAC_PREPARED_GRAPHICS".into(), "1".into())));
         let probes = crate::enhanced::probes_dir(&data, "pal").display().to_string();
         assert!(plan.args.ends_with(&["--probes".to_string(), probes]), "{:?}", plan.args);
         std::fs::remove_file(&file).unwrap();

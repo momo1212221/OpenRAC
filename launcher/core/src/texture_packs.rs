@@ -330,18 +330,25 @@ pub fn set_enabled(data_home: &Path, game: &str, version: &str, on: bool) -> Res
     write_settings(&file, &with_value(&text, SWITCH, if on { "1" } else { "0" }))
 }
 
-/// Enables/disables the launcher's offline Ultra4K preparation. Turning it off removes only the
-/// generated Ultra4K subfolder; hand-made/imported texture-pack files stay untouched.
-pub fn set_ultra_enabled(data_home: &Path, data: &Path, game: &str, version: &str, on: bool) -> Result<(), String> {
-    let id = id(game, version)?;
+/// Enables/disables offline Ultra4K preparation without removing cached or imported pictures.
+pub fn set_ultra_enabled(data_home: &Path, _data: &Path, game: &str, version: &str, on: bool) -> Result<(), String> {
+    id(game, version)?;
     let file = settings_file(data_home, game, version);
     let text = std::fs::read_to_string(&file).unwrap_or_default();
-    write_settings(&file, &with_value(&text, ULTRA_SWITCH, if on { "1" } else { "0" }))?;
-    if !on {
-        let ultra = pack_dir(data, &id).join(ULTRA_FOLDER);
-        if ultra.is_dir() {
-            std::fs::remove_dir_all(&ultra).map_err(|e| format!("{}: {e}", ultra.display()))?;
-        }
+    write_settings(&file, &with_value(&text, ULTRA_SWITCH, if on { "1" } else { "0" }))
+}
+
+/// Explicit cache deletion, separate from disabling its use. The native lock prevents deletion
+/// while another preparation owns this cache; imported pictures are outside Ultra4K.
+pub fn delete_ultra(data: &Path, game: &str, version: &str) -> Result<(), String> {
+    let pack = pack_dir(data, &id(game, version)?);
+    if !pack.is_dir() {
+        return Ok(());
+    }
+    let _lock = acquire_ultra_lock(&pack)?;
+    let ultra = pack.join(ULTRA_FOLDER);
+    if ultra.exists() {
+        std::fs::remove_dir_all(&ultra).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1564,9 +1571,11 @@ mod tests {
         assert!(view(&home, &data, "rac2", "ntsc").unwrap().ultra_ready);
         set_ultra_enabled(&home, &data, "rac2", "ntsc", false).unwrap();
         assert!(custom.is_file());
-        assert!(!ultra.exists());
+        assert!(ultra.exists());
         let v = view(&home, &data, "rac2", "ntsc").unwrap();
-        assert!(!v.ultra_enabled && !v.ultra_ready);
+        assert!(!v.ultra_enabled && v.ultra_ready);
+        delete_ultra(&data, "rac2", "ntsc").unwrap();
+        assert!(!ultra.exists() && custom.is_file());
         set_ultra_enabled(&home, &data, "rac2", "ntsc", true).unwrap();
         assert!(view(&home, &data, "rac2", "ntsc").unwrap().ultra_enabled);
     }
