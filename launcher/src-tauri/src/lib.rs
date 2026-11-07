@@ -156,6 +156,7 @@ fn switching_channel<R: tauri::Runtime>(
     source.kind() != update_source(app).kind()
 }
 
+#[cfg(target_os = "macos")]
 fn collect_gpu_name(value: &serde_json::Value, out: &mut Vec<String>) {
     match value {
         serde_json::Value::Object(map) => {
@@ -255,7 +256,7 @@ fn detected_gpu_names() -> Vec<String> {
 fn cuda_available() -> bool {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        return std::process::Command::new("nvidia-smi").arg("-L").output().is_ok_and(|output| output.status.success());
+        std::process::Command::new("nvidia-smi").arg("-L").output().is_ok_and(|output| output.status.success())
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
