@@ -92,21 +92,12 @@ describe("Android launcher", () => {
     await expect(page.getByRole("tab", { name: /NTSC/ }).getAttribute("aria-selected")).resolves.toBe("true");
   });
 
-  it("separates preparation and backup from Enhanced graphics", async () => {
+  it("keeps renderer controls without inventing installed preparation or backup mods", async () => {
     await open("page=mods&version=rac1/pal");
-    await page.getByRole("switch", { name: "Enable Graphics preparation", exact: true }).waitFor();
-    await page.getByRole("button", { name: /Graphics preparation.*Settings/ }).click();
-    expect(await page.getByRole("heading", { name: "Graphics preparation", exact: true }).count()).toBe(1);
-    expect(
-      await page.getByRole("heading", { name: "Prepare lighting, GI, water and clouds", exact: true }).count(),
-    ).toBe(0);
-    await page.getByRole("switch", { name: "Use Graphics preparation", exact: true }).check();
-    await page.getByRole("heading", { name: "Prepare lighting, GI, water and clouds", exact: true }).waitFor();
-    await page.getByRole("button", { name: "My mods", exact: true }).click();
+    await page.getByRole("switch", { name: "Use Enhanced graphics", exact: true }).waitFor();
     expect(await page.getByRole("switch", { name: "Use Enhanced graphics", exact: true }).isChecked()).toBe(false);
-    await page.getByRole("button", { name: /Backup & Cloud Saves.*Settings/ }).click();
-    await page.getByRole("switch", { name: "Enable Backup & Cloud Saves", exact: true }).check();
-    await page.getByRole("heading", { name: "Backups & Cloud Saves", exact: true }).waitFor();
+    expect(await page.getByRole("switch", { name: "Enable Graphics preparation", exact: true }).count()).toBe(0);
+    expect(await page.getByRole("switch", { name: "Enable Backup & Cloud Saves", exact: true }).count()).toBe(0);
   });
 
   it("shows Mods for the picked game, without the level editor", async () => {

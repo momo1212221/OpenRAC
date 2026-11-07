@@ -3,7 +3,7 @@
 //! The renderer consumes prepared data; switching this module never switches the renderer.
 mod bakes;
 pub use crate::enhanced::{BAKE_ACTION, NO_BAKER_HERE, SHIPS_BAKER};
-pub use bakes::{bake_log, bake_status, delete_bakes, sync_cloud_profile, version_bake_status, BakeStatus};
+pub use bakes::{bake_log, bake_status, delete_bakes, log_tail, sync_cloud_profile, version_bake_status, BakeStatus};
 pub const ID: &str = "graphics-preparation";
 
 pub fn owns(key: &str) -> bool {

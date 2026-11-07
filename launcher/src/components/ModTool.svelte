@@ -4,7 +4,7 @@
   // { openrac: 1, event: "pad", button, down }. The page's "close" call, Back or Escape return here.
   import { onDestroy, onMount } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { inTauri, onAndroid, type PluginView } from "$lib/api";
+  import { api, ask, inTauri, onAndroid, type PluginView } from "$lib/api";
   import { launcherBackend, pageOrigin, pageUrl, PROTOCOL, reply, trackSaves, type ToolInfo } from "$lib/modTool";
   import { routePad } from "$lib/pad";
   import * as T from "$lib/modsText";
@@ -26,12 +26,16 @@
   let frame = $state<HTMLIFrameElement | null>(null);
   let failure = $state<string | null>(null);
 
+  let ready = $state(false);
+  let services = $state<string[]>([]);
   const info = $derived<ToolInfo>({
     game,
     version,
     packId: `${game}-${version}`,
     mod: { id: mod.id, name: mod.name, version: mod.version },
     system: onAndroid ? "android" : "desktop",
+    services,
+    hostVersion: "1.0.5",
   });
   // The scheme's root as this system reaches it: openrac-mod://localhost/, or
   // http://openrac-mod.localhost/ on Windows and Android.
@@ -69,7 +73,36 @@
 
   let root = $state<HTMLDivElement | null>(null);
 
+  async function authorize() {
+    if (!inTauri) {
+      ready = true;
+      return;
+    }
+    try {
+      const permission = await api.modServicePermission(game, mod.id);
+      if (permission) {
+        if (!permission.granted) {
+          if (
+            !(await ask(
+              `Allow ${mod.name} to request its launcher service? The next system dialog explains its access.`,
+              "Review permission",
+            ))
+          ) {
+            onclose();
+            return;
+          }
+          // Rust also presents its own native scope confirmation before persisting a grant.
+          await api.modServiceGrant(game, mod.id);
+        }
+        services = [permission.service];
+      }
+      ready = true;
+    } catch (e) {
+      failure = String(e);
+    }
+  }
   onMount(() => {
+    void authorize();
     // A phone's screen is short: the page's title scrolls away, the crumbs and the frame fill it.
     if (onAndroid) root?.scrollIntoView({ block: "start" });
     window.addEventListener("message", onMessage);
@@ -106,7 +139,7 @@
     </ol>
   </nav>
   {#if failure}<Reason text={failure} tone="err" role="status" />{/if}
-  {#if src}
+  {#if src && ready}
     <!-- allow-same-origin keeps the page its own site (openrac-mod), never the launcher's: it lets
          the page load its own files and workers; scripts run, nothing else (no popups, forms or
          leaving the frame). -->

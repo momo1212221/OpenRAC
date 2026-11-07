@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 mod android;
 mod asset_ai;
+mod mod_services;
 mod mod_tool;
 mod texture_ai;
 
@@ -542,7 +543,7 @@ fn run_action(
     let inputs = openrac_launcher_core::actions::Inputs { level, path, option };
     if id == openrac_launcher_core::enhanced::BAKE_ACTION || library::is_play(&config, &scope, &id) {
         if let Scope::Version(key) = &scope {
-            if openrac_launcher_core::launcher_addons::enabled(
+            if openrac_launcher_core::launcher_addons::active(
                 &openrac_launcher_core::saves::data_home(),
                 openrac_launcher_core::graphics_preparation::ID,
                 key.split_once('/').unwrap_or(("", "")).0,
@@ -682,7 +683,7 @@ fn graphics_delete_texture_cache(state: State<'_, AppState>, game: String, versi
 
 #[tauri::command]
 fn launcher_addon_enabled(id: String, game: String, version: String) -> bool {
-    openrac_launcher_core::launcher_addons::enabled(&openrac_launcher_core::saves::data_home(), &id, &game, &version)
+    openrac_launcher_core::launcher_addons::active(&openrac_launcher_core::saves::data_home(), &id, &game, &version)
 }
 
 #[tauri::command]
@@ -761,7 +762,7 @@ fn enhanced_auto_configure(game: String, version: String) -> Result<AutoGraphics
     let file = differences::settings_file(&home, &game, &version);
     let settings = std::fs::read_to_string(&file).unwrap_or_default();
     let graphics = graphics_capabilities();
-    if !openrac_launcher_core::launcher_addons::enabled(
+    if !openrac_launcher_core::launcher_addons::active(
         &home,
         openrac_launcher_core::graphics_preparation::ID,
         &game,
@@ -939,7 +940,7 @@ async fn texture_packs_prepare_ultra(
 ) -> Result<openrac_launcher_core::texture_packs::UltraTextureBuild, String> {
     use openrac_launcher_core::texture_packs;
     let home = openrac_launcher_core::saves::data_home();
-    if !openrac_launcher_core::launcher_addons::enabled(
+    if !openrac_launcher_core::launcher_addons::active(
         &home,
         openrac_launcher_core::graphics_preparation::ID,
         &game,
@@ -3683,6 +3684,9 @@ pub fn run() {
             texture_packs_prepare_ultra,
             ai_texture_bake,
             ai_mesh_bake,
+            mod_services::mod_service_permission,
+            mod_services::mod_service_grant,
+            mod_services::mod_service,
             mod_tool::mod_tool_list,
             mod_tool::mod_tool_read,
             mod_tool::mod_tool_store_get,

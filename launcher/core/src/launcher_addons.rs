@@ -37,6 +37,8 @@ pub fn begin_preparation(home: &Path, game: &str, version: &str) -> Result<Prepa
 #[derive(Default, Serialize, Deserialize)]
 struct State {
     #[serde(default)]
+    grants: BTreeMap<String, PathBuf>,
+    #[serde(default)]
     graphics: BTreeMap<String, bool>,
     backup: Option<bool>,
 }
@@ -71,6 +73,39 @@ pub fn enabled(home: &Path, id: &str, game: &str, version: &str) -> bool {
             .any(|key| read_switch(&text, key) == Some(true))
     })
 }
+/// A granted package must still be installed. Removing it immediately disables hooks.
+pub fn granted(home: &Path, id: &str, game: &str) -> bool {
+    let Ok(state) = read(home) else { return false };
+    state.grants.iter().any(|(key, folder)| {
+        (key == &format!("{game}/{id}") || (id == BACKUP_ID && game.is_empty() && key.ends_with(&format!("/{id}"))))
+            && package_service(folder, id).is_ok()
+    })
+}
+pub fn package_service(folder: &Path, id: &str) -> Result<(), String> {
+    let manifest = crate::plugins::read_manifest(folder)?;
+    manifest.validate()?;
+    let tool = manifest.tool.ok_or("This mod has no page")?;
+    if manifest.id != id || tool.service.as_deref() != Some(id) {
+        return Err("This installed mod does not declare that service".into());
+    }
+    crate::mod_tools::inside(folder, &tool.page)?;
+    Ok(())
+}
+pub fn grant(home: &Path, folder: &Path, id: &str, game: &str) -> Result<(), String> {
+    package_service(folder, id)?;
+    let folder = folder.canonicalize().map_err(|e| e.to_string())?;
+    let _lock = LOCK.lock().map_err(|e| e.to_string())?;
+    let mut state = read(home)?;
+    state.grants.insert(format!("{game}/{id}"), folder);
+    crate::differences::write_settings(
+        &file(home),
+        &(serde_json::to_string_pretty(&state).map_err(|e| e.to_string())? + "\n"),
+    )
+}
+pub fn active(home: &Path, id: &str, game: &str, version: &str) -> bool {
+    granted(home, id, game) && enabled(home, id, game, version)
+}
+
 /// Freeze one-time migration before a user edits settings on the new mod pages.
 pub fn initialize(home: &Path, game: &str, version: &str) -> Result<(), String> {
     let _lock = LOCK.lock().map_err(|e| e.to_string())?;
@@ -115,7 +150,7 @@ pub fn set_enabled(home: &Path, id: &str, game: &str, version: &str, on: bool) -
     )
 }
 pub fn require(home: &Path, id: &str, game: &str, version: &str) -> Result<(), String> {
-    if enabled(home, id, game, version) {
+    if active(home, id, game, version) {
         Ok(())
     } else {
         Err(format!("Enable {id} in Mods first"))
@@ -134,8 +169,30 @@ pub fn backup_view(home: &Path, game: &str, version: &str) -> crate::enhanced::E
     view
 }
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    pub(crate) fn install_fixture(h: &Path, id: &str) -> PathBuf {
+        let folder = h.join("mods").join(id);
+        std::fs::create_dir_all(folder.join("ui")).unwrap();
+        std::fs::write(folder.join("ui/index.html"), "mod").unwrap();
+        std::fs::write(folder.join("openrac-mod.json"), serde_json::json!({"format":2,"id":id,"name":"Test mod","version":"0.1.0","games":{"rac1":["pal"]},"tool":{"page":"ui/index.html","service":id}}).to_string()).unwrap();
+        grant(h, &folder, id, "rac1").unwrap();
+        folder
+    }
+    #[test]
+    fn removal_and_missing_permission_disable_runtime_hooks() {
+        let t = tempfile::tempdir().unwrap();
+        let h = t.path();
+        let id = crate::graphics_preparation::ID;
+        set_enabled(h, id, "rac1", "pal", true).unwrap();
+        assert!(!active(h, id, "rac1", "pal"));
+        let folder = install_fixture(h, id);
+        assert!(active(h, id, "rac1", "pal"));
+        assert!(!active(h, id, "rac2", "pal"));
+        std::fs::remove_file(folder.join("openrac-mod.json")).unwrap();
+        assert!(!active(h, id, "rac1", "pal"));
+        assert!(enabled(h, id, "rac1", "pal"));
+    }
     #[test]
     fn modules_and_renderer_are_independent_and_data_is_preserved() {
         let t = tempfile::tempdir().unwrap();
@@ -177,6 +234,7 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let h = t.path();
         set_enabled(h, crate::graphics_preparation::ID, "rac1", "pal", true).unwrap();
+        install_fixture(h, crate::graphics_preparation::ID);
         let guard = begin_preparation(h, "rac1", "pal").unwrap();
         assert!(set_enabled(h, crate::graphics_preparation::ID, "rac1", "pal", false).is_err());
         drop(guard);

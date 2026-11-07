@@ -361,6 +361,23 @@ pub fn bake_log(config: &crate::config::Config, key: &str, path: &Path) -> Resul
     checked_bake_log(&probes, path)
 }
 
+/// Tail of the fixed lighting report, bounded to 128 KiB; callers cannot select arbitrary paths.
+pub fn log_tail(config: &crate::config::Config, key: &str) -> Result<String, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let (_, probes, _) = bake_folders(config, key)?;
+    let path = probes.join("probe-bake.log");
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    let path = checked_bake_log(&probes, &path)?;
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let size = file.metadata().map_err(|e| e.to_string())?.len();
+    file.seek(SeekFrom::Start(size.saturating_sub(128 << 10))).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    file.take(128 << 10).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 fn checked_bake_log(probes: &Path, path: &Path) -> Result<PathBuf, String> {
     let root = probes.canonicalize().map_err(|e| format!("Lighting folder: {e}"))?;
     let target = path.canonicalize().map_err(|e| format!("Lighting log: {e}"))?;

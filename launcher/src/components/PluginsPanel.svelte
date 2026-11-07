@@ -78,7 +78,7 @@
   let enhanced = $state<EnhancedView | null>(null);
   let addons = $state<EnhancedView[]>([]);
   const preparation = $derived(addons.find((a) => a.mod.id === "graphics-preparation") ?? null);
-  const isAddon = (id: string | null) => id === "graphics-preparation" || id === "save-backup-sync";
+  const isAddon = (id: string | null) => addons.some((a) => a.mod.id === id);
   async function setAddon(id: string, enabled: boolean) {
     try {
       addons = await api.launcherAddonsSetEnabled(v.game, v.name, id, enabled);
@@ -123,7 +123,7 @@
   async function loadEnhanced() {
     try {
       enhanced = await api.enhancedView(v.game, v.name);
-      addons = await api.launcherAddonsView(v.game, v.name);
+      addons = []; // Independently installed tool mods now provide these pages.
     } catch {
       enhanced = null;
     }
@@ -482,7 +482,7 @@
 {#if page?.tool && toolOpen === page.id}
   {@const mod = page}
   <ModTool mod={{ ...mod, tool: mod.tool ?? "" }} game={v.game} version={v.name} onclose={() => (toolOpen = null)} />
-{:else if page?.id === "save-backup-sync"}
+{:else if page?.id === "save-backup-sync" && page.kind === "built-in"}
   <section class="panel">
     <button class="ghost" onclick={closeMod}>Back to mods</button>
     <h2>{page.name}</h2>

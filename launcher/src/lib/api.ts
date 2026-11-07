@@ -579,6 +579,11 @@ export const api = {
   /** Ends it: kept (the name it was saved under) or dropped (""). */
   modToolSaveEnd: (token: number, keep: boolean) => call<string>("mod_tool_save_end", { token, keep }),
   /** A small file the player picks: its bytes, empty when they backed out. */
+  modServicePermission: (game: string, id: string) =>
+    call<{ service: string; granted: boolean } | null>("mod_service_permission", { game, id }),
+  modServiceGrant: (game: string, id: string) => call<null>("mod_service_grant", { game, id }),
+  modService: (game: string, version: string, id: string, operation: string, payload: unknown) =>
+    call<unknown>("mod_service", { game, version, id, operation, payload }),
   modToolOpen: (extension: string) => call<ArrayBuffer>("mod_tool_open", { extension }),
   enhancedView: (game: string, version: string) => call<EnhancedView | null>("enhanced_view", { game, version }),
   enhancedSetEnabled: (game: string, version: string, enabled: boolean) =>

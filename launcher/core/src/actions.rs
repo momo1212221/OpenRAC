@@ -611,7 +611,7 @@ impl Action {
                 if crate::enhanced::supported(&v.game, &v.name) {
                     let file = crate::differences::settings_file(&crate::saves::data_home(), &v.game, &v.name);
                     let text = std::fs::read_to_string(file).unwrap_or_default();
-                    let preparation = crate::launcher_addons::enabled(
+                    let preparation = crate::launcher_addons::active(
                         &crate::saves::data_home(),
                         crate::graphics_preparation::ID,
                         &v.game,
@@ -1136,6 +1136,7 @@ mod tests {
             true,
         )
         .unwrap();
+        crate::launcher_addons::tests::install_fixture(&crate::saves::data_home(), crate::graphics_preparation::ID);
         let plan = play.plan(&Context { platform: Platform::Android, ..ctx(&installed) }).unwrap();
         assert!(plan.args.windows(2).any(|a| a == ["--prepared-graphics", "1"]));
         let probes = crate::enhanced::probes_dir(&data, "pal").display().to_string();
