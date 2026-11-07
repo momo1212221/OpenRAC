@@ -3,7 +3,6 @@
 //
 // Texture packs (renderer/texture_pack.h): names by hash, replacement at any size, the dump,
 // animated replacements (frame by tick, the folder and GIF loaders) and the dump's cycle groups.
-#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -13,6 +12,7 @@
 #include <vector>
 
 #include "check.h"
+#include "common/launch_modules.h"
 #include "renderer/texture_pack.h"
 
 using namespace openrac;
@@ -321,29 +321,17 @@ int main() {
     const auto generated_name = texture_pack::file_name(texture_pack::image_hash(generated));
     std::ofstream(pack / "Ultra4K" / generated_name) << "png";
     disk()[generated_name] = solid(16, 16, 123);
-#ifdef _WIN32
-    _putenv_s("OPENRAC_PREPARED_GRAPHICS", "0");
-#else
-    setenv("OPENRAC_PREPARED_GRAPHICS", "0", 1);
-#endif
+    launch_modules::configure({.enabled = false});
     texture_pack::configure(pack, {}, {load, save});
     image = generated;
     CHECK(!texture_pack::replace(image));
     image = small;
     CHECK(texture_pack::replace(image));
-#ifdef _WIN32
-    _putenv_s("OPENRAC_PREPARED_GRAPHICS", "1");
-#else
-    setenv("OPENRAC_PREPARED_GRAPHICS", "1", 1);
-#endif
+    launch_modules::configure({.enabled = true});
     texture_pack::configure(pack, {}, {load, save});
     image = generated;
     CHECK(texture_pack::replace(image) && image.width == 16);
-#ifdef _WIN32
-    _putenv_s("OPENRAC_PREPARED_GRAPHICS", "");
-#else
-    unsetenv("OPENRAC_PREPARED_GRAPHICS");
-#endif
+    launch_modules::configure({});
 
     // A pack file that cannot be read keeps the original.
     disk().clear();

@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <charconv>
-#include <cstdlib>
 #include <format>
 #include <fstream>
 #include <mutex>
@@ -13,6 +12,7 @@
 #include <unordered_map>
 
 #include "common/json.h"
+#include "common/launch_modules.h"
 #include "common/log.h"
 
 namespace openrac::renderer::texture_pack {
@@ -105,14 +105,12 @@ bool has_frames(const fs::path& folder) {
     return false;
 }
 
+// Whether this launch excludes a generated folder, leaving imported pack files available.
 bool preparation_folder_off(const fs::path& path) {
-    const auto off = [](const char* key) {
-        const char* value = std::getenv(key);
-        return value && std::string_view(value) == "0";
-    };
+    const auto& config = launch_modules::get();
     const auto name = path.filename();
-    return (off("OPENRAC_PREPARED_GRAPHICS") && (name == "Ultra4K" || name == "PreparedAI"))
-           || (off("OPENRAC_ULTRA_TEXTURES") && name == "Ultra4K");
+    return (!config.enabled && (name == "Ultra4K" || name == "PreparedAI"))
+           || (!config.ultra_textures && name == "Ultra4K");
 }
 
 // Every texture file under a folder, by hash.

@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 
+#include "common/launch_modules.h"
 #include "custom_map.h"
 
 namespace openrac::program {
@@ -20,6 +21,7 @@ namespace fs = std::filesystem;
 
 // What the command line asked for, with the defaults parse fills in.
 struct Options {
+    launch_modules::Config modules;
     fs::path data;
     fs::path cards;
     long frames = -1;
@@ -28,7 +30,7 @@ struct Options {
     bool skip_movies = false;  // development probes; not movie-playback validation
     bool unlock_all_weapons = false;
     bool unlock_all_gadgets = false;
-    fs::path levels;           // the extracted levels the window draws (level_00, ...)
+    fs::path levels;  // the extracted levels the window draws (level_00, ...)
     fs::path
         mods;  // levels edited in Godot and packed (editor/pack.py), read in place of the disc's
     fs::path settings;  // the player's settings (settings.h); in OpenRAC's data folder unless given
@@ -36,7 +38,7 @@ struct Options {
     fs::path mod_data;  // the native mods' own folders (openrac_api.data_dir); likewise
     fs::path plugins;   // the native mods' list (mods.h): <data>/plugins/plugins.json unless given
     fs::path probes;    // the player's probe bakes, a level_NN folder each (enhanced rendering)
-    bool no_mods = false;  // purist mode: no native mod is loaded (docs/port/MODS.md)
+    bool no_mods = false;     // purist mode: no native mod is loaded (docs/port/MODS.md)
     bool expect_map = false;  // --map: the launcher requires map support, including on older builds
     bool ship_map = false;    // opt-in PAL ship destination, with campaign cards disabled
     bool expect_destinations = false;     // requires the new registry on older launchers/builds

@@ -86,6 +86,7 @@ add_library(openrac_common STATIC
   common/crash.cpp
   common/crash_symbols.cpp
   common/env.cpp
+  common/launch_modules.cpp
   common/json.cpp
   common/log.cpp
   common/parallel.cpp

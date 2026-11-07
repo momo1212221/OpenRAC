@@ -15,7 +15,6 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <format>
@@ -23,13 +22,13 @@
 #include <memory>
 #include <span>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "common/breadcrumbs.h"
 #include "common/c_boundary.h"
 #include "common/env.h"
+#include "common/launch_modules.h"
 #include "common/log.h"
 #include "common/stats.h"
 #include "debug_overlay.h"
@@ -122,15 +121,10 @@ LevelSources level_sources(int wanted) {
         sources.mod_roots.push_back(root / std::format("level_{:02d}", wanted));
     }
 
-    if (const char* prepared = std::getenv("OPENRAC_PREPARED_MESHES")) {
-        if (!std::getenv("OPENRAC_PREPARED_GRAPHICS")
-            || std::string_view(std::getenv("OPENRAC_PREPARED_GRAPHICS")) != "0") {
-            sources.mod_roots.push_back(
-                std::filesystem::path(prepared) / std::format("level_{:02d}", wanted)
-            );
-        }
+    const auto& prepared = launch_modules::get();
+    if (prepared.enabled && !prepared.meshes.empty()) {
+        sources.mod_roots.push_back(prepared.meshes / std::format("level_{:02d}", wanted));
     }
-
     return sources;
 }
 
@@ -369,8 +363,7 @@ void use_level(int number) {
     g->level.rt_sun_visibility.clear();
 
     if (settings::get().enhanced_graphics && settings::get().ray_tracing
-        && (!std::getenv("OPENRAC_PREPARED_GRAPHICS")
-            || std::string_view(std::getenv("OPENRAC_PREPARED_GRAPHICS")) != "0")) {
+        && launch_modules::get().enabled) {
         renderer::Vec3 sunlight{0.0f, 0.0f, -1.0f};
 
         if (g->level.light_sets.size() == 256) {

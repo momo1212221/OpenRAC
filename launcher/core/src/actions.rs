@@ -617,21 +617,21 @@ impl Action {
                         &v.game,
                         &v.name,
                     );
-                    env.push(("OPENRAC_PREPARED_GRAPHICS".into(), if preparation { "1" } else { "0" }.into()));
-                    env.push((
-                        "OPENRAC_ULTRA_TEXTURES".into(),
+                    args.extend(["--prepared-graphics".into(), if preparation { "1" } else { "0" }.into()]);
+                    args.extend([
+                        "--ultra-textures".into(),
                         if crate::differences::read_switch(&text, crate::texture_packs::ULTRA_SWITCH).unwrap_or(true) {
                             "1"
                         } else {
                             "0"
                         }
                         .into(),
-                    ));
+                    ]);
                     if preparation {
-                        env.push((
-                            "OPENRAC_PREPARED_MESHES".into(),
+                        args.extend([
+                            "--prepared-meshes".into(),
                             Path::new(&data).join("prepared-graphics/meshes").join(&v.name).display().to_string(),
-                        ));
+                        ]);
                     }
                     if let Some((more_env, mut more_args)) =
                         crate::enhanced::play_additions(&text, Path::new(&data), &v.name)
@@ -1056,14 +1056,14 @@ mod tests {
         assert_eq!(plan.args[1], data.display().to_string());
         assert!(!plan.env.iter().any(|(k, _)| k == "OPENRAC_LOG"));
         // The Mods switch off, the default: no native mods.
-        assert_eq!(plan.args.last().map(String::as_str), Some("--no-mods"), "{:?}", plan.args);
+        assert!(plan.args.iter().any(|a| a == "--no-mods"), "{:?}", plan.args);
         assert!(!plan.args.iter().any(|a| a == "--plugins"), "{:?}", plan.args);
         // On: the list the launcher writes, named explicitly: <data>/plugins/plugins.json.
         let with_mods = Config { play_with_mods: true, ..installed.clone() };
         let plan = play.plan(&ctx(&with_mods)).unwrap();
         assert!(!plan.args.iter().any(|a| a == "--no-mods"), "{:?}", plan.args);
         let list = data.join("plugins").join("plugins.json").display().to_string();
-        assert_eq!(plan.args[plan.args.len() - 2..], ["--plugins".to_string(), list], "{:?}", plan.args);
+        assert!(plan.args.windows(2).any(|a| a == ["--plugins", &list]), "{:?}", plan.args);
         // A selected map requires an executable that understands map sessions. With no map,
         // ordinary packs keep their existing command line; Purist mode never requests a map.
         let map_folder = tempfile::tempdir().unwrap();
@@ -1127,7 +1127,7 @@ mod tests {
         let plan = play.plan(&Context { platform: Platform::Android, ..ctx(&installed) }).unwrap();
         assert!(plan.env.contains(&("OPENRAC_GL_API".to_string(), "vulkan".to_string())), "{:?}", plan.env);
         assert!(!plan.args.iter().any(|a| a == "--probes"));
-        assert!(plan.env.contains(&("OPENRAC_PREPARED_GRAPHICS".into(), "0".into())));
+        assert!(plan.args.windows(2).any(|a| a == ["--prepared-graphics", "0"]));
         crate::launcher_addons::set_enabled(
             &crate::saves::data_home(),
             crate::graphics_preparation::ID,
@@ -1137,7 +1137,7 @@ mod tests {
         )
         .unwrap();
         let plan = play.plan(&Context { platform: Platform::Android, ..ctx(&installed) }).unwrap();
-        assert!(plan.env.contains(&("OPENRAC_PREPARED_GRAPHICS".into(), "1".into())));
+        assert!(plan.args.windows(2).any(|a| a == ["--prepared-graphics", "1"]));
         let probes = crate::enhanced::probes_dir(&data, "pal").display().to_string();
         assert!(plan.args.ends_with(&["--probes".to_string(), probes]), "{:?}", plan.args);
         std::fs::remove_file(&file).unwrap();
