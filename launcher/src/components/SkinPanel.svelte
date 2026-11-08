@@ -112,7 +112,7 @@
         <strong>2. {SKINS.editTitle}</strong>
         <span class="muted">{SKINS.editLine}</span>
         <button disabled={!editor?.runnable || busy !== null} onclick={() => void openEditor()}>
-          {#if busy === "editor"}<span class="spinner"></span>{:else}<Icon name="edit" size={16} />{/if}{SINS.edit}
+          {#if busy === "editor"}<span class="spinner"></span>{:else}<Icon name="edit" size={16} />{/if}{SKINS.edit}
         </button>
       </div>
 
@@ -166,7 +166,7 @@
   }
   .steps {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr)i);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
   }
   .step {
