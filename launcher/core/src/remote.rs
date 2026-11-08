@@ -59,6 +59,10 @@ impl Fetch for Curl {
         // No -f: the answer's headers (-D -, before its body) say why GitHub refused, and when its
         // limit lets the launcher ask again.
         cmd.args(["-sS", "-L", "-D", "-", "--proto", "=https", "--connect-timeout", "15", "--max-time", "600"])
+            // GitHub and some proxies occasionally answer mod catalogue requests with a transient
+            // 502/503/504 or close the connection. Retry those failures before surfacing them to
+            // the Mods page; downloads remain bounded by the normal overall and file-size limits.
+            .args(["--retry", "5", "--retry-delay", "1", "--retry-max-time", "30", "--retry-all-errors"])
             .args(["--max-filesize", &MAX_BYTES.to_string()])
             .args(["-H", concat!("User-Agent: openrac-launcher/", env!("CARGO_PKG_VERSION"))]);
         if api {
