@@ -110,10 +110,16 @@ struct MaterialMaps {
     std::filesystem::path height;
     std::filesystem::path ao;
     std::filesystem::path emissive;
+    std::filesystem::path specular;
+    std::filesystem::path metallic;
+    std::filesystem::path cavity;
+    std::filesystem::path curvature;
+    std::filesystem::path edgewear;
 
     bool empty() const {
         return normal.empty() && roughness.empty() && height.empty() && ao.empty()
-               && emissive.empty();
+               && emissive.empty() && specular.empty() && metallic.empty() && cavity.empty()
+               && curvature.empty() && edgewear.empty();
     }
 };
 
@@ -125,7 +131,12 @@ enum class MaterialMap : std::uint8_t {
     Roughness,
     Height,
     Ao,
-    Emissive
+    Emissive,
+    Specular,
+    Metallic,
+    Cavity,
+    Curvature,
+    EdgeWear
 };
 
 // Decodes one material sidecar through the same configured PNG loader as colour replacements.
