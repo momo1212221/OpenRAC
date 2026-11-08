@@ -29,6 +29,22 @@ FurMaterialSettings fur_response(const materials::Properties& properties) {
     return result;
 }
 
+AdvancedOpticalMaterialSettings advanced_optical_response(
+    const materials::Properties& properties
+) {
+    AdvancedOpticalMaterialSettings result;
+    result.clearcoat = number(properties, "surface.clearcoat", result.clearcoat);
+    result.clearcoat_roughness =
+        number(properties, "surface.clearcoat_roughness", result.clearcoat_roughness);
+    result.anisotropy = number(properties, "surface.anisotropy", result.anisotropy);
+    result.anisotropy_rotation =
+        number(properties, "surface.anisotropy_rotation", result.anisotropy_rotation);
+    result.transmission = number(properties, "surface.transmission", result.transmission);
+    result.ior = number(properties, "surface.ior", result.ior);
+    result.thickness = number(properties, "surface.thickness", result.thickness);
+    return result;
+}
+
 // Selects the established family defaults before applying sparse optical properties.
 ReflectionMaterialSettings reflection_response(
     const scene::MaterialSource& source, const materials::Properties& properties
@@ -76,6 +92,7 @@ MaterialResponse material_response(
     }
     result.sky_tint = materials::colour_value(properties, "surface.tint", result.sky_tint);
     result.reflection = reflection_response(source, properties);
+    result.optical = advanced_optical_response(properties);
     const auto reflection = properties.lower_bound("reflection.");
     result.reflection_override =
         result.family_override || properties.contains("surface.roughness")
