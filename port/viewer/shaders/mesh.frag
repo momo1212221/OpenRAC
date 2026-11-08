@@ -604,9 +604,29 @@ vec3 probe_surface(vec4 texel, vec3 original) {
     // A clear dielectric coat reflects a small share of incoming energy before it reaches the base.
     float coat_energy = 1. - material_optical_base.z * .04;
     // Emission is independent of GI exposure, AO and shadow visibility.
-    vec3 diffuse = wet_coat(albedo * illumination * material_diffuse_scale * coat_energy + rim,
-                            surface_n, toward_camera, visibility)
-                   + fur_direct + fur_indirect + advanced;
+    vec3 base_surface = wet_coat(
+        albedo * illumination * material_diffuse_scale * coat_energy + rim,
+        surface_n,
+        toward_camera,
+        visibility
+    ) + fur_direct + fur_indirect;
+
+    float transmission = material_optical_extra.z;
+    if (probe_mode == 1 && transmission > 0. && translucent_pass == 0 && effect_pass == 0) {
+        vec3 fallback_transmission = max(indirect, vec3(0.)) / 3.14159265359;
+        vec3 transmitted = environment_transmission(
+            v_world_position,
+            surface_n,
+            toward_camera,
+            material_optical_base.x,
+            material_optical_extra.w,
+            fallback_transmission
+        );
+        float thickness_attenuation = exp(-material_optical_thickness * .08);
+        base_surface = mix(base_surface, transmitted * thickness_attenuation, transmission);
+    }
+
+    vec3 diffuse = base_surface + advanced;
     return probe_display(probe_mode == 1 ? apply_probe_look(diffuse, emitted) : diffuse);
 }
 
