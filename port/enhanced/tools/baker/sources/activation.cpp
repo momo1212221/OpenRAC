@@ -140,6 +140,17 @@ EnvironmentBakeSettings read_environment_profile(
     }
 
     for (const auto& [key, setting] : value.members()) {
+        if (key == "quality") {
+            if (!setting.is_string()
+                || (setting.string() != "standard" && setting.string() != "ultra")) {
+                throw std::runtime_error("environment quality must be standard or ultra");
+            }
+            result.quality = setting.string() == "ultra"
+                                 ? EnvironmentBakeQuality::Ultra
+                                 : EnvironmentBakeQuality::Standard;
+            continue;
+        }
+
         if (key == "enabled" || key == "merge_enabled") {
             if (setting.type() != json::Value::Type::Bool) {
                 throw std::runtime_error("environment enabled requires a boolean");
