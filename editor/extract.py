@@ -15,13 +15,12 @@ when complete. Never commit or share it: see LEGAL.md.
 """
 
 import argparse
-from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor, FIRST_COMPLETED, wait
+from concurrent.futures import Executor, ThreadPoolExecutor, as_completed
 import json
 import os
 from pathlib import Path
 import pickle
 import shutil
-import signal
 import struct
 import subprocess
 import sys
@@ -300,24 +299,22 @@ def publish(path: Path, build, anywhere: bool = False, replace: bool = False) ->
 
 def default_jobs() -> int:
     """How many levels are written at once: all but a few of the CPU's threads
-    (background.cpu_budget). macOS defaults to one level at a time: decoded geometry and
-    textures need much more memory than the disc files. OPENRAC_EXTRACT_JOBS overrides this
-    with a number, or "all" for every thread."""
+    (background.cpu_budget), so the computer stays usable, unless OPENRAC_EXTRACT_JOBS says
+    otherwise: a number, or "all" for every thread."""
     wanted = os.environ.get("OPENRAC_EXTRACT_JOBS", "").strip().lower()
     if wanted == "all":
         return os.cpu_count() or 1
     if wanted.isdigit() and int(wanted) > 0:
         return int(wanted)
-    return 1 if sys.platform == "darwin" else background.cpu_budget()
+    return background.cpu_budget()
 
 
 def worker_pool(jobs: int) -> Executor:
-    """JOBS processes for the levels. macOS and Python builds without sem_open use a fresh
-    subprocess for each level instead of a shared multiprocessing pool."""
-    # A fresh process per level releases its decoded assets and needs no shared semaphores.
-    # This also avoids macOS resource_tracker warnings when an export worker is terminated.
-    if sys.platform == "darwin":
-        return SubprocessPool(jobs)
+    """JOBS processes for the levels. Where Python has no process pools (Android's CPython has no
+    sem_open, so no multiprocessing), each level is written by a Python of its own instead
+    (SubprocessPool)."""
+    if sys.platform == "ios":
+        return ThreadPoolExecutor(1)
     try:
         return ProcessPoolExecutor(jobs)
     except (ImportError, NotImplementedError, OSError):
@@ -348,47 +345,12 @@ class SubprocessPool(Executor):
 
 
 def run_worker(name: str, args: tuple, kwargs: dict):
-    level = args[1] if len(args) > 1 else None
-    if isinstance(level, dict):
-        level = level.get("id")
-    label = f"level {level:02}" if isinstance(level, int) else name.removeprefix("export_")
-    print(f"Reading {label}…", file=sys.stderr, flush=True)
-    # stdout carries only the pickled result; diagnostics must reach the launcher immediately.
     done = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--worker"],
-                          input=pickle.dumps((name, args, kwargs)), stdout=subprocess.PIPE, check=False)
+                          input=pickle.dumps((name, args, kwargs)), capture_output=True, check=False)
+    sys.stderr.write(done.stderr.decode(errors="replace"))
     if done.returncode:
-        if done.returncode < 0:
-            reason = signal.Signals(-done.returncode).name
-            hint = "; the system may have run out of memory" if reason == "SIGKILL" else ""
-            raise RuntimeError(f"{label} was stopped by {reason}{hint}")
-        raise RuntimeError(f"{label} failed in its own process (exit status {done.returncode}); see the worker output above")
+        raise RuntimeError(f"{name} failed in its own process (exit status {done.returncode})")
     return pickle.loads(done.stdout)
-
-
-def require_export_space(out: Path) -> None:
-    """Keep room for a replacement export and macOS swap before decoding large assets."""
-    minimum = 2 * 1024**3
-    free = shutil.disk_usage(out.parent).free
-    if free < minimum:
-        raise FormatError(f"Level export needs at least 2 GiB free on the output drive; "
-                          f"only {free / 1024**3:.1f} GiB is available. Free disk space before retrying.",
-                          code="disk-full")
-
-
-def completed_exports(futures):
-    """Keep the log alive while a large level is being decoded, without inventing progress."""
-    pending = set(futures)
-    total = len(pending)
-    started = time.monotonic()
-    while pending:
-        finished, pending = wait(pending, timeout=10, return_when=FIRST_COMPLETED)
-        if not finished:
-            done = total - len(pending)
-            elapsed = int(time.monotonic() - started)
-            print(f"Reading levels: {done}/{total} complete; export still running ({elapsed}s elapsed).",
-                  flush=True)
-            progress_line.say("read", done, total)
-        yield from finished
 
 
 def worker() -> None:
@@ -448,7 +410,6 @@ def godot(iso: Path, survey: dict, levels: list[int], lod: int, jobs: int, out: 
     """Levels are independent, so they are written in parallel. SPLIT: a project per level,
     OUT/level_NN, each with only its own level to import and open. GAME: the disc's game; a later
     game's levels are read by number (wads.WadDisc.level), Ratchet & Clank's by survey."""
-    require_export_space(out)
     where = {i: out / f"level_{i:02}" if split else out for i in levels}
     if split:
         for i in progress_line.counted("project", levels, lambda i: i):
@@ -463,7 +424,7 @@ def godot(iso: Path, survey: dict, levels: list[int], lod: int, jobs: int, out: 
         else:
             running = [pool.submit(export_wad_level, iso, i, where[i], lod) for i in levels]
         try:
-            for count, done in enumerate(completed_exports(running), 1):
+            for count, done in enumerate(as_completed(running), 1):
                 stats = done.result()
                 print(f"level {stats['level']:02}: {stats['mesh_instances']} meshes placed, "
                       f"{stats['triangles']} triangles, {stats['textures']} textures", flush=True)
@@ -505,7 +466,6 @@ def levels_stamp_name(game: str = "rac1") -> str:
 def port(iso: Path, survey: dict, levels: list[int], lod: int, jobs: int, out: Path, game: str = "rac1") -> None:
     """OUT/level_NN/ per level (port.py), written in parallel like godot(). A later game's levels
     have no title world to add; Going Commando's flights are its own."""
-    require_export_space(out)
     out.mkdir(parents=True, exist_ok=True)
     with worker_pool(min(jobs, len(levels))) as pool:
         if game == "rac1":
@@ -519,7 +479,7 @@ def port(iso: Path, survey: dict, levels: list[int], lod: int, jobs: int, out: P
                             for i in range(wads.RAC2_NTSC.flight_count)]
         progress_line.say("read", 0, len(running))
         try:
-            for count, done in enumerate(completed_exports(running), 1):
+            for count, done in enumerate(as_completed(running), 1):
                 stats = done.result()
                 print(f"level {stats['level']:02}: {stats['mesh_instances']} meshes placed, "
                       f"{stats['triangles']} triangles, {stats['textures']} textures", flush=True)
