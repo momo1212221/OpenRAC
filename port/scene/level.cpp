@@ -21,6 +21,7 @@
 #include "common/profiler.h"
 #include "renderer/texture_pack.h"
 #include "scene/material_overrides.h"
+#include "scene/mesh_quality.h"
 
 namespace openrac::scene {
 
@@ -456,6 +457,14 @@ std::optional<std::uint32_t> load_model(
                 }
             }
             out.index_count = static_cast<std::uint32_t>(level.indices.size()) - out.first_index;
+            repair_missing_normals(
+                level.vertices,
+                std::span<const std::uint32_t>(
+                    level.indices.data() + out.first_index, out.index_count
+                ),
+                base_vertex,
+                static_cast<std::uint32_t>(positions->count)
+            );
             try {
                 out.material = material_index(prim, *data, base, level);
             } catch (const std::runtime_error& failure) {
