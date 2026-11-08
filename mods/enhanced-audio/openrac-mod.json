@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "id": "enhanced-audio",
+  "name": "Enhanced Audio",
+  "version": "0.1.0",
+  "author": "Moritz Wallinger",
+  "description": "OpenRAC enhanced-audio foundation with user audio-pack support and runtime capability reporting.",
+  "license": "MIT",
+  "api": "1.12",
+  "games": { "rac1": ["pal", "ntsc"] },
+  "multiplayer": "cosmetic",
+  "settings": [
+    { "key": "show_status", "name": "Show audio status", "type": "bool", "default": false,
+      "description": "Show whether the enhanced-audio foundation is active." }
+  ]
+}
