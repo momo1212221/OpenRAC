@@ -2,7 +2,7 @@
   "format": 2,
   "id": "custom-skins",
   "name": "Custom Skin Studio",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "Moritz Wallinger",
   "description": "Export and edit Ratchet's base skin, then build a normal OpenRAC texture-pack ZIP.",
   "license": "MIT",
@@ -21,5 +21,10 @@
   "multiplayer": "cosmetic",
   "tool": {
     "page": "ui/index.html"
-  }
+  },
+  "type": "script",
+  "api": "1.1",
+  "scripts": [
+    "main.luau"
+  ]
 }
