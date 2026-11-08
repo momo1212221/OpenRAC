@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Custom Skin Studio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">OpenRAC mod tool</p>
+        <h1>Custom Skin Studio</h1>
+        <p id="lead">Read Ratchet's class-0 textures from your prepared levels, edit them locally, and build an installable texture-pack ZIP.</p>
+      </div>
+      <button id="scan" class="primary">Load Ratchet skin</button>
+    </header>
+
+    <section class="meta">
+      <label>Pack name <input id="packName" value="My Ratchet skin" maxlength="120"></label>
+      <label>Author <input id="author" value="" maxlength="120"></label>
+      <label>Texture <select id="texture" disabled><option>No skin loaded</option></select></label>
+    </section>
+
+    <section class="workspace">
+      <aside>
+        <label>Paint colour <input id="color" type="color" value="#ff8a20"></label>
+        <label>Brush <input id="size" type="range" min="1" max="64" value="8"><output id="sizeOut">8 px</output></label>
+        <label>Opacity <input id="opacity" type="range" min="1" max="100" value="100"><output id="opacityOut">100%</output></label>
+        <div class="row"><button id="brush" class="active">Brush</button><button id="erase">Erase</button></div>
+        <hr>
+        <label>Tint <input id="tint" type="range" min="0" max="100" value="0"><output id="tintOut">0%</output></label>
+        <div class="row"><button id="applyTint">Apply tint</button><button id="gray">Grayscale</button></div>
+        <div class="row"><button id="undo" disabled>Undo</button><button id="reset" disabled>Reset</button></div>
+        <label class="fileButton">Replace with PNG<input id="replace" type="file" accept="image/png" hidden></label>
+        <button id="build" class="primary" disabled>Build mod ZIP</button>
+        <p class="hint">The ZIP is a normal OpenRAC data pack. Back in Mods → My mods, choose <b>File…</b> and select it.</p>
+      </aside>
+      <div class="stage">
+        <canvas id="canvas" width="640" height="480"></canvas>
+        <p id="status">Install/open this tool for a game whose levels are ready, then load Ratchet's skin.</p>
+      </div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
