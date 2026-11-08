@@ -27,6 +27,8 @@ namespace {
 constexpr unsigned kMaterialNormalUnit = 8;
 constexpr unsigned kMaterialOrmhUnit = 9;
 constexpr unsigned kMaterialEmissiveUnit = 10;
+constexpr unsigned kMaterialSpecularUnit = 11;
+constexpr unsigned kMaterialDetailUnit = 12;
 
 bool same_extent(const renderer::Rgba8Image& image, int width, int height) {
     return image.width == width && image.height == height
@@ -90,7 +92,7 @@ unsigned upload_material_texture(const renderer::Rgba8Image& image, unsigned uni
     return texture;
 }
 
-std::array<unsigned, 3> upload_sidecars(std::uint64_t hash) {
+std::array<unsigned, 5> upload_sidecars(std::uint64_t hash) {
     const auto paths = renderer::texture_pack::material_maps(hash);
     if (!paths) {
         return {};
@@ -103,6 +105,11 @@ std::array<unsigned, 3> upload_sidecars(std::uint64_t hash) {
              renderer::texture_pack::MaterialMap::Height,
              renderer::texture_pack::MaterialMap::Ao,
              renderer::texture_pack::MaterialMap::Emissive,
+             renderer::texture_pack::MaterialMap::Metallic,
+             renderer::texture_pack::MaterialMap::Specular,
+             renderer::texture_pack::MaterialMap::Cavity,
+             renderer::texture_pack::MaterialMap::Curvature,
+             renderer::texture_pack::MaterialMap::EdgeWear,
          }) {
         reference = renderer::texture_pack::load_material_map(hash, map);
         if (reference && reference->width > 0 && reference->height > 0) {
@@ -126,19 +133,41 @@ std::array<unsigned, 3> upload_sidecars(std::uint64_t hash) {
                   .value_or(material_default(width, height, {255, 255, 255, 255}));
     auto emissive = load_sidecar(hash, renderer::texture_pack::MaterialMap::Emissive, width, height)
                         .value_or(material_default(width, height, {0, 0, 0, 255}));
+    auto metallic = load_sidecar(hash, renderer::texture_pack::MaterialMap::Metallic, width, height)
+                        .value_or(material_default(width, height, {0, 0, 0, 255}));
+    const bool has_specular = !paths->specular.empty();
+    auto specular = load_sidecar(hash, renderer::texture_pack::MaterialMap::Specular, width, height)
+                        .value_or(material_default(width, height, {0, 0, 0, 0}));
+    auto cavity = load_sidecar(hash, renderer::texture_pack::MaterialMap::Cavity, width, height)
+                      .value_or(material_default(width, height, {0, 0, 0, 255}));
+    auto curvature = load_sidecar(hash, renderer::texture_pack::MaterialMap::Curvature, width, height)
+                         .value_or(material_default(width, height, {0, 0, 0, 255}));
+    auto edgewear = load_sidecar(hash, renderer::texture_pack::MaterialMap::EdgeWear, width, height)
+                        .value_or(material_default(width, height, {0, 0, 0, 255}));
 
     renderer::Rgba8Image ormh(width, height);
     for (std::size_t i = 0; i < ormh.pixels.size(); i += 4) {
         ormh.pixels[i] = ao.pixels[i];
         ormh.pixels[i + 1] = roughness.pixels[i];
-        ormh.pixels[i + 2] = height_map.pixels[i];
-        ormh.pixels[i + 3] = 255;
+        ormh.pixels[i + 2] = metallic.pixels[i];
+        ormh.pixels[i + 3] = height_map.pixels[i];
+    }
+
+    renderer::Rgba8Image detail(width, height);
+    for (std::size_t i = 0; i < detail.pixels.size(); i += 4) {
+        detail.pixels[i] = cavity.pixels[i];
+        detail.pixels[i + 1] = curvature.pixels[i];
+        detail.pixels[i + 2] = edgewear.pixels[i];
+        detail.pixels[i + 3] = 255;
+        specular.pixels[i + 3] = has_specular ? 255 : 0;
     }
 
     return {
         upload_material_texture(normal, kMaterialNormalUnit),
         upload_material_texture(ormh, kMaterialOrmhUnit),
-        upload_material_texture(emissive, kMaterialEmissiveUnit)
+        upload_material_texture(emissive, kMaterialEmissiveUnit),
+        upload_material_texture(specular, kMaterialSpecularUnit),
+        upload_material_texture(detail, kMaterialDetailUnit)
     };
 }
 
@@ -362,11 +391,13 @@ void SceneLighting::bind_material_sidecars(
     const bool enabled = found != m_material_sidecars.end();
     gl::glUniform1i(enabled_location, enabled ? 1 : 0);
 
-    const std::array<unsigned, 3> textures = enabled ? found->second : std::array<unsigned, 3>{};
+    const std::array<unsigned, 5> textures = enabled ? found->second : std::array<unsigned, 5>{};
     for (const auto [unit, uniform, texture] : {
              std::tuple{kMaterialNormalUnit, "material_sidecar_normal_tex", textures[0]},
              std::tuple{kMaterialOrmhUnit, "material_sidecar_ormh_tex", textures[1]},
              std::tuple{kMaterialEmissiveUnit, "material_sidecar_emissive_tex", textures[2]},
+             std::tuple{kMaterialSpecularUnit, "material_sidecar_specular_tex", textures[3]},
+             std::tuple{kMaterialDetailUnit, "material_sidecar_detail_tex", textures[4]},
          }) {
         gl::glUniform1i(shader.uniform(uniform), int(unit));
         gl::glActiveTexture(gl::GL_TEXTURE0 + unit);
@@ -471,7 +502,7 @@ void SceneLighting::load_material_sidecars(const scene::LevelData& level) {
         }
 
         const auto textures = upload_sidecars(hash);
-        if (textures[0] || textures[1] || textures[2]) {
+        if (textures[0] || textures[1] || textures[2] || textures[3] || textures[4]) {
             m_material_sidecars.emplace(hash, textures);
         }
     }
