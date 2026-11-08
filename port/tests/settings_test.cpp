@@ -247,6 +247,11 @@ void test_volumetric_quality(const std::filesystem::path& file) {
 void test_shadow_quality(const std::filesystem::path& file) {
     using namespace openrac;
     CHECK(settings::Settings{}.shadow_quality == renderer::ShadowQuality::High);
+    CHECK(renderer::sun_shadow_resolution(2048, renderer::ShadowQuality::Low) == 512);
+    CHECK(renderer::sun_shadow_resolution(2048, renderer::ShadowQuality::Medium) == 1024);
+    CHECK(renderer::sun_shadow_resolution(2048, renderer::ShadowQuality::High) == 2048);
+    CHECK(renderer::sun_shadow_resolution(2048, renderer::ShadowQuality::Ultra) == 4096);
+    CHECK(renderer::hero_shadow_resolution(renderer::ShadowQuality::Ultra) == 1024);
 
     for (std::size_t n = 0; n < std::size(renderer::kShadowQualityKeys); ++n) {
         std::ofstream(file) << "shadow_quality = " << renderer::kShadowQualityKeys[n] << "\n";
