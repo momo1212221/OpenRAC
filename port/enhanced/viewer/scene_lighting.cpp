@@ -8,8 +8,8 @@
 
 #include <algorithm>
 #include <bit>
-#include <cstring>
 #include <cmath>
+#include <cstring>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -66,7 +66,13 @@ std::optional<renderer::Rgba8Image> load_sidecar(
     return image;
 }
 
-enum class MaterialMipKind { Normal, Ormh, Emissive, Specular, Detail };
+enum class MaterialMipKind {
+    Normal,
+    Ormh,
+    Emissive,
+    Specular,
+    Detail
+};
 
 std::uint8_t byte(float value) {
     return static_cast<std::uint8_t>(std::clamp(std::lround(value), 0l, 255l));
@@ -233,8 +239,9 @@ std::array<unsigned, 5> upload_sidecars(std::uint64_t hash) {
                         .value_or(material_default(width, height, {0, 0, 0, 0}));
     auto cavity = load_sidecar(hash, renderer::texture_pack::MaterialMap::Cavity, width, height)
                       .value_or(material_default(width, height, {0, 0, 0, 255}));
-    auto curvature = load_sidecar(hash, renderer::texture_pack::MaterialMap::Curvature, width, height)
-                         .value_or(material_default(width, height, {0, 0, 0, 255}));
+    auto curvature =
+        load_sidecar(hash, renderer::texture_pack::MaterialMap::Curvature, width, height)
+            .value_or(material_default(width, height, {0, 0, 0, 255}));
     auto edgewear = load_sidecar(hash, renderer::texture_pack::MaterialMap::EdgeWear, width, height)
                         .value_or(material_default(width, height, {0, 0, 0, 255}));
 
