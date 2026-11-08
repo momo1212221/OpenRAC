@@ -1,0 +1,3 @@
+--!strict
+-- Compatibility shim for OpenRAC 1.0.2 local/remote installation.
+-- Custom Skin Studio has no gameplay hooks; all functionality lives in its tool page.
