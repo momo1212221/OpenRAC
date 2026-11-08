@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (c) 2026 the OpenRAC contributors
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -20,9 +21,9 @@ Vertex vertex(float x, float y, float z) {
 
 void repairs_missing_normals() {
     std::vector<Vertex> vertices{
-        vertex(0,0,0), vertex(1,0,0), vertex(1,1,0), vertex(0,1,0)
+        vertex(0, 0, 0), vertex(1, 0, 0), vertex(1, 1, 0), vertex(0, 1, 0)
     };
-    const std::vector<std::uint32_t> indices{0,1,2, 0,2,3};
+    const std::vector<std::uint32_t> indices{0, 1, 2, 0, 2, 3};
     openrac::scene::repair_missing_normals(vertices, indices, 0, 4);
     for (const auto& v : vertices) {
         CHECK(std::fabs(v.normal[0]) < 1e-5f);
@@ -32,11 +33,9 @@ void repairs_missing_normals() {
 }
 
 void preserves_authored_normals() {
-    std::vector<Vertex> vertices{
-        vertex(0,0,0), vertex(1,0,0), vertex(0,1,0)
-    };
+    std::vector<Vertex> vertices{vertex(0, 0, 0), vertex(1, 0, 0), vertex(0, 1, 0)};
     vertices[0].normal[0] = 1;
-    const std::vector<std::uint32_t> indices{0,1,2};
+    const std::vector<std::uint32_t> indices{0, 1, 2};
     openrac::scene::repair_missing_normals(vertices, indices, 0, 3);
     CHECK(vertices[0].normal[0] == 1);
     CHECK(vertices[0].normal[1] == 0);
@@ -46,14 +45,14 @@ void preserves_authored_normals() {
 }
 
 void ignores_degenerate_faces() {
-    std::vector<Vertex> vertices{vertex(0,0,0), vertex(0,0,0), vertex(0,0,0)};
+    std::vector<Vertex> vertices{vertex(0, 0, 0), vertex(0,0,0), vertex(0,0,0)};
     const std::vector<std::uint32_t> indices{0,1,2};
     openrac::scene::repair_missing_normals(vertices, indices, 0, 3);
     for (const auto& v : vertices) {
         CHECK(v.normal[2] == 1);
     }
 }
-}
+}  // namespace
 
 int main() {
     repairs_missing_normals();
