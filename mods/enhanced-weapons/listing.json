@@ -1,0 +1,13 @@
+{
+  "id": "enhanced-weapons",
+  "description": "Cosmetic weapon feedback with configurable hit markers and heat distortion around player projectiles.",
+  "tags": [
+    "cosmetic",
+    "qol"
+  ],
+  "impact": [
+    "cosmetic",
+    "speedrun-safe"
+  ],
+  "aiAssisted": true
+}
