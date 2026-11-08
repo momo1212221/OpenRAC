@@ -105,6 +105,7 @@ std::string file_name(std::uint64_t hash);
 // Optional material maps authored for one original texture hash. They are indexed independently
 // from the colour replacement so old texture packs remain fully compatible.
 struct MaterialMaps {
+    std::filesystem::path albedo;
     std::filesystem::path normal;
     std::filesystem::path roughness;
     std::filesystem::path height;
@@ -117,7 +118,7 @@ struct MaterialMaps {
     std::filesystem::path edgewear;
 
     bool empty() const {
-        return normal.empty() && roughness.empty() && height.empty() && ao.empty()
+        return albedo.empty() && normal.empty() && roughness.empty() && height.empty() && ao.empty()
                && emissive.empty() && specular.empty() && metallic.empty() && cavity.empty()
                && curvature.empty() && edgewear.empty();
     }
@@ -127,6 +128,7 @@ struct MaterialMaps {
 std::optional<MaterialMaps> material_maps(std::uint64_t hash);
 
 enum class MaterialMap : std::uint8_t {
+    Albedo,
     Normal,
     Roughness,
     Height,
