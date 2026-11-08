@@ -695,9 +695,52 @@ vec3 probe_surface(vec4 texel, vec3 original) {
     // A clear dielectric coat reflects a small share before light reaches the base layer.
     float coat_energy = 1. - material_optical_base.z * .04;
     // Emission is independent of GI exposure, AO and shadow visibility.
-    vec3 diffuse = wet_coat(diffuse_albedo * illumination * material_diffuse_scale * coat_energy + rim,
-                            surface_n, toward_camera, visibility)
-                   + fur_direct + fur_indirect + sidecar_specular + advanced;
+    vec3 base_surface = wet_coat(
+        diffuse_albedo * illumination * material_diffuse_scale * coat_energy + rim,
+        surface_n,
+        toward_camera,
+        visibility
+    ) + fur_direct + fur_indirect + sidecar_specular;
+
+    float transmission = material_optical_extra.z;
+    if (probe_mode == 1 && transmission > 0. && translucent_pass == 0 && effect_pass == 0) {
+        float ior = clamp(material_optical_extra.w, 1., 2.5);
+        float ior_f0 = (ior - 1.) / (ior + 1.);
+        ior_f0 *= ior_f0;
+        float transmission_roughness = clamp(
+            mix(material_optical_base.x, material_sidecar_roughness(material_optical_base.x, sidecar_uv), .5),
+            .04,
+            1.
+        );
+        vec3 fallback_transmission = max(indirect, vec3(0.)) / 3.14159265359;
+        vec3 refracted = environment_transmission(
+            v_world_position,
+            surface_n,
+            toward_camera,
+            transmission_roughness,
+            ior,
+            fallback_transmission
+        );
+        vec3 reflected = environment_specular(
+            v_world_position,
+            surface_n,
+            toward_camera,
+            transmission_roughness,
+            ior_f0,
+            gi_specular_fallback(
+                indirect * probe_gi_multiplier, dot(surface_n, toward_camera), ior_f0
+            )
+        );
+        // Thickness uses a restrained Beer-Lambert approximation. De-lit albedo supplies the
+        // absorption tint but cannot erase transmission completely on saturated legacy textures.
+        float thickness = max(material_optical_thickness, 0.);
+        vec3 absorption = mix(vec3(.08), 1. - clamp(albedo, vec3(.0), vec3(1.)), .55);
+        vec3 transmittance = exp(-absorption * thickness * .12);
+        vec3 transmissive_surface = refracted * transmittance + reflected;
+        base_surface = mix(base_surface, transmissive_surface, clamp(transmission, 0., 1.));
+    }
+
+    vec3 diffuse = base_surface + advanced;
     return probe_display(probe_mode == 1 ? apply_probe_look(diffuse, emitted) : diffuse);
 }
 
