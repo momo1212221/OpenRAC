@@ -119,6 +119,11 @@ struct MaterialMaps {
 // The material sidecars under Materials/<hash>/, when a pack provides any.
 std::optional<MaterialMaps> material_maps(std::uint64_t hash);
 
+enum class MaterialMap : std::uint8_t { Normal, Roughness, Height, Ao, Emissive };
+
+// Decodes one material sidecar through the same configured PNG loader as colour replacements.
+std::optional<Rgba8Image> load_material_map(std::uint64_t hash, MaterialMap map);
+
 // What replace() found for a texture.
 struct Replacement {
     std::uint64_t hash = 0;                      // the original's hash; 0 with no pack and no dump

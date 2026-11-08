@@ -90,6 +90,9 @@ struct Material {
     float emission_contrast = 1;  // Luminance power curve around linear middle grey (0.18).
     float diffuse_scale = 1;
     std::string name;  // Authored material identity, including distinct chrome and glass maps.
+    // Original game texture hash before a texture-pack replacement. Zero when the surface has no
+    // image or the image did not pass through texture_pack::replace().
+    std::uint64_t texture_pack_hash = 0;
 };
 
 struct Primitive {
@@ -226,6 +229,8 @@ struct LevelData {
     std::vector<renderer::Rgba8Image> images;
     // Parallel to images (or shorter): a texture pack's animated replacement of each, or null.
     std::vector<std::shared_ptr<const renderer::texture_pack::Animation>> image_animations;
+    // Parallel to images: the original hash used by a texture pack, even after the pixels were replaced.
+    std::vector<std::uint64_t> image_pack_hashes;
     std::vector<std::string> image_paths;
     // Parallel to images: whether some texel is below full alpha (under the chip's 0x80), which
     // the GS blends however the export's alpha mode reads (material_index).

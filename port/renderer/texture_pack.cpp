@@ -758,6 +758,38 @@ std::optional<MaterialMaps> material_maps(std::uint64_t hash) {
     return found == s.materials.end() ? std::nullopt : std::optional<MaterialMaps>(found->second);
 }
 
+std::optional<Rgba8Image> load_material_map(std::uint64_t hash, MaterialMap map) {
+    fs::path path;
+    Io io;
+    {
+        State& s = state();
+        const std::lock_guard guard(s.lock);
+        const auto found = s.materials.find(hash);
+        if (found == s.materials.end()) {
+            return std::nullopt;
+        }
+        switch (map) {
+            case MaterialMap::Normal:
+                path = found->second.normal;
+                break;
+            case MaterialMap::Roughness:
+                path = found->second.roughness;
+                break;
+            case MaterialMap::Height:
+                path = found->second.height;
+                break;
+            case MaterialMap::Ao:
+                path = found->second.ao;
+                break;
+            case MaterialMap::Emissive:
+                path = found->second.emissive;
+                break;
+        }
+        io = s.io;
+    }
+    return !path.empty() && io.load != nullptr ? io.load(path) : std::nullopt;
+}
+
 unsigned replaced_count() {
     State& s = state();
     const std::lock_guard guard(s.lock);
