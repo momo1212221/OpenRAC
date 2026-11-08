@@ -1,0 +1,14 @@
+{
+  "id": "enhanced-audio",
+  "description": "Optional combat and health audio cues: hit confirmation, damage feedback, dry-fire and a low-health heartbeat.",
+  "tags": [
+    "audio",
+    "accessibility",
+    "cosmetic"
+  ],
+  "impact": [
+    "cosmetic",
+    "speedrun-safe"
+  ],
+  "aiAssisted": true
+}
