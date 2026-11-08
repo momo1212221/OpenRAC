@@ -66,6 +66,7 @@ uniform sampler2D material_sidecar_ormh_tex;
 uniform sampler2D material_sidecar_emissive_tex;
 uniform sampler2D material_sidecar_specular_tex;
 uniform sampler2D material_sidecar_detail_tex;
+uniform sampler2D material_sidecar_albedo_tex;
 #endif
 
 #ifdef OPENRAC_HERO_WETNESS
@@ -103,6 +104,11 @@ vec3 emission_texel(bool authored_tint) {
     return result;
 }
 
+vec3 material_sidecar_albedo(vec3 fallback) {
+    if (material_sidecars_enabled == 0) return fallback;
+    vec4 albedo_sample = texture(material_sidecar_albedo_tex, fract(v_uv));
+    return albedo_sample.a > .5 ? albedo_sample.rgb : fallback;
+}
 vec4 material_sidecar_normal_sample() {
     return material_sidecars_enabled != 0
         ? texture(material_sidecar_normal_tex, fract(v_uv))
@@ -368,11 +374,12 @@ vec3 probe_surface(vec4 texel, vec3 original) {
     if (hero_shadow_receiver == 0) {
         hero_cue = 1.0 - 0.45 * hero_shadow_air_blend * (1.0 - sun_visibility) * (1.0 - hero_visibility);
     }
-    vec3 albedo = probe_linear(texel.rgb) * material_colour.rgb * v_probe_multiplier.rgb;
+    vec3 albedo_texel = material_sidecar_albedo(texel.rgb);
+    vec3 albedo = probe_linear(albedo_texel) * material_colour.rgb * v_probe_multiplier.rgb;
     if (probe_terrain_albedo > 0.0) {
         // Preserve the GS modulation as an artistic material tint, then decode once.
         vec3 tint = mix(vec3(1.0), v_colour.rgb, probe_terrain_albedo);
-        albedo = probe_linear(clamp(texel.rgb * tint * material_colour.rgb, 0.0, 1.0));
+        albedo = probe_linear(clamp(albedo_texel * tint * material_colour.rgb, 0.0, 1.0));
     }
     vec3 emitted = surface_emission(texel);
     vec3 fur_direct = vec3(0.);
