@@ -75,6 +75,28 @@ void test_optical_override_isolation(const std::filesystem::path& directory) {
     CHECK(runtime.response(1, 0)->fur.strength == enhanced::FurMaterialSettings{}.strength);
 }
 
+
+// Advanced optical values compile into an isolated typed response and never leak across bindings.
+void test_advanced_optical_response(const std::filesystem::path& directory) {
+    enhanced::MaterialRuntime runtime;
+    CHECK(runtime.load(level(directory)));
+    CHECK(runtime.patch(0, "surface.clearcoat", .8));
+    CHECK(runtime.patch(0, "surface.clearcoat_roughness", .12));
+    CHECK(runtime.patch(0, "surface.anisotropy", -.5));
+    CHECK(runtime.patch(0, "surface.anisotropy_rotation", .25));
+    CHECK(runtime.patch(0, "surface.transmission", .4));
+    CHECK(runtime.patch(0, "surface.ior", 1.45));
+    CHECK(runtime.patch(0, "surface.thickness", 2.0));
+    const auto& first = runtime.response(0, 0)->optical;
+    CHECK(first.clearcoat == .8f && first.clearcoat_roughness == .12f);
+    CHECK(first.anisotropy == -.5f && first.anisotropy_rotation == .25f);
+    CHECK(first.transmission == .4f && first.ior == 1.45f && first.thickness == 2.f);
+    const auto& second = runtime.response(1, 0)->optical;
+    CHECK(second.clearcoat == 0 && second.anisotropy == 0 && second.transmission == 0);
+    CHECK(second.ior == 1.5f && second.thickness == 0);
+    CHECK(!runtime.editor()->transport_dirty);
+}
+
 // Saved JSON roundtrips exactly and never contains the loaded shared catalog or unrelated original defaults.
 void test_sparse_atomic_save(const std::filesystem::path& directory) {
     enhanced::MaterialRuntime runtime;
@@ -210,6 +232,7 @@ int main() {
         test_preview_and_save_share_author_priority(directory);
         test_transactional_preview(directory);
         test_optical_override_isolation(directory);
+        test_advanced_optical_response(directory);
         test_sparse_atomic_save(directory);
         test_export_identity();
         test_family_defaults();
