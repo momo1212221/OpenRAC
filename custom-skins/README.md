@@ -1,39 +1,35 @@
 # Custom Skin Studio
 
-A visual OpenRAC tool mod for creating Ratchet texture skins.
+An integrated OpenRAC Ratchet skin editor.
 
-## Install
+Version 0.2.0 changes the tool from a RAC1/RAC2-only ZIP editor into an OpenRAC asset workflow:
 
-Download the current release ZIP and add it with **Mods -> My mods -> File...**.
+- UI follows the compact Enhanced graphics settings style.
+- Shows every game in the OpenRAC catalogue: RAC1, Going Commando, Up Your Arsenal, Deadlocked, Size Matters and Secret Agent Clank.
+- Uses Ratchet's base class 0 and, with All looks, the exported hero/armour look classes 6000+.
+- Builds a normal OpenRAC format-1 overrides pack. The pack is what the native port loads, so edited textures replace Ratchet in game.
+- With the Skin Studio host extension, the page can read prepared assets from another selected game and Apply to game installs the generated pack immediately.
+- On an unmodified official launcher the current game's editor still works; Export ZIP remains the compatible fallback.
 
-For version 0.1.2:
+## Supported prepared assets
 
-`custom-skins-0.1.2.zip`
+OpenRAC currently exposes editor-ready port levels for Ratchet & Clank, Going Commando, Up Your Arsenal and Deadlocked. Size Matters and Secret Agent Clank are listed in the selector, but OpenRAC does not yet provide the same prepared editor-level pipeline for them. The Studio reports this instead of producing a fake pack.
 
-The repository-link installer can also use:
+## Use
 
-`https://github.com/momo1212221/OpenRAC/tree/feat/custom-skins`
+1. Install custom-skins-0.2.0.zip.
+2. Open Mods -> Custom Skin Studio -> Open.
+3. Pick the game and disc/version.
+4. Choose Base only or All looks.
+5. Press Load skin.
+6. Paint, tint, grayscale or replace a texture PNG.
+7. Press Apply to game when the launcher has the host extension, or Export ZIP otherwise.
+8. A standard OpenRAC overrides pack replaces the edited Ratchet textures when that game starts with mods enabled.
 
-when GitHub API access is available.
+Nothing modifies the disc image or original prepared levels.
 
-## Edit a skin
+## Cross-game and one-click apply
 
-1. Install **Custom Skin Studio**.
-2. In **My mods**, open the tool with its **Open** button.
-3. Click **Load Ratchet skin**.
-4. The left panel lists every unique texture used by Ratchet's base class (Moby 0).
-5. Select a texture and edit it in the center canvas.
-6. Use the right panel for brush, eraser, colour, opacity, tint, grayscale or replacing the texture with a PNG.
-7. Use **Undo / Redo**, **Zoom / Fit**, or **Save current PNG** as needed.
-8. Modified textures are marked in the texture list.
-9. Set a skin name and author.
-10. Click **Build mod ZIP**.
-11. Add the generated ZIP with **Mods -> My mods -> File...**.
+The stock protocol-1 Mod Tool API deliberately scopes a page to the game that opened it. The companion launcher branch adds two narrow capabilities: read prepared levels for a selected OpenRAC game/version, and install bytes produced by the tool as a validated standard overrides pack. No arbitrary filesystem access or shell execution is given to the mod page.
 
-## Source export
-
-**Export source** creates a ZIP containing Ratchet's source GLBs and PNGs from the user's own prepared game data. Those original game assets are not intended for redistribution.
-
-## Scope
-
-The current UI edits Ratchet's base class (Moby class 0). Armour/look variants and Clank presets can be added separately.
+MIT. Original game assets remain the user's own data and are not included in this repository or release.

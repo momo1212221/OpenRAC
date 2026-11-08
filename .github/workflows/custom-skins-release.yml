@@ -6,7 +6,6 @@ on:
       - feat/custom-skins
     paths:
       - custom-skins/**
-      - openrac-mods.json
       - .github/workflows/custom-skins-release.yml
 
 permissions:
@@ -16,10 +15,19 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Validate browser code
+        run: |
+          node --check custom-skins/ui/app.js
+          node --check custom-skins/ui/bridge.js
+          node --check custom-skins/ui/pack.js
 
       - name: Validate and package the tool mod
         id: package
@@ -35,6 +43,8 @@ jobs:
           assert manifest["api"] == "1.1"
           assert manifest["scripts"] == ["main.luau"]
           assert manifest["tool"]["page"] == "ui/index.html"
+          for game in ("rac1", "rac2", "rac3", "rac4", "rac5", "rac6"):
+              assert game in manifest["games"]
           assert (root / "main.luau").is_file()
           assert (root / manifest["tool"]["page"]).is_file()
 
@@ -66,7 +76,4 @@ jobs:
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release delete "$tag" --yes --cleanup-tag
           fi
-          gh release create "$tag" "dist/custom-skins-$VERSION.zip" dist/SHA256SUMS \
-            --target "$GITHUB_SHA" \
-            --title "Custom Skin Studio $VERSION" \
-            --notes "OpenRAC 1.0.2-compatible Script+Tool packaging. The compatibility script is a no-op; all skin editing/export functionality runs in the sandboxed tool page. Install the ZIP with Mods -> My mods -> File... or use the feat/custom-skins branch URL when GitHub API access works."
+          gh release create "$tag" "dist/custom-skins-$VERSION.zip" dist/SHA256SUMS             --target "$GITHUB_SHA"             --title "Custom Skin Studio $VERSION"             --notes "Enhanced-graphics-style Skin Studio. Selects OpenRAC games/versions, edits Ratchet class 0 plus exported hero-look variants, and builds standard in-game replacement packs. Direct Apply requires the companion Skin Studio host extension; Export ZIP works on the stock Mod Tool API."
