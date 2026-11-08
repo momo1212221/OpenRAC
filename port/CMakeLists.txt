@@ -373,6 +373,7 @@ endif()
 target_link_libraries(openrac_lighting PRIVATE openrac_common)
 openrac_warnings(openrac_lighting)
 openrac_add_test(environment SOURCES enhanced/tests/environment_test.cpp LIBS openrac_lighting)
+openrac_add_test(gi_quality SOURCES enhanced/tests/gi_quality_test.cpp INCLUDES .)
 foreach(name IN ITEMS probes probe_atlas probe_regions probe_decode)
   openrac_add_test(lighting_${name} SOURCES enhanced/tests/lighting/${name}.cpp
                                     LIBS openrac_lighting)

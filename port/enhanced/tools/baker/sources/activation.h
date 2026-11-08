@@ -37,9 +37,15 @@ enum class BakeStrategy {
     Scene      // One coarse GI volume over complete render-scene bounds.
 };
 
+enum class GiBakeQuality : std::uint8_t {
+    Standard,
+    Ultra,
+};
+
 // Per-level transport and placement configuration, shared with runtime activation.
 struct LevelBakeProfile {
     BakeStrategy strategy = BakeStrategy::Gameplay;  // Gameplay analysis is the normal level path.
+    GiBakeQuality gi_quality = GiBakeQuality::Standard;
     EnvironmentBakeSettings environment;
     ProbeActivation activation;
     std::vector<ProbeLookRegion> look_regions;
@@ -48,6 +54,22 @@ struct LevelBakeProfile {
     Float3 dense_spacing{4, 4, 4};
     unsigned map_resolution = 6;
 };
+
+inline LevelBakeProfile resolve_gi_bake_quality(LevelBakeProfile profile) {
+    if (profile.gi_quality == GiBakeQuality::Ultra) {
+        // Offline-only final-quality floor. Higher authored values remain authoritative.
+        if (profile.activation.bake.rays_per_probe < 1024) {
+            profile.activation.bake.rays_per_probe = 1024;
+        }
+        if (profile.activation.bake.bounces < 3) {
+            profile.activation.bake.bounces = 3;
+        }
+        if (profile.map_resolution < 8) {
+            profile.map_resolution = 8;
+        }
+    }
+    return profile;
+}
 
 LevelBakeProfile load_level_bake_profile(
     const std::filesystem::path& directory, const std::filesystem::path& overrides = {}
