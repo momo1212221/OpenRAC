@@ -2,7 +2,7 @@
 #include "openrac/games/rac1.h"
 
 #include <algorithm>
-#include <cstdint>
+#include <cstdint>\n#include <string>
 
 namespace {
 const openrac_api* g_api = nullptr;
