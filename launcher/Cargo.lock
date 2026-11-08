@@ -2612,10 +2612,9 @@ dependencies = [
 
 [[package]]
 name = "openrac-launcher"
-version = "1.0.5"
+version = "1.0.2"
 dependencies = [
  "openrac-launcher-core",
- "png 0.18.1",
  "serde",
  "serde_json",
  "tauri",
@@ -2630,13 +2629,12 @@ dependencies = [
 
 [[package]]
 name = "openrac-launcher-core"
-version = "1.0.5"
+version = "1.0.2"
 dependencies = [
  "base64 0.22.1",
  "chd",
  "flate2",
  "minisign-verify",
- "png 0.18.1",
  "proptest",
  "serde",
  "serde_json",
