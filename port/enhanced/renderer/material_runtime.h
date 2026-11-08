@@ -14,10 +14,23 @@
 #include "scene/material_overrides.h"
 
 namespace openrac::enhanced {
+// Runtime-only optical controls beyond the established single-lobe reflection family.
+// Defaults are deliberately neutral so existing materials take the exact old path.
+struct AdvancedOpticalMaterialSettings {
+    float clearcoat = 0;
+    float clearcoat_roughness = .2f;
+    float anisotropy = 0;
+    float anisotropy_rotation = 0;
+    float transmission = 0;
+    float ior = 1.5f;
+    float thickness = 0;
+};
+
 // Typed responses compiled at load/edit, never interpreted from JSON during drawing.
 struct MaterialResponse {
     std::array<float, 3> sky_tint{1, 1, 1};  // RGB multiplier for the separate sky pass.
     ReflectionMaterialSettings reflection;   // Original reflection family with supplied overrides.
+    AdvancedOpticalMaterialSettings optical;  // Optional clearcoat/anisotropy/transmission response.
     FurMaterialSettings fur;                 // Applied only to verified coverage by HeroFur.
     WetnessMaterialSettings wetness;         // Applied only to HeroWetness's verified vertices.
     int fallback_channels = 0;               // Bit 0 diffuse scale, bit 1 authored emission.
