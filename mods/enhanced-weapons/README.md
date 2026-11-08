@@ -39,6 +39,21 @@ Supported progression weapons:
 
 Swingshot, Taunter and Hydrodisplacer remain utility items and do not level.
 
+## Enhanced RAC Style UI
+
+The in-game weapon progression now uses the native OpenRAC 1.14 overlay renderer instead of plain debug-style HUD text:
+
+- dark Ratchet & Clank-inspired tech card
+- warm gold/orange accents
+- weapon name and dedicated V1-V5/OMEGA badge
+- segmented six-stage progression strip
+- animated XP progress bar
+- centred weapon-upgrade banner
+- stylised four-piece hit marker with shadow and gold core
+- OMEGA receives a brighter gold treatment
+
+All elements are drawn in the game's 512x448 picture coordinate space, so the layout scales consistently with the game across supported platforms.
+
 ## Other features
 
 - Hit marker for player weapon/wrench hits.
@@ -57,7 +72,7 @@ Because tier damage upgrades can change combat, the mod is classified as **gamep
 
 - Ratchet & Clank PAL
 - Ratchet & Clank NTSC-U
-- OpenRAC mod interface 1.12 or newer
+- OpenRAC mod interface 1.14 or newer
 - Windows x86_64
 - Linux x86_64/aarch64
 - macOS arm64/x86_64
@@ -71,5 +86,7 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ctest --test-dir build --output-on-failure --no-tests=ignore
 ```
+
+Current version: **0.3.0**.
 
 Author: **Moritz Wallinger**.
