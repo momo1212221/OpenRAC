@@ -412,7 +412,8 @@ void bake_level_environment(
     const auto& settings = input.settings;
     const profiling::Zone timing("Prepare and bake reflections");
 
-    const auto config = load_level_bake_profile(level).environment;
+    const auto authored_config = load_level_bake_profile(level).environment;
+    const auto config = resolve_environment_bake_settings(authored_config);
 
     if (!config.enabled) {
         return;
@@ -433,7 +434,11 @@ void bake_level_environment(
         validate_probe_pair(volumes[0], volumes[index]);
     }
 
-    log << "Baking environment probes after GI\n" << std::flush;
+    log << "Baking environment probes after GI · "
+        << (authored_config.quality == EnvironmentBakeQuality::Ultra ? "Ultra" : "Standard")
+        << " · " << config.resolution << "px · " << config.filter_samples
+        << " filter samples\n"
+        << std::flush;
     EnvironmentPlacementReport placement;
     EnvironmentAsset asset;
 
@@ -484,6 +489,9 @@ void bake_level_environment(
     placement_report(output, placement);
     std::ofstream report(output / "environment-report.json");
     report << "{\n  \"version\": 1,\n  \"resolution\": " << asset.resolution
+           << ",\n  \"quality\": \""
+           << (authored_config.quality == EnvironmentBakeQuality::Ultra ? "ultra" : "standard")
+           << "\",\n  \"filter_samples\": " << config.filter_samples
            << ",\n  \"bytes\": " << bytes.size() << ",\n  \"probes\": [\n";
 
     for (std::size_t i = 0; i < asset.probes.size(); ++i) {
