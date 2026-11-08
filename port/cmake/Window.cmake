@@ -65,6 +65,7 @@ add_library(openrac_platform STATIC
   platform/players.cpp
   platform/performance_hint.cpp
   platform/pump.cpp
+  platform/ray_tracing.cpp
   platform/rumble.cpp
   platform/show_folder.cpp
   platform/touch_actions.cpp
@@ -84,6 +85,8 @@ openrac_add_test(controls SOURCES tests/controls_test.cpp game/common/controls_s
                           INCLUDES . game/common LIBS openrac_platform)
 # Which gamepad plays on which port (platform/input.h).
 openrac_add_test(input_ports SOURCES tests/input_ports_test.cpp INCLUDES . LIBS openrac_platform)
+# Ray-tracing capability selection and a real acceleration-structure build where supported.
+openrac_add_test(ray_tracing SOURCES tests/ray_tracing_test.cpp INCLUDES . LIBS openrac_platform)
 # The game's motor commands as a gamepad plays them (platform/rumble.h).
 openrac_add_test(rumble SOURCES tests/rumble_test.cpp INCLUDES . LIBS openrac_platform)
 # Start+Select opens the menu, which the game never sees (platform/menu_chord.h).
@@ -216,8 +219,8 @@ if(OPENRAC_VULKAN)
 endif()
 # macOS: the menu bar's name and menus (platform/macos_app.mm).
 if(APPLE AND NOT OPENRAC_IOS)
-  target_sources(openrac_platform PRIVATE platform/macos_app.mm)
-  target_link_libraries(openrac_platform PRIVATE "-framework Cocoa")
+  target_sources(openrac_platform PRIVATE platform/macos_app.mm platform/macos_ray_tracing.mm)
+  target_link_libraries(openrac_platform PRIVATE "-framework Cocoa" "-framework Metal")
 endif()
 
 # ---- renderer ----
@@ -466,6 +469,7 @@ add_library(openrac_enhanced_viewer STATIC
   enhanced/viewer/environment_overlay.cpp
   enhanced/viewer/environment_selection.cpp
   enhanced/renderer/reflection_material.cpp
+  enhanced/renderer/ray_traced_sun.cpp
   enhanced/viewer/probe_selection.cpp
   enhanced/viewer/probe_selection_graph.cpp
   enhanced/viewer/probe_sphere_culling.cpp
@@ -527,6 +531,14 @@ openrac_embed_shaders(openrac_enhanced_viewer enhanced_viewer openrac::lighting
   "${CMAKE_CURRENT_SOURCE_DIR}/enhanced/viewer/shaders/probe_spheres.frag"
 )
 target_link_libraries(openrac_enhanced_viewer PUBLIC openrac_scene_renderer openrac_probe_scene)
+# Static-sun queries call the platform capability service; retain it after this archive on GNU ld.
+target_link_libraries(openrac_enhanced_viewer PRIVATE openrac_platform)
+openrac_add_test(ray_traced_sun SOURCES tests/ray_traced_sun_test.cpp INCLUDES . LIBS openrac_enhanced_viewer openrac_platform)
+set_tests_properties(ray_traced_sun PROPERTIES SKIP_RETURN_CODE 77)
+if(APPLE)
+  target_sources(openrac_enhanced_viewer PRIVATE enhanced/renderer/ray_traced_sun.mm)
+  target_link_libraries(openrac_enhanced_viewer PRIVATE "-framework Metal")
+endif()
 # Authored UV regions contain no retail texture pixels; the maps are generated at level load.
 # One profile a game: Ratchet & Clank's and Going Commando's bodies.
 set(fur_profile "${CMAKE_CURRENT_SOURCE_DIR}/enhanced/lighting/profiles/rac1/fur.json")
