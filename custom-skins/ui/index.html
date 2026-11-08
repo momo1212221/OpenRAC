@@ -7,41 +7,151 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main>
-    <header>
+  <main class="app">
+    <header class="topbar">
       <div>
-        <p class="eyebrow">OpenRAC mod tool</p>
+        <p class="eyebrow">OpenRAC · Skin editor</p>
         <h1>Custom Skin Studio</h1>
-        <p id="lead">Read Ratchet's class-0 textures from your prepared levels, edit them locally, and build an installable texture-pack ZIP.</p>
+        <p class="subtitle">Edit Ratchet directly from your prepared OpenRAC levels. No manual texture hunting.</p>
       </div>
-      <button id="scan" class="primary">Load Ratchet skin</button>
+      <div class="top-actions">
+        <button id="scan" class="primary">Load Ratchet skin</button>
+        <button id="exportSource" disabled>Export source</button>
+        <button id="build" class="primary" disabled>Build mod ZIP</button>
+      </div>
     </header>
 
-    <section class="meta">
-      <label>Pack name <input id="packName" value="My Ratchet skin" maxlength="120"></label>
-      <label>Author <input id="author" value="" maxlength="120"></label>
-      <label>Texture <select id="texture" disabled><option>No skin loaded</option></select></label>
+    <section class="projectbar">
+      <label>
+        <span>Skin name</span>
+        <input id="packName" value="My Ratchet skin" maxlength="120">
+      </label>
+      <label>
+        <span>Author</span>
+        <input id="author" value="" maxlength="120" placeholder="Your name">
+      </label>
+      <div class="project-state">
+        <span id="gameBadge" class="badge">No game loaded</span>
+        <span id="modifiedCount" class="badge subtle">0 modified</span>
+      </div>
     </section>
 
-    <section class="workspace">
-      <aside>
-        <label>Paint colour <input id="color" type="color" value="#ff8a20"></label>
-        <label>Brush <input id="size" type="range" min="1" max="64" value="8"><output id="sizeOut">8 px</output></label>
-        <label>Opacity <input id="opacity" type="range" min="1" max="100" value="100"><output id="opacityOut">100%</output></label>
-        <div class="row"><button id="brush" class="active">Brush</button><button id="erase">Erase</button></div>
-        <hr>
-        <label>Tint <input id="tint" type="range" min="0" max="100" value="0"><output id="tintOut">0%</output></label>
-        <div class="row"><button id="applyTint">Apply tint</button><button id="gray">Grayscale</button></div>
-        <div class="row"><button id="undo" disabled>Undo</button><button id="reset" disabled>Reset</button></div>
-        <label class="fileButton">Replace with PNG<input id="replace" type="file" accept="image/png" hidden></label>
-        <button id="exportSource" disabled>Export source ZIP</button>
-        <button id="build" class="primary" disabled>Build mod ZIP</button>
-        <p class="hint">The ZIP is a normal OpenRAC data pack. Back in Mods → My mods, choose <b>File…</b> and select it.</p>
+    <section class="editor-shell">
+      <aside class="textures-panel">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Textures</p>
+            <h2>Ratchet</h2>
+          </div>
+          <span id="textureCount" class="count">0</span>
+        </div>
+
+        <select id="texture" class="sr-only" disabled>
+          <option>No skin loaded</option>
+        </select>
+
+        <div id="textureList" class="texture-list">
+          <div class="empty">
+            <strong>No skin loaded</strong>
+            <span>Click “Load Ratchet skin”.</span>
+          </div>
+        </div>
+
+        <div class="source-note">
+          <strong>Source</strong>
+          <span>Ratchet base class (Moby 0)</span>
+          <span id="levelSummary">Prepared levels required</span>
+        </div>
       </aside>
-      <div class="stage">
-        <canvas id="canvas" width="640" height="480"></canvas>
-        <p id="status">Install/open this tool for a game whose levels are ready, then load Ratchet's skin.</p>
-      </div>
+
+      <section class="canvas-panel">
+        <div class="canvas-toolbar">
+          <div class="toolbar-group">
+            <button id="undo" disabled title="Undo">Undo</button>
+            <button id="redo" disabled title="Redo">Redo</button>
+            <button id="reset" disabled title="Restore original">Restore</button>
+          </div>
+          <div class="toolbar-group zoom-group">
+            <button id="zoomOut" disabled aria-label="Zoom out">−</button>
+            <span id="zoomLabel">100%</span>
+            <button id="zoomIn" disabled aria-label="Zoom in">+</button>
+            <button id="fit" disabled>Fit</button>
+          </div>
+        </div>
+
+        <div id="canvasViewport" class="canvas-viewport">
+          <div class="canvas-empty">
+            <div class="empty-icon">R</div>
+            <strong>Load Ratchet’s skin to start editing</strong>
+            <span>The editor will list every unique texture used by class 0.</span>
+          </div>
+          <canvas id="canvas" width="640" height="480" hidden></canvas>
+        </div>
+
+        <footer class="canvas-status">
+          <span id="texInfo">No texture selected</span>
+          <span id="status">Ready.</span>
+        </footer>
+      </section>
+
+      <aside class="tools-panel">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Tools</p>
+            <h2>Paint</h2>
+          </div>
+        </div>
+
+        <div class="tool-section">
+          <label class="color-row">
+            <span>Colour</span>
+            <input id="color" type="color" value="#ff8a20">
+          </label>
+
+          <label>
+            <span>Brush size <output id="sizeOut">8 px</output></span>
+            <input id="size" type="range" min="1" max="64" value="8">
+          </label>
+
+          <label>
+            <span>Opacity <output id="opacityOut">100%</output></span>
+            <input id="opacity" type="range" min="1" max="100" value="100">
+          </label>
+
+          <div class="segmented">
+            <button id="brush" class="active">Brush</button>
+            <button id="erase">Erase</button>
+          </div>
+        </div>
+
+        <div class="tool-section">
+          <h3>Quick colour</h3>
+          <label>
+            <span>Tint strength <output id="tintOut">0%</output></span>
+            <input id="tint" type="range" min="0" max="100" value="0">
+          </label>
+          <div class="grid2">
+            <button id="applyTint">Apply tint</button>
+            <button id="gray">Grayscale</button>
+          </div>
+        </div>
+
+        <div class="tool-section">
+          <h3>Texture file</h3>
+          <label class="fileButton">
+            Replace with PNG
+            <input id="replace" type="file" accept="image/png" hidden>
+          </label>
+          <button id="savePng" disabled>Save current PNG</button>
+          <p class="hint">Replacement PNGs must keep the same aspect ratio.</p>
+        </div>
+
+        <div class="tool-section build-section">
+          <h3>Finish</h3>
+          <button id="buildSide" class="primary" disabled>Build skin mod ZIP</button>
+          <p class="hint">Install the generated ZIP with <b>Mods → My mods → File…</b>.</p>
+        </div>
+      </aside>
     </section>
   </main>
   <script src="app.js"></script>
