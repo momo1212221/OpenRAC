@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "gi_quality": "standard",
   "sky": "level",
   "sky_intensity": 1,
   "sky_weight": 0.7,
