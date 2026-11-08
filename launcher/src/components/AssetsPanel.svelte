@@ -13,6 +13,7 @@
   import type { Job } from "$lib/queue";
   import { toolFailure } from "$lib/toolErrors";
   import CommandBox from "./CommandBox.svelte";
+  import SkinPanel from "./SkinPanel.svelte";
 
   let { version: v, onimported }: { version: VersionView; onimported?: () => void } = $props();
 
@@ -115,7 +116,7 @@
   }
 </script>
 
-{#if exporter}
+<SkinPanel version={v} {onimported} />\n\n{#if exporter}
   {@const exported = ending("assets-export")?.folder ?? null}
   <div class="assets">
     <p class="muted intro">

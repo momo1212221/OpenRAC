@@ -504,6 +504,89 @@
         ]
       },
       {
+        "id": "skin-export",
+        "label": "Export Ratchet skin",
+        "description": "Exports Ratchet's base model (class 0) and the PNG textures it uses into a focused skin workspace.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "export",
+          "{root}/assets/port/rac1/pal",
+          "{data}/exports/ratchet-skin",
+          "--unique"
+        ],
+        "output": "{data}/exports",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac1/pal/levels-4.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-editor",
+        "label": "Open skin editor",
+        "description": "Opens OpenRAC's local PNG skin editor. It does not upload the texture.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "editor"
+        ],
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-import",
+        "label": "Import Ratchet skin",
+        "description": "Checks an edited Ratchet skin workspace and installs only its changed model or textures as a normal overrides pack.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "pack",
+          "{path}",
+          "--levels",
+          "{root}/assets/port/rac1/pal",
+          "--into",
+          "{data}/overrides",
+          "--name",
+          "Custom Ratchet skin"
+        ],
+        "output": "{data}/overrides",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac1/pal/levels-4.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
         "id": "assets-export",
         "label": "Export models and textures",
         "description": "Writes a level's models (glTF, with their skeletons and animations) or textures (PNG) to a folder of their own, to open in Blender or an image editor. A few seconds.",
@@ -1246,6 +1329,89 @@
         ]
       },
       {
+        "id": "skin-export",
+        "label": "Export Ratchet skin",
+        "description": "Exports Ratchet's base model (class 0) and the PNG textures it uses into a focused skin workspace.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "export",
+          "{root}/assets/port/rac1/ntsc",
+          "{data}/exports/ratchet-skin",
+          "--unique"
+        ],
+        "output": "{data}/exports",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac1/ntsc/levels-4.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-editor",
+        "label": "Open skin editor",
+        "description": "Opens OpenRAC's local PNG skin editor. It does not upload the texture.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "editor"
+        ],
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-import",
+        "label": "Import Ratchet skin",
+        "description": "Checks an edited Ratchet skin workspace and installs only its changed model or textures as a normal overrides pack.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "pack",
+          "{path}",
+          "--levels",
+          "{root}/assets/port/rac1/ntsc",
+          "--into",
+          "{data}/overrides",
+          "--name",
+          "Custom Ratchet skin"
+        ],
+        "output": "{data}/overrides",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac1/ntsc/levels-4.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
         "id": "assets-export",
         "label": "Export models and textures",
         "description": "Writes a level's models (glTF, with their skeletons and animations) or textures (PNG) to a folder of their own, to open in Blender or an image editor. A few seconds.",
@@ -1741,6 +1907,89 @@
         ],
         "docs": "port/game/rac1-pal1/README.md",
         "todo": "Run it from the desktop app. The game is built by tools/build_port.py rac1-pal1."
+      },
+      {
+        "id": "skin-export",
+        "label": "Export Ratchet skin",
+        "description": "Exports Ratchet's base model (class 0) and the PNG textures it uses into a focused skin workspace.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "export",
+          "{root}/assets/port/rac1/pal1",
+          "{data}/exports/ratchet-skin",
+          "--unique"
+        ],
+        "output": "{data}/exports",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac1/pal1/levels-4.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-editor",
+        "label": "Open skin editor",
+        "description": "Opens OpenRAC's local PNG skin editor. It does not upload the texture.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "editor"
+        ],
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-import",
+        "label": "Import Ratchet skin",
+        "description": "Checks an edited Ratchet skin workspace and installs only its changed model or textures as a normal overrides pack.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "pack",
+          "{path}",
+          "--levels",
+          "{root}/assets/port/rac1/pal1",
+          "--into",
+          "{data}/overrides",
+          "--name",
+          "Custom Ratchet skin"
+        ],
+        "output": "{data}/overrides",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac1/pal1/levels-4.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
       },
       {
         "id": "assets-export",
@@ -2262,6 +2511,89 @@
         "todo": "Run it from the desktop app. The game is built by tools/build_port.py rac1-jp."
       },
       {
+        "id": "skin-export",
+        "label": "Export Ratchet skin",
+        "description": "Exports Ratchet's base model (class 0) and the PNG textures it uses into a focused skin workspace.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "export",
+          "{root}/assets/port/rac1/jp",
+          "{data}/exports/ratchet-skin",
+          "--unique"
+        ],
+        "output": "{data}/exports",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac1/jp/levels-4.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-editor",
+        "label": "Open skin editor",
+        "description": "Opens OpenRAC's local PNG skin editor. It does not upload the texture.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "editor"
+        ],
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-import",
+        "label": "Import Ratchet skin",
+        "description": "Checks an edited Ratchet skin workspace and installs only its changed model or textures as a normal overrides pack.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "pack",
+          "{path}",
+          "--levels",
+          "{root}/assets/port/rac1/jp",
+          "--into",
+          "{data}/overrides",
+          "--name",
+          "Custom Ratchet skin"
+        ],
+        "output": "{data}/overrides",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac1/jp/levels-4.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
         "id": "assets-export",
         "label": "Export models and textures",
         "description": "Writes a level's models (glTF, with their skeletons and animations) or textures (PNG) to a folder of their own, to open in Blender or an image editor. A few seconds.",
@@ -2777,6 +3109,89 @@
         "todo": "Run it from the desktop app. From a shell on macOS (2026-10-20) the same command read every level of this disc (editor/README.md, \"The later games\")."
       },
       {
+        "id": "skin-export",
+        "label": "Export Ratchet skin",
+        "description": "Exports Ratchet's base model (class 0) and the PNG textures it uses into a focused skin workspace.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "export",
+          "{root}/assets/port/rac2/ntsc",
+          "{data}/exports/ratchet-skin",
+          "--unique"
+        ],
+        "output": "{data}/exports",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac2/ntsc/levels-20.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-editor",
+        "label": "Open skin editor",
+        "description": "Opens OpenRAC's local PNG skin editor. It does not upload the texture.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "editor"
+        ],
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-import",
+        "label": "Import Ratchet skin",
+        "description": "Checks an edited Ratchet skin workspace and installs only its changed model or textures as a normal overrides pack.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "pack",
+          "{path}",
+          "--levels",
+          "{root}/assets/port/rac2/ntsc",
+          "--into",
+          "{data}/overrides",
+          "--name",
+          "Custom Ratchet skin"
+        ],
+        "output": "{data}/overrides",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac2/ntsc/levels-20.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
         "id": "assets-export",
         "label": "Export models and textures",
         "description": "Writes a level's models (glTF) or textures (PNG) to a folder of their own, to open in Blender or an image editor. A few seconds.",
@@ -3276,6 +3691,89 @@
         "todo": "Run it from the desktop app. From a shell on macOS (2026-10-20) the same command read every level of this disc (editor/README.md, \"The later games\")."
       },
       {
+        "id": "skin-export",
+        "label": "Export Ratchet skin",
+        "description": "Exports Ratchet's base model (class 0) and the PNG textures it uses into a focused skin workspace.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "export",
+          "{root}/assets/port/rac2/pal",
+          "{data}/exports/ratchet-skin",
+          "--unique"
+        ],
+        "output": "{data}/exports",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac2/pal/levels-20.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-editor",
+        "label": "Open skin editor",
+        "description": "Opens OpenRAC's local PNG skin editor. It does not upload the texture.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "editor"
+        ],
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-import",
+        "label": "Import Ratchet skin",
+        "description": "Checks an edited Ratchet skin workspace and installs only its changed model or textures as a normal overrides pack.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "pack",
+          "{path}",
+          "--levels",
+          "{root}/assets/port/rac2/pal",
+          "--into",
+          "{data}/overrides",
+          "--name",
+          "Custom Ratchet skin"
+        ],
+        "output": "{data}/overrides",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac2/pal/levels-20.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
         "id": "assets-export",
         "label": "Export models and textures",
         "description": "Writes a level's models (glTF) or textures (PNG) to a folder of their own, to open in Blender or an image editor. A few seconds.",
@@ -3773,6 +4271,89 @@
         "artifact": "assets/port/rac2/ntsc2/levels-20.json",
         "docs": "editor/README.md",
         "todo": "Run it from the desktop app. From a shell on macOS (2026-10-20) the same command read every level of this disc (editor/README.md, \"The later games\")."
+      },
+      {
+        "id": "skin-export",
+        "label": "Export Ratchet skin",
+        "description": "Exports Ratchet's base model (class 0) and the PNG textures it uses into a focused skin workspace.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "export",
+          "{root}/assets/port/rac2/ntsc2",
+          "{data}/exports/ratchet-skin",
+          "--unique"
+        ],
+        "output": "{data}/exports",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac2/ntsc2/levels-20.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-editor",
+        "label": "Open skin editor",
+        "description": "Opens OpenRAC's local PNG skin editor. It does not upload the texture.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "editor"
+        ],
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "docs": "editor/SKINS.md"
+      },
+      {
+        "id": "skin-import",
+        "label": "Import Ratchet skin",
+        "description": "Checks an edited Ratchet skin workspace and installs only its changed model or textures as a normal overrides pack.",
+        "kind": "edit",
+        "area": "editor",
+        "state": "unverified",
+        "program": "{python}",
+        "args": [
+          "editor/skins.py",
+          "pack",
+          "{path}",
+          "--levels",
+          "{root}/assets/port/rac2/ntsc2",
+          "--into",
+          "{data}/overrides",
+          "--name",
+          "Custom Ratchet skin"
+        ],
+        "output": "{data}/overrides",
+        "cwd": ".",
+        "requires": [
+          "python"
+        ],
+        "needs": [
+          {
+            "path": "assets/port/rac2/ntsc2/levels-20.json",
+            "from": "the levels (Get the levels ready)"
+          }
+        ],
+        "docs": "editor/SKINS.md"
       },
       {
         "id": "assets-export",

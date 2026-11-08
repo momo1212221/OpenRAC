@@ -1,0 +1,25 @@
+{
+  "format": 2,
+  "id": "custom-skins",
+  "name": "Custom Skin Studio",
+  "version": "0.2.0",
+  "author": "Moritz Wallinger",
+  "description": "Edit Ratchet skins from OpenRAC assets, cover armour/look variants, and export or directly apply standard in-game replacement packs.",
+  "license": "MIT",
+  "homepage": "https://github.com/momo1212221/OpenRAC/tree/feat/custom-skins",
+  "games": {
+    "rac1": ["pal", "ntsc", "pal1", "jp"],
+    "rac2": ["ntsc", "pal", "ntsc2"],
+    "rac3": ["ntsc", "pal"],
+    "rac4": ["ntsc"],
+    "rac5": ["ntsc"],
+    "rac6": ["ntsc"]
+  },
+  "multiplayer": "cosmetic",
+  "tool": {
+    "page": "ui/index.html"
+  },
+  "type": "script",
+  "api": "1.1",
+  "scripts": ["main.luau"]
+}

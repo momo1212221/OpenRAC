@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenRAC Ratchet Skin Editor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">OpenRAC</p>
+        <h1>Ratchet Skin Editor</h1>
+        <p>Edit a PNG from an <code>editor/skins.py export</code> workspace. The image never leaves this computer.</p>
+      </div>
+      <label class="button primary">Open PNG<input id="file" type="file" accept="image/png" hidden></label>
+    </header>
+
+    <section class="workspace">
+      <aside>
+        <label>Paint colour <input id="color" type="color" value="#ff7a18"></label>
+        <label>Brush <input id="size" type="range" min="1" max="64" value="8"><output id="sizeOut">8 px</output></label>
+        <label>Opacity <input id="opacity" type="range" min="1" max="100" value="100"><output id="opacityOut">100%</output></label>
+        <div class="row"><button id="brush" class="active">Brush</button><button id="erase">Erase</button></div>
+        <hr>
+        <label>Tint strength <input id="tint" type="range" min="0" max="100" value="0"><output id="tintOut">0%</output></label>
+        <div class="row"><button id="applyTint">Apply tint</button><button id="gray">Grayscale</button></div>
+        <div class="row"><button id="undo" disabled>Undo</button><button id="reset" disabled>Reset</button></div>
+        <hr>
+        <button id="save" class="primary" disabled>Save edited PNG</button>
+        <p class="hint">Save it with the original file name back into the exported workspace, then run <code>editor/skins.py pack</code>.</p>
+      </aside>
+      <div class="stage">
+        <canvas id="canvas" width="640" height="480"></canvas>
+        <p id="status">Open one of Ratchet's exported PNG textures to begin.</p>
+      </div>
+    </section>
+  </main>
+  <script src="editor.js"></script>
+</body>
+</html>

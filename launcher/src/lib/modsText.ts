@@ -468,6 +468,31 @@ export const ASSETS = {
   exported: (level: string) => `Exported ${level}: the folder is opening.`,
 } as const;
 
+/** Ratchet skin workbench (SkinPanel.svelte, editor/skins.py). */
+export const SKINS = {
+  badge: "Skin workbench",
+  title: "Custom Ratchet skin",
+  lead: "Export Ratchet, repaint his PNG textures or edit the glTF model, then install the result as a normal graphics pack.",
+  guide: "Skin guide",
+  exportTitle: "Export Ratchet",
+  exportLine: "Makes a workspace containing Ratchet's base model and the textures it uses.",
+  readFirst: "Read the levels from your disc first.",
+  read: "Read levels",
+  export: "Export skin",
+  exported: "Ratchet's skin workspace is ready: the folder is opening.",
+  exportStopped: "The skin export stopped. The activity log has what it said.",
+  readStopped: "Reading the levels stopped. The activity log has what it said.",
+  editTitle: "Edit",
+  editLine: "Open the local PNG editor, or use Krita, GIMP, Photoshop or Blender.",
+  edit: "Open editor",
+  editorStopped: "The skin editor could not be opened. The activity log has what it said.",
+  importTitle: "Install",
+  importLine: "Choose the skin workspace you edited. Only changed files become a pack in My mods.",
+  import: "Install skin…",
+  pickImport: "Choose the Ratchet skin workspace you edited",
+  imported: "Installed: the custom Ratchet skin is now a pack in My mods.",
+} as const;
+
 /** Mod codes (ModSetShare.svelte, ModSetReview.svelte, ModSetSaved.svelte, core/src/modset.rs): friends
  *  matching their mods. The words never name a disc's region, and "code" is always a mod code here. */
 export const MOD_CODES = {

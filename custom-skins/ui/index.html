@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Custom Skin Studio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="page-head">
+    <h1>Custom Skin Studio</h1>
+    <p id="subtitle">Connecting to OpenRAC…</p>
+  </header>
+
+  <p id="message" class="message" role="status">Ready.</p>
+
+  <main>
+    <section class="panel">
+      <div class="eyebrow">TARGET</div>
+
+      <div class="setting-row">
+        <div class="setting-text">
+          <strong>Game</strong>
+          <p>Select the OpenRAC game whose Ratchet assets you want to edit.</p>
+        </div>
+        <div class="setting-control">
+          <select id="game"></select>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-text">
+          <strong>Version</strong>
+          <p>The disc/version supplies the original texture names. The finished pack belongs to the game.</p>
+        </div>
+        <div class="setting-control">
+          <select id="version"></select>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-text">
+          <strong>Ratchet looks</strong>
+          <p>All looks also includes exported armour/look variants (OpenRAC hero classes 6000+).</p>
+        </div>
+        <div class="setting-control">
+          <div class="segmented" id="lookMode">
+            <button type="button" data-value="base">Base only</button>
+            <button type="button" data-value="all" class="selected">All looks</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel source-panel">
+      <div>
+        <div class="eyebrow">OPENRAC ASSETS</div>
+        <p id="sourceState" class="lead">Choose a game and load its prepared Ratchet assets.</p>
+        <p id="targetHint" class="muted"></p>
+      </div>
+      <button id="scan" class="primary">Load skin</button>
+    </section>
+
+    <section id="editor" class="panel editor-panel" hidden>
+      <div class="editor-head">
+        <div>
+          <div class="eyebrow">SKIN</div>
+          <p class="lead"><span id="textureCount">0</span> unique textures · <span id="modelCount">0</span> hero models</p>
+        </div>
+        <span id="modifiedCount" class="badge">0 modified</span>
+      </div>
+
+      <div class="editor-grid">
+        <aside class="texture-column">
+          <div class="column-title">Textures</div>
+          <div id="textureList" class="texture-list"></div>
+        </aside>
+
+        <div class="canvas-column">
+          <div class="canvas-toolbar">
+            <div class="toolbar-group">
+              <button id="undo" class="ghost" disabled>Undo</button>
+              <button id="redo" class="ghost" disabled>Redo</button>
+              <button id="reset" class="ghost" disabled>Restore</button>
+            </div>
+            <div class="toolbar-group">
+              <button id="zoomOut" class="icon-button" disabled>−</button>
+              <span id="zoomLabel">100%</span>
+              <button id="zoomIn" class="icon-button" disabled>+</button>
+              <button id="fit" class="ghost" disabled>Fit</button>
+            </div>
+          </div>
+          <div id="canvasViewport" class="canvas-viewport">
+            <div class="canvas-empty">Load a skin to edit its textures.</div>
+            <canvas id="canvas" hidden></canvas>
+          </div>
+          <div id="texInfo" class="canvas-info">No texture selected</div>
+        </div>
+
+        <aside class="tools-column">
+          <div class="column-title">Paint</div>
+
+          <label class="tool-row">
+            <span>Colour</span>
+            <input id="color" type="color" value="#ff9f2f">
+          </label>
+
+          <label class="tool-block">
+            <span>Brush size <output id="sizeOut">8 px</output></span>
+            <input id="size" type="range" min="1" max="64" value="8">
+          </label>
+
+          <label class="tool-block">
+            <span>Opacity <output id="opacityOut">100%</output></span>
+            <input id="opacity" type="range" min="1" max="100" value="100">
+          </label>
+
+          <div class="segmented full" id="paintMode">
+            <button id="brush" type="button" class="selected">Brush</button>
+            <button id="erase" type="button">Erase</button>
+          </div>
+
+          <div class="divider"></div>
+          <div class="column-title small">Quick colour</div>
+
+          <label class="tool-block">
+            <span>Tint <output id="tintOut">0%</output></span>
+            <input id="tint" type="range" min="0" max="100" value="0">
+          </label>
+
+          <div class="button-pair">
+            <button id="applyTint" class="ghost" disabled>Apply tint</button>
+            <button id="gray" class="ghost" disabled>Grayscale</button>
+          </div>
+
+          <label class="file-button">
+            Replace with PNG
+            <input id="replace" type="file" accept="image/png" hidden>
+          </label>
+          <p class="hint">A replacement may be higher resolution, but must keep the original aspect ratio.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="eyebrow">IN GAME</div>
+
+      <div class="setting-row">
+        <div class="setting-text">
+          <strong>Skin name</strong>
+          <p>The name shown for the OpenRAC replacement pack.</p>
+        </div>
+        <div class="setting-control">
+          <input id="packName" class="text-input" value="My Ratchet skin" maxlength="120">
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-text">
+          <strong>Author</strong>
+          <p>Stored in the standard OpenRAC overrides-pack manifest.</p>
+        </div>
+        <div class="setting-control">
+          <input id="author" class="text-input" value="Moritz Wallinger" maxlength="120">
+        </div>
+      </div>
+
+      <div class="finish-row">
+        <div>
+          <strong>Replace Ratchet in game</strong>
+          <p id="applyHint" class="muted">Builds a normal OpenRAC overrides pack. On a launcher with the Skin Studio host extension it can be installed immediately.</p>
+        </div>
+        <div class="finish-actions">
+          <button id="export" class="ghost" disabled>Export ZIP</button>
+          <button id="apply" class="primary" disabled>Apply to game</button>
+        </div>
+      </div>
+    </section>
+
+    <details class="panel advanced">
+      <summary><span>ADVANCED</span><span class="chevron">⌄</span></summary>
+      <div class="advanced-body">
+        <p class="muted">The editor changes only replacement assets. It never modifies the disc image or the prepared base levels. Packs use OpenRAC's format-1 overrides layout and original-asset hashes.</p>
+        <p id="capabilities" class="muted"></p>
+      </div>
+    </details>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
