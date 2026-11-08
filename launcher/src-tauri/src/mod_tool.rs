@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use openrac_launcher_core::mod_tools::{self, ToolFile, ToolRoot};
 use openrac_launcher_core::{launcher_log, plugins, saves, texture_packs};
@@ -16,6 +17,7 @@ use crate::AppState;
 /// The scheme a mod's page is served from: `openrac-mod://localhost/<game>/<mod id>/<path>`
 /// (`http://openrac-mod.localhost/...` on Windows and Android).
 pub const SCHEME: &str = "openrac-mod";
+const STAGED_PACK_MAX: usize = 256 * 1024 * 1024;
 
 /// `%XX` escapes of a path segment decoded; None when one is broken or the result is not UTF-8.
 fn decode(segment: &str) -> Option<String> {
@@ -286,6 +288,62 @@ pub(crate) async fn mod_tool_save_end(app: AppHandle, token: u64, keep: bool) ->
             openrac_launcher_core::reports::home().as_deref(),
         ))
     }
+}
+
+fn valid_mod_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+fn staged_pack_root<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    Ok(app.path().app_cache_dir().map_err(|e| e.to_string())?.join("mod-tool-packs"))
+}
+
+/// Bytes a mod page generated, staged only long enough for the launcher's normal Add mod path to
+/// inspect and install them. This does not give the page a path picker or arbitrary filesystem
+/// access; the returned path is inside the launcher's cache.
+#[tauri::command]
+pub(crate) async fn mod_tool_stage_pack(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("no pack bytes".into()) };
+    if bytes.is_empty() {
+        return Err("the generated pack is empty".into());
+    }
+    if bytes.len() > STAGED_PACK_MAX {
+        return Err("the generated pack is larger than 256 MB".into());
+    }
+    let id = header_text(&request, "x-mod")?;
+    if !valid_mod_id(&id) {
+        return Err("a bad mod id".into());
+    }
+    let name = mod_tools::save_name(&header_text(&request, "x-name")?, "zip", &["zip"])?;
+    let root = staged_pack_root(&app)?;
+    let dir = root.join(&id);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let dest = dir.join(format!("{stamp}-{name}"));
+    let out = dest.clone();
+    let bytes = bytes.clone();
+    tauri::async_runtime::spawn_blocking(move || std::fs::write(&out, bytes))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{}: {e}", dest.display()))?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Removes only a file mod_tool_stage_pack made in this launcher's cache.
+#[tauri::command]
+pub(crate) fn mod_tool_unstage_pack(app: AppHandle, path: String) -> Result<(), String> {
+    let root = staged_pack_root(&app)?;
+    let root = root.canonicalize().map_err(|e| e.to_string())?;
+    let file = PathBuf::from(path).canonicalize().map_err(|e| e.to_string())?;
+    if !file.starts_with(&root) || !file.is_file() {
+        return Err("not a staged mod-tool pack".into());
+    }
+    std::fs::remove_file(&file).map_err(|e| e.to_string())
 }
 
 /// A small file the player picks for a mod's page (a preset to import): its bytes, at most the

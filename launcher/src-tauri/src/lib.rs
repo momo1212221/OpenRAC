@@ -2789,6 +2789,8 @@ pub fn run() {
             mod_tool::mod_tool_save_write,
             mod_tool::mod_tool_save_end,
             mod_tool::mod_tool_open,
+            mod_tool::mod_tool_stage_pack,
+            mod_tool::mod_tool_unstage_pack,
             enhanced_set_setting,
             enhanced_delete_bakes,
             plugins_set_enabled,

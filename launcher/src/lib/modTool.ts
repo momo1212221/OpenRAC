@@ -32,8 +32,32 @@ export interface ToolInfo {
   system: string;
 }
 
+/** A game/version the launcher knows. A Skin Studio-like tool can choose one without getting
+ * arbitrary filesystem access: list/read still go only through ToolRoot. */
+export interface ToolTarget {
+  game: string;
+  gameTitle: string;
+  version: string;
+  label: string;
+  key: string;
+  canApply: boolean;
+}
+
 export type ToolRequest =
   | { id: number; call: "info" }
+  | { id: number; call: "targets" }
+  | { id: number; call: "targetList"; game: string; version: string; root: ToolRoot }
+  | {
+      id: number;
+      call: "targetRead";
+      game: string;
+      version: string;
+      root: ToolRoot;
+      path: string;
+      start?: number;
+      length?: number;
+    }
+  | { id: number; call: "applyPack"; game: string; version: string; name: string; bytes: ArrayBuffer }
   | { id: number; call: "list"; root: ToolRoot }
   | { id: number; call: "read"; root: ToolRoot; path: string; start?: number; length?: number }
   | { id: number; call: "storeGet"; key: string }
@@ -46,6 +70,7 @@ export type ToolRequest =
 
 const ROOTS: readonly string[] = ["levels", "dump"];
 const KEY = /^[a-z0-9_-]{1,64}$/;
+const TARGET = /^[a-z0-9_-]{1,64}$/;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const count = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
@@ -81,6 +106,41 @@ export function readRequest(data: unknown): ToolRequest | { id: number; error: s
   switch (data.call) {
     case "info":
       return { id, call: "info" };
+    case "targets":
+      return { id, call: "targets" };
+    case "targetList":
+      if (!text(args.game) || !TARGET.test(args.game) || !text(args.version) || !TARGET.test(args.version)) {
+        return refuse("a bad game or version");
+      }
+      return ROOTS.includes(args.root as string)
+        ? { id, call: "targetList", game: args.game, version: args.version, root: args.root as ToolRoot }
+        : refuse("root is levels or dump");
+    case "targetRead": {
+      if (!text(args.game) || !TARGET.test(args.game) || !text(args.version) || !TARGET.test(args.version)) {
+        return refuse("a bad game or version");
+      }
+      if (!ROOTS.includes(args.root as string)) return refuse("root is levels or dump");
+      if (!text(args.path, 1024)) return refuse("no path");
+      const part = range(args);
+      if (!part) return refuse("start and length are whole numbers from 0");
+      return {
+        id,
+        call: "targetRead",
+        game: args.game,
+        version: args.version,
+        root: args.root as ToolRoot,
+        path: args.path,
+        ...part,
+      };
+    }
+    case "applyPack":
+      if (!text(args.game) || !TARGET.test(args.game) || !text(args.version) || !TARGET.test(args.version)) {
+        return refuse("a bad game or version");
+      }
+      if (!text(args.name, 200)) return refuse("no pack name");
+      if (!(args.bytes instanceof ArrayBuffer) || args.bytes.byteLength === 0) return refuse("no pack bytes");
+      if (args.bytes.byteLength > 256 * 1024 * 1024) return refuse("the pack is larger than 256 MB");
+      return { id, call: "applyPack", game: args.game, version: args.version, name: args.name, bytes: args.bytes };
     case "list":
       return ROOTS.includes(args.root as string)
         ? { id, call: "list", root: args.root as ToolRoot }
@@ -127,6 +187,7 @@ export function readRequest(data: unknown): ToolRequest | { id: number; error: s
 
 /** The calls' work, so a test can stand in for the launcher. */
 export interface ToolBackend {
+  targets(): Promise<ToolTarget[]>;
   list(game: string, version: string, root: ToolRoot): Promise<ToolFile[]>;
   read(
     game: string,
@@ -143,9 +204,23 @@ export interface ToolBackend {
   saveWrite(token: number, bytes: Uint8Array): Promise<unknown>;
   saveEnd(token: number, keep: boolean): Promise<string>;
   open(extension: string): Promise<ArrayBuffer>;
+  applyPack(game: string, version: string, name: string, bytes: Uint8Array): Promise<unknown>;
 }
 
 export const launcherBackend: ToolBackend = {
+  targets: async () => {
+    const library = await api.library();
+    return library.games.flatMap((game) =>
+      game.versions.map((version) => ({
+        game: game.id,
+        gameTitle: game.title,
+        version: version.name,
+        label: version.region || version.title || version.name,
+        key: version.key,
+        canApply: version.actions.some((action) => action.id === "overrides-add" && action.thisPlatform),
+      })),
+    );
+  },
   list: api.modToolList,
   read: api.modToolRead,
   storeGet: api.modToolStoreGet,
@@ -155,6 +230,9 @@ export const launcherBackend: ToolBackend = {
   saveWrite: api.modToolSaveWrite,
   saveEnd: api.modToolSaveEnd,
   open: api.modToolOpen,
+  applyPack: async () => {
+    throw new Error("direct pack installation is unavailable");
+  },
 };
 
 /** A backend that remembers the files a page has not finished saving, so that closing the page
@@ -198,6 +276,21 @@ export async function answer(request: ToolRequest, info: ToolInfo, backend: Tool
   switch (request.call) {
     case "info":
       return info;
+    case "targets":
+      return backend.targets();
+    case "targetList":
+      return backend.list(request.game, request.version, request.root);
+    case "targetRead":
+      return backend.read(
+        request.game,
+        request.version,
+        request.root,
+        request.path,
+        request.start,
+        request.length,
+      );
+    case "applyPack":
+      return backend.applyPack(request.game, request.version, request.name, new Uint8Array(request.bytes));
     case "list":
       return backend.list(game, version, request.root);
     case "read":

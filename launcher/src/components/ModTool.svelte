@@ -4,7 +4,8 @@
   // { openrac: 1, event: "pad", button, down }. The page's "close" call, Back or Escape return here.
   import { onDestroy, onMount } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { inTauri, onAndroid, type PluginView } from "$lib/api";
+  import { api, inTauri, onAndroid, type PluginView } from "$lib/api";
+  import { addMods } from "$lib/addMods";
   import { launcherBackend, pageOrigin, pageUrl, PROTOCOL, reply, trackSaves, type ToolInfo } from "$lib/modTool";
   import { routePad } from "$lib/pad";
   import * as T from "$lib/modsText";
@@ -46,7 +47,27 @@
   }
 
   // The files the page is saving in parts, dropped if it closes before it finishes them.
-  const backend = trackSaves(launcherBackend);
+  // applyPack is deliberately narrower than filesystem access: the page gives bytes, the launcher
+  // stages them in its own cache and runs the same validated Add mod path the Mods page uses.
+  const backend = trackSaves({
+    ...launcherBackend,
+    async applyPack(targetGame: string, targetVersion: string, name: string, bytes: Uint8Array) {
+      const library = await api.library();
+      const target = library.games
+        .find((game) => game.id === targetGame)
+        ?.versions.find((version) => version.name === targetVersion);
+      if (!target) throw new Error(`OpenRAC does not know ${targetGame}/${targetVersion}`);
+      const path = await api.modToolStagePack(mod.id, name, bytes);
+      try {
+        const added = await addMods(target, [path]);
+        if (added.failed) throw new Error(added.text);
+        if (!added.pack) throw new Error("the generated skin was not an OpenRAC data pack");
+        return { text: added.text, pack: true };
+      } finally {
+        await api.modToolUnstagePack(path).catch(() => undefined);
+      }
+    },
+  });
 
   function onMessage(e: MessageEvent) {
     void handle(e);

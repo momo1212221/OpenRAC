@@ -476,6 +476,14 @@ export const api = {
   modToolSaveEnd: (token: number, keep: boolean) => call<string>("mod_tool_save_end", { token, keep }),
   /** A small file the player picks: its bytes, empty when they backed out. */
   modToolOpen: (extension: string) => call<ArrayBuffer>("mod_tool_open", { extension }),
+  /** Stages a generated overrides pack only in the launcher's cache so Add mod can validate it. */
+  modToolStagePack: (id: string, name: string, bytes: Uint8Array) =>
+    callRaw<string>("mod_tool_stage_pack", bytes, {
+      "x-mod": encodeURIComponent(id),
+      "x-name": encodeURIComponent(name),
+    }),
+  /** Removes a path returned by modToolStagePack; every other path is refused by the Rust side. */
+  modToolUnstagePack: (path: string) => call<null>("mod_tool_unstage_pack", { path }),
   enhancedView: (game: string, version: string) => call<EnhancedView | null>("enhanced_view", { game, version }),
   enhancedSetEnabled: (game: string, version: string, enabled: boolean) =>
     call<EnhancedView | null>("enhanced_set_enabled", { game, version, enabled }),
