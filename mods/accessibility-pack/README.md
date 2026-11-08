@@ -13,6 +13,15 @@ A native accessibility and assist mod for **Ratchet & Clank** in OpenRAC.
 
 Only normal hits routed through the game's damage function are changed. Falls, crushers and other instant-kill hazards retain the game's original behaviour.
 
+## Enhanced RAC Style UI
+
+- Ratchet & Clank-inspired health tech panel.
+- Gold/orange accent framing instead of plain HUD text.
+- Eight-cell health strip.
+- Animated low-health warning banner.
+- Dedicated lethal-protection banner.
+- Drawn in the game's native 512x448 overlay coordinate space.
+
 ## Multiplayer
 
 The mod is classified as gameplay because damage assists affect play. HUD-only settings are marked as each player's own.
@@ -21,7 +30,7 @@ The mod is classified as gameplay because damage assists affect play. HUD-only s
 
 - Ratchet & Clank PAL
 - Ratchet & Clank NTSC-U
-- OpenRAC mod interface 1.12 or newer
+- OpenRAC mod interface 1.14 or newer
 
 ## Build
 
@@ -35,5 +44,7 @@ ctest --test-dir build --output-on-failure --no-tests=ignore
 ## Release
 
 Tag `v0.1.0` for a standalone repository, or `accessibility-pack-v0.1.0` in a multi-mod repository.
+
+Current version: **0.2.0**.
 
 Author: **Moritz Wallinger**.
