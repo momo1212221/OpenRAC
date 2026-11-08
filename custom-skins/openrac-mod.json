@@ -8,8 +8,15 @@
   "license": "MIT",
   "homepage": "https://github.com/momo1212221/OpenRAC/tree/feat/custom-skins",
   "games": {
-    "rac1": ["pal", "ntsc"],
-    "rac2": ["ntsc"]
+    "rac1": [
+      "pal",
+      "ntsc"
+    ],
+    "rac2": [
+      "ntsc",
+      "pal",
+      "ntsc2"
+    ]
   },
   "multiplayer": "cosmetic",
   "tool": {
