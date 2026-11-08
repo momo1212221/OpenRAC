@@ -133,3 +133,73 @@ vec3 environment_specular_frame(vec3 p,vec3 n,vec3 view,float nv,float roughness
 vec3 environment_specular(vec3 p,vec3 n,vec3 view,float roughness,float f0,vec3 fallback) {
     return environment_specular_surface(p,p,n,view,roughness,f0,fallback);
 }
+
+// Runtime-only transmission samples the same verified local captures in a refracted direction.
+// It never changes coverage/depth; callers decide how much opaque base energy it replaces.
+vec3 environment_transmission(
+    vec3 p, vec3 n, vec3 view, float roughness, float ior, vec3 fallback
+) {
+    if (environment_count == 0) return fallback;
+    ivec2 best = ivec2(-1);
+    vec2 weights = vec2(0.);
+    float coverage = 0.;
+    uint words = environment_candidate_words();
+    while (words != 0u) {
+        int word = findLSB(words);
+        words &= words - 1u;
+        uint candidates = environment_candidates(word);
+        while (candidates != 0u) {
+            int i = word * 32 + findLSB(candidates);
+            candidates &= candidates - 1u;
+            if (i >= environment_count) continue;
+            vec3 centre = environment_probe(i * 5).xyz;
+            vec3 lo = environment_probe(i * 5 + 1).xyz;
+            vec3 hi = environment_probe(i * 5 + 2).xyz;
+            vec3 local = environment_local(i, p);
+            if (any(lessThan(local, lo)) || any(greaterThan(local, hi))) continue;
+            vec3 edge = min(local - lo, hi - local);
+            float fade = smoothstep(0., .75, min(edge.x, min(edge.y, edge.z)));
+            float weight = fade / (1. + dot(p - centre, p - centre) / (24. * 24.));
+            coverage = max(coverage, fade);
+            if (weight > weights.x) {
+                weights.y = weights.x;
+                best.y = best.x;
+                weights.x = weight;
+                best.x = i;
+            } else if (weight > weights.y) {
+                weights.y = weight;
+                best.y = i;
+            }
+        }
+    }
+    if (best.x < 0 || weights.x + weights.y < 1e-8) return fallback;
+
+    ior = clamp(ior, 1., 2.5);
+    vec3 direction = refract(-view, n, 1. / ior);
+    // Total internal reflection is still bounded and deterministic.
+    if (dot(direction, direction) < 1e-8) direction = reflect(-view, n);
+
+    int levels = findMSB(environment_resolution);
+    roughness = clamp(roughness, 1. / float(levels), 1.);
+    float lod = clamp(roughness * float(levels) - 1., 0., float(levels - 1));
+    int low = int(floor(lod)), high = min(low + 1, levels - 1);
+    vec3 radiance = vec3(0.);
+    for (int slot = 0; slot < 2; ++slot) {
+        if (best[slot] < 0) continue;
+        vec3 ray = environment_project(best[slot], p, direction);
+        radiance += mix(
+            environment_level(best[slot], ray, low, levels),
+            environment_level(best[slot], ray, high, levels),
+            fract(lod)
+        ) * weights[slot];
+    }
+    radiance /= weights.x + weights.y;
+
+    float f0 = (ior - 1.) / (ior + 1.);
+    f0 *= f0;
+    float cosine = clamp(dot(n, view), 0., 1.);
+    float one_minus = 1. - cosine;
+    float fresnel = f0 + (1. - f0) * one_minus * one_minus * one_minus * one_minus * one_minus;
+    return mix(fallback, radiance * (1. - fresnel), coverage);
+}
+

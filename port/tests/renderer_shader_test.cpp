@@ -369,6 +369,8 @@ sample_result[0]=vec4(light,valid?confidence:0.);})";
     CHECK(contains(mesh_fragment, "material_optical_base"));
     CHECK(contains(mesh_fragment, "material_advanced_direct"));
     CHECK(contains(mesh_fragment, "material_advanced_environment"));
+    CHECK(contains(mesh_fragment, "environment_transmission"));
+    CHECK(contains(mesh_fragment, "material_optical_thickness"));
     build("mesh", viewer_src::mesh_vert, mesh_fragment.c_str());
     if (openrac::gl::enhanced_rendering_available()) {
         build("shadow depth", viewer_src::shadow_depth_vert, viewer_src::hero_shadow_frag);
