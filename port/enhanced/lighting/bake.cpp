@@ -695,13 +695,6 @@ struct ProbeBaker::Impl {
             gpu = bake_detail::GpuTransport::create(scene, settings);
         }
 #endif
-        if (!settings.atmosphere.cloud_field
-            || settings.atmosphere.cloud_field->parameters
-                   != cloud_parameters(settings.atmosphere)) {
-            settings.atmosphere.cloud_field = std::make_shared<CloudField>(
-                CloudField::generate(cloud_parameters(settings.atmosphere))
-            );
-        }
     }
 
     // Rounding is part of the key so reuse cannot change a later bake's arithmetic results.
