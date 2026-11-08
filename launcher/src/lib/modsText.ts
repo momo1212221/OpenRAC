@@ -180,6 +180,8 @@ export const ENHANCED = {
     "Light that bounces off the world, sharp sun shadows and Ratchet's own, and soft shade in corners, drawn by the game's Vulkan renderer. The bounced light is baked on this computer from your own levels: once, and again after they are read from your disc again.",
   lightingTitle: "Lighting",
   baking: "Preparing the lighting",
+  busy: (ready: number, n: number) =>
+    `Lighting preparation is already running${n > 0 ? ` (${ready}/${n} levels ready)` : ""}. This page follows it automatically.`,
   ready: (n: number) => `Ready for all ${n} levels.`,
   some: (ready: number, n: number) => `Ready for ${ready} of ${n} levels.`,
   failed: (n: number) => (n === 1 ? "1 level could not be prepared." : `${n} levels could not be prepared.`),
@@ -192,7 +194,7 @@ export const ENHANCED = {
       ? "1 level was stopped part way: preparing goes on from there."
       : `${n} levels were stopped part way: preparing goes on from there.`,
   prepare: "Prepare lighting",
-  goOn: "Go on preparing",
+  goOn: "Resume from checkpoint",
   again: "Prepare again",
   remove: "Delete the lighting",
   removeAsk: (levels: number) =>

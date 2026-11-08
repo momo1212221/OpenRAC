@@ -15,6 +15,10 @@ export interface BakeFailure {
 
 const PREFIX = "openrac-bake-error: ";
 
+export function bakeCacheBusy(failure: Pick<BakeFailure, "detail">): boolean {
+  return /bake cache is busy or cannot be locked/i.test(failure.detail);
+}
+
 /** Only the bake job's data records become notices. Text and paths are never executable UI. */
 export function bakeFailure(job: Pick<Job, "lines" | "code">): BakeFailure {
   for (const { line } of [...job.lines].reverse()) {

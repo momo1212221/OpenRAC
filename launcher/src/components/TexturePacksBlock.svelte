@@ -7,7 +7,7 @@
   // Shared, each planet) open that folder. Hashes, paths and the environment the game is started
   // with stay out of sight: they are in the docs.
   import Icon from "./Icon.svelte";
-  import { api, type TextureFolder, type TexturePackView, type VersionView } from "$lib/api";
+  import { ask, api, type TextureFolder, type TexturePackView, type VersionView } from "$lib/api";
   import { toast } from "$lib/app.svelte";
   import { grouped } from "$lib/format";
   import { TEXTURES } from "$lib/modsText";
@@ -16,11 +16,15 @@
 
   let {
     version,
+    reload = 0,
+    preparationControls = false,
     onshow,
     folded = false,
     open = $bindable(false),
   }: {
     version: VersionView;
+    reload?: number;
+    preparationControls?: boolean;
     /** Show it in My mods: where the pack's row is (left out where the row is on the same page). */
     onshow?: () => void;
     /** A fold under My mods' lists (no tabs: Android, a launcher without the level editor). */
@@ -51,7 +55,7 @@
   // Read again for another game or disc, and when the game stops: it may have saved textures.
   const playing = $derived(isPlaying(version));
   $effect(() => {
-    if (version.key && !playing) void load();
+    if (reload >= 0 && version.key && !playing) void load();
   });
 
   async function work(run: () => Promise<void>) {
@@ -74,6 +78,44 @@
   const openFolder = (dump: boolean, folder: TextureFolder | null = null) =>
     work(async () => {
       await api.texturePacksOpen(version.game, version.name, dump, folder?.path ?? "");
+    });
+  const deleteUltra = () =>
+    work(async () => {
+      if (
+        !(await ask(
+          "Delete the generated Ultra texture cache? Imported packs and original files stay intact.",
+          "Delete cache",
+        ))
+      )
+        return;
+      await api.graphicsDeleteTextureCache(version.game, version.name);
+      await load();
+    });
+
+  const prepareUltra = () =>
+    work(async () => {
+      const done = await api.texturePacksPrepareUltra(version.game, version.name);
+      await load();
+      if (!done.enabled) {
+        toast("Turn Ultra textures before Play on first.", "error");
+        return;
+      }
+      const mib = Math.round(done.bytes / (1024 * 1024));
+      toast(
+        done.cached
+          ? `Ultra textures are already ready: ${grouped(done.textures)} textures (${grouped(mib)} MiB).`
+          : `Prepared ${grouped(done.textures)} Ultra textures (${grouped(mib)} MiB).`,
+      );
+    });
+
+  const set = (change: { ultra: boolean }) =>
+    work(async () => {
+      view = await api.texturePacksSet(version.game, version.name, change);
+      toast(
+        change.ultra
+          ? "Ultra textures will be prepared before Play and reused afterwards."
+          : "Offline Ultra textures are off; the generated pack is kept for later.",
+      );
     });
 </script>
 
@@ -102,6 +144,46 @@
   {#if failed}
     <p class="muted"><Icon name="warn" size={14} /> {failed}</p>
   {:else if view}
+    {#if preparationControls}<div class="ultra-card">
+        <div class="ultra-copy">
+          <h3>Ultra textures before Play</h3>
+          <p class="muted">
+            Pre-render known game textures once at 8×, up to 4K, save them as a permanent texture pack and reuse them.
+            Runtime 2×/4×/8× upscaling stays off while you play.
+          </p>
+          {#if view.ultraReady}
+            <p class="ultra-status">
+              <Icon name="check" size={14} />
+              {grouped(view.ultraTextures)} textures ready · {grouped(Math.round(view.ultraBytes / (1024 * 1024)))} MiB
+            </p>
+          {:else if view.ultraEnabled}
+            <p class="ultra-status muted">Not prepared yet. It will be built before Play, or you can prepare it now.</p>
+          {:else}
+            <p class="ultra-status muted">Off. No generated Ultra4K pack is used.</p>
+          {/if}
+        </div>
+        <div class="controls ultra-controls">
+          <label class="toggle">
+            <span>{view.ultraEnabled ? "On" : "Off"}</span>
+            <input
+              type="checkbox"
+              class="switch"
+              role="switch"
+              aria-label="Pre-render Ultra textures before Play"
+              checked={view.ultraEnabled}
+              disabled={busy}
+              onchange={(e) => void set({ ultra: e.currentTarget.checked })}
+            />
+          </label>
+          <button class="primary small" disabled={busy || !view.ultraEnabled} onclick={() => void prepareUltra()}>
+            {#if busy}<span class="spinner"></span>{/if}{view.ultraReady ? "Check / rebuild now" : "Prepare now"}
+          </button>
+        </div>
+      </div>
+      {#if view.ultraReady}<button class="ghost small" disabled={busy} onclick={() => void deleteUltra()}
+          >Delete generated texture cache</button
+        >{/if}
+    {/if}
     <ol class="steps">
       <li>
         <div>
@@ -211,6 +293,45 @@
   }
   .lead {
     margin: 0;
+  }
+  .ultra-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px 16px;
+    margin: 8px 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--raised);
+  }
+  .ultra-copy {
+    min-width: 0;
+  }
+  .ultra-copy h3 {
+    margin: 0 0 4px;
+  }
+  .ultra-copy p {
+    margin: 0;
+  }
+  .ultra-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 7px !important;
+    font-size: 0.8125rem;
+  }
+  .ultra-controls {
+    flex-shrink: 0;
+  }
+  @media (max-width: 760px) {
+    .ultra-card {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .ultra-controls {
+      justify-content: flex-start;
+    }
   }
   .toggle {
     display: inline-flex;

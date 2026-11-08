@@ -557,8 +557,18 @@ impl Action {
             None => self.label.clone(),
         };
         let mut env = Vec::new();
+        if self.id == crate::graphics_preparation::BAKE_ACTION {
+            if let Some(v) = ctx.version {
+                crate::launcher_addons::require(
+                    &crate::saves::data_home(),
+                    crate::graphics_preparation::ID,
+                    &v.game,
+                    &v.name,
+                )?;
+            }
+        }
         // The bake transcript identifies the running launcher even when it uses another checkout.
-        if self.id == crate::enhanced::BAKE_ACTION {
+        if self.id == crate::graphics_preparation::BAKE_ACTION {
             env.push(("OPENRAC_LAUNCHER_VERSION".to_string(), env!("CARGO_PKG_VERSION").to_string()));
         }
         // Developer tools on: the native port offers its developer features (a level select in the
@@ -610,7 +620,29 @@ impl Action {
                 if crate::enhanced::supported(&v.game, &v.name) {
                     let file = crate::differences::settings_file(&crate::saves::data_home(), &v.game, &v.name);
                     let text = std::fs::read_to_string(file).unwrap_or_default();
-                    if let Some((more_env, more_args)) =
+                    let preparation = crate::launcher_addons::active(
+                        &crate::saves::data_home(),
+                        crate::graphics_preparation::ID,
+                        &v.game,
+                        &v.name,
+                    );
+                    args.extend(["--prepared-graphics".into(), if preparation { "1" } else { "0" }.into()]);
+                    args.extend([
+                        "--ultra-textures".into(),
+                        if crate::differences::read_switch(&text, crate::texture_packs::ULTRA_SWITCH).unwrap_or(true) {
+                            "1"
+                        } else {
+                            "0"
+                        }
+                        .into(),
+                    ]);
+                    if preparation {
+                        args.extend([
+                            "--prepared-meshes".into(),
+                            Path::new(&data).join("prepared-graphics/meshes").join(&v.name).display().to_string(),
+                        ]);
+                    }
+                    if let Some((more_env, mut more_args)) =
                         crate::enhanced::play_additions(&text, Path::new(&data), &v.name)
                     {
                         for (key, value) in more_env {
@@ -621,6 +653,9 @@ impl Action {
                             } else if !env.iter().any(|(k, _)| *k == key) {
                                 env.push((key, value));
                             }
+                        }
+                        if !preparation {
+                            more_args.clear();
                         }
                         args.extend(more_args);
                     }
@@ -1034,14 +1069,14 @@ mod tests {
         assert_eq!(plan.args[1], data.display().to_string());
         assert!(!plan.env.iter().any(|(k, _)| k == "OPENRAC_LOG"));
         // The Mods switch off, the default: no native mods.
-        assert_eq!(plan.args.last().map(String::as_str), Some("--no-mods"), "{:?}", plan.args);
+        assert!(plan.args.iter().any(|a| a == "--no-mods"), "{:?}", plan.args);
         assert!(!plan.args.iter().any(|a| a == "--plugins"), "{:?}", plan.args);
         // On: the list the launcher writes, named explicitly: <data>/plugins/plugins.json.
         let with_mods = Config { play_with_mods: true, ..installed.clone() };
         let plan = play.plan(&ctx(&with_mods)).unwrap();
         assert!(!plan.args.iter().any(|a| a == "--no-mods"), "{:?}", plan.args);
         let list = data.join("plugins").join("plugins.json").display().to_string();
-        assert_eq!(plan.args[plan.args.len() - 2..], ["--plugins".to_string(), list], "{:?}", plan.args);
+        assert!(plan.args.windows(2).any(|a| a == ["--plugins", &list]), "{:?}", plan.args);
         // A selected map requires an executable that understands map sessions. With no map,
         // ordinary packs keep their existing command line; Purist mode never requests a map.
         let map_folder = tempfile::tempdir().unwrap();
@@ -1114,6 +1149,19 @@ mod tests {
         std::fs::write(&file, format!("{} = 1\n", crate::enhanced::SWITCH)).unwrap();
         let plan = play.plan(&Context { platform: Platform::Android, ..ctx(&installed) }).unwrap();
         assert!(plan.env.contains(&("OPENRAC_GL_API".to_string(), "vulkan".to_string())), "{:?}", plan.env);
+        assert!(!plan.args.iter().any(|a| a == "--probes"));
+        assert!(plan.args.windows(2).any(|a| a == ["--prepared-graphics", "0"]));
+        crate::launcher_addons::set_enabled(
+            &crate::saves::data_home(),
+            crate::graphics_preparation::ID,
+            "rac1",
+            "pal",
+            true,
+        )
+        .unwrap();
+        crate::launcher_addons::tests::install_fixture(&crate::saves::data_home(), crate::graphics_preparation::ID);
+        let plan = play.plan(&Context { platform: Platform::Android, ..ctx(&installed) }).unwrap();
+        assert!(plan.args.windows(2).any(|a| a == ["--prepared-graphics", "1"]));
         let probes = crate::enhanced::probes_dir(&data, "pal").display().to_string();
         assert!(plan.args.ends_with(&["--probes".to_string(), probes]), "{:?}", plan.args);
         // Enhanced graphics is Vulkan only, so it wins over Settings' Metal on a Mac.

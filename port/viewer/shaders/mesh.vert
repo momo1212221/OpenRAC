@@ -73,6 +73,8 @@ uniform int probe_mode;
 uniform int probe_receiver;
 uniform int sun_shadow_enabled;
 uniform int hero_shadow_enabled;
+uniform int rt_sun_visibility_enabled;
+uniform samplerBuffer rt_sun_visibility;
 
 #ifdef OPENRAC_HERO_WETNESS
 layout(std430,binding=9) readonly buffer HeroWetness { float hero_wetness[]; };
@@ -88,6 +90,7 @@ out vec2 v_uv;
 out vec4 v_colour;
 out vec3 v_normal;
 out vec3 v_world_position;
+out float v_rt_sun_visibility;
 out vec4 v_probe_multiplier;
 flat out vec4 v_probe_selector;
 flat out int v_lit;
@@ -159,6 +162,9 @@ void main() {
     normal_model = mat3(water_pose) * normal_model;
 #endif
     v_world_position = world.xyz;
+    v_rt_sun_visibility = rt_sun_visibility_enabled != 0
+                              ? texelFetch(rt_sun_visibility, gl_VertexID).r
+                              : 1.0;
 #ifdef OPENRAC_HERO_FUR
     v_hero_fur = hero_fur_receiver(gl_VertexID, palette, moby_light.w);
 #endif

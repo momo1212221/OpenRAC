@@ -80,6 +80,7 @@ enum {
     MOBY_ANIM_TIME = 0x54,
     MOBY_ANIM_SPEED = 0x58,
     MOBY_UPDATE = 0x74,
+    MOBY_COLLISION = 0x94,
     MOBY_COLLISION_OFF = 0x98,
     MOBY_HIT = 0xA4,
     MOBY_OCLASS = 0xA6,
@@ -681,13 +682,23 @@ static void hit_tell(gaddr victim, gaddr record) {
         velocity[c] = GREF(float, record + 0x10u + 4u * c);
     }
     const gaddr attacker = GREF(gaddr, record + HIT_ATTACKER);
+    float source_position[3] = {0, 0, 0};
+    int32_t source_oclass = 0;
+    if (attacker != 0) {
+        source_oclass = GREF(int16_t, attacker + MOBY_OCLASS);
+        for (unsigned c = 0; c < 3; ++c) {
+            source_position[c] = GREF(float, attacker + MOBY_POS + 4u * c);
+        }
+    }
     if (openrac_game_moby_hit(
             rac1_moby_slot(victim),
             attacker != 0 ? rac1_moby_slot(attacker) : -1,
             GREF(uint32_t, record + HIT_MASK),
             GREF(float, record + HIT_DAMAGE),
             position,
-            velocity
+            velocity,
+            source_oclass,
+            source_position
         )) {
         GREF(uint8_t, victim + MOBY_HIT) = 0xFF;
     }
@@ -728,16 +739,72 @@ void func_L00_0025AAC0(gaddr victim, gaddr source) {
     hit_written(victim, before, old);
 }
 
+typedef struct {
+    int32_t oclass;
+    uint32_t loads;
+    gaddr moby;
+} remote_hit_source;
+
+#define REMOTE_HIT_SOURCES 16
+static remote_hit_source remote_hit_sources[REMOTE_HIT_SOURCES];
+
+static gaddr remote_hit_source_moby(int32_t oclass, const float position[3]) {
+    if (oclass <= 0 || !in_level()) {
+        return 0;
+    }
+    const uint32_t loads = rac1_moby_generation();
+    remote_hit_source* free_source = NULL;
+    for (unsigned i = 0; i < REMOTE_HIT_SOURCES; ++i) {
+        remote_hit_source* source = &remote_hit_sources[i];
+        if (source->moby != 0 && source->loads == loads && source->oclass == oclass) {
+            for (unsigned c = 0; c < 3; ++c) {
+                GREF(float, source->moby + MOBY_POS + 4u * c) =
+                    position != NULL ? position[c] : 0.0f;
+            }
+            return source->moby;
+        }
+        if (free_source == NULL && (source->moby == 0 || source->loads != loads)) {
+            free_source = source;
+        }
+    }
+    if (free_source == NULL) {
+        return 0;
+    }
+    const gaddr moby = rac1_world_create_moby(oclass);
+    if (moby == 0 || GREF(gaddr, moby + MOBY_CLASS) == 0) {
+        if (moby != 0) {
+            rac1_world_moby_kill(moby);
+        }
+        return 0;
+    }
+    GREF(gaddr, moby + MOBY_UPDATE) = 0;
+    GREF(uint32_t, moby + MOBY_COLLISION) = 0;
+    GREF(int32_t, moby + MOBY_COLLISION_OFF) = -1;
+    for (unsigned c = 0; c < 3; ++c) {
+        GREF(float, moby + MOBY_POS + 4u * c) = position != NULL ? position[c] : 0.0f;
+    }
+    rac1_world_moby_hide(moby, 1);
+    free_source->oclass = oclass;
+    free_source->loads = loads;
+    free_source->moby = moby;
+    return moby;
+}
+
 void rac1_world_post_hit(
     gaddr victim,
     gaddr attacker,
     uint32_t mask,
     float damage,
     const float position[3],
-    const float velocity[3]
+    const float velocity[3],
+    int32_t source_oclass,
+    const float source_position[3]
 ) {
     if (victim == 0 || !in_level()) {
         return;
+    }
+    if (attacker == 0 && source_oclass > 0) {
+        attacker = remote_hit_source_moby(source_oclass, source_position);
     }
     GFRAME(vectors, 32);
     for (unsigned c = 0; c < 4; ++c) {

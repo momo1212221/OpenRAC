@@ -24,6 +24,8 @@ pub struct BakeStatus {
     pub failed: usize,
     /// Levels a stopped bake left part way: the next bake goes on from what they have.
     pub partial: usize,
+    // Another process currently owns the cache lock (for example a terminal-started bake).
+    pub busy: bool,
 }
 
 fn sha256(path: &Path) -> Option<String> {
@@ -45,10 +47,11 @@ fn baker_profile(baker: &Path, level: &Path) -> Option<String> {
         baker.to_path_buf(),
         level.to_path_buf(),
         format!(
-            "{:?} {:?} {:?}",
+            "{:?} {:?} {:?} {:?}",
             file(baker),
             file(&level.join("probe-bake.json")),
-            file(&level.join("manifest.json"))
+            file(&level.join("manifest.json")),
+            file(&level.parent().unwrap_or(level).join("cloud-profile.json"))
         ),
     );
     if let Some(known) = CACHE.lock().unwrap().get_or_insert_with(HashMap::new).get(&key) {
@@ -80,6 +83,11 @@ fn verified_bake(baked: &Path, reflections: bool) -> bool {
         return false;
     };
     if result["verified"] != Value::Bool(true) {
+        return false;
+    }
+    let stamp = std::fs::read_to_string(baked.join(STAMP)).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    let requires_clouds = stamp.as_ref().is_some_and(|s| s["profile"]["atmosphere"]["cloud_algorithm"].is_number());
+    if requires_clouds && !std::fs::metadata(baked.join("clouds.orpc")).is_ok_and(|m| m.is_file() && m.len() >= 56) {
         return false;
     }
     if result["empty"] == Value::Bool(true) {
@@ -163,14 +171,81 @@ fn prepared_ocean(level: &Path) -> bool {
 pub fn bake_status(levels: &Path, probes: &Path, baker: &Path, profiles: &Path, version: &str) -> BakeStatus {
     let game = version.split_once('/').map(|(game, _)| game).unwrap_or(version);
     let version = version.replace('/', "-");
-    bake_status_on(levels, probes, baker, SHIPS_BAKER, &|level, stamp| {
+    let mut status = bake_status_on(levels, probes, baker, SHIPS_BAKER, &|level, stamp| {
         if lighting_profile_needs_refresh(profiles, &version, level)
             || !prepared_emission(level, baker, profiles, game, &version, stamp)
         {
             return None;
         }
         baker_profile(baker, level)
-    })
+    });
+    status.busy = bake_cache_busy(baker, probes);
+    status
+}
+
+/// Ask the native baker to test the exact cache lock it uses for a real bake. Unsupported or
+/// unavailable bakers simply report idle so older installations keep working.
+fn bake_cache_busy(baker: &Path, probes: &Path) -> bool {
+    if !probes.is_dir() {
+        return false;
+    }
+    // Unix can inspect the authoritative kernel lock directly, avoiding a helper process while the
+    // page polls. Other platforms ask a current native baker for the same lock state.
+    if let Some(state) = os_cache_busy(probes) {
+        return state;
+    }
+    if !baker.is_file() {
+        return false;
+    }
+    if let Some(state) = crate::detect::quiet(baker)
+        .arg("--cache-status")
+        .arg(probes)
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| match String::from_utf8_lossy(&out.stdout).trim() {
+            "busy" => Some(true),
+            "idle" => Some(false),
+            _ => None,
+        })
+    {
+        return state;
+    }
+    os_cache_busy(probes).unwrap_or(false)
+}
+
+/// Compatibility for an older baker that predates `--cache-status`: on Unix the launcher can
+/// probe the same advisory lock itself. The lock file is deliberately not deleted; an old stale
+/// file is harmless because only the kernel-held lock means busy.
+#[cfg(unix)]
+fn os_cache_busy(probes: &Path) -> Option<bool> {
+    use std::fs::OpenOptions;
+    use std::os::fd::AsRawFd;
+
+    unsafe extern "C" {
+        fn flock(fd: i32, operation: i32) -> i32;
+    }
+    const LOCK_EX: i32 = 2;
+    const LOCK_NB: i32 = 4;
+    const LOCK_UN: i32 = 8;
+
+    let path = probes.join("probe-bake.lock");
+    if !path.exists() {
+        return Some(false);
+    }
+    let file = OpenOptions::new().read(true).write(true).open(path).ok()?;
+    let fd = file.as_raw_fd();
+    let result = unsafe { flock(fd, LOCK_EX | LOCK_NB) };
+    if result != 0 {
+        return Some(true);
+    }
+    let _ = unsafe { flock(fd, LOCK_UN) };
+    Some(false)
+}
+
+#[cfg(not(unix))]
+fn os_cache_busy(_: &Path) -> Option<bool> {
+    None
 }
 
 // Detect added or removed recipes directly. Only an existing recipe needs a baker query.
@@ -285,6 +360,23 @@ pub fn bake_log(config: &crate::config::Config, key: &str, path: &Path) -> Resul
     checked_bake_log(&probes, path)
 }
 
+/// Tail of the fixed lighting report, bounded to 128 KiB; callers cannot select arbitrary paths.
+pub fn log_tail(config: &crate::config::Config, key: &str) -> Result<String, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let (_, probes, _) = bake_folders(config, key)?;
+    let path = probes.join("probe-bake.log");
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    let path = checked_bake_log(&probes, &path)?;
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let size = file.metadata().map_err(|e| e.to_string())?.len();
+    file.seek(SeekFrom::Start(size.saturating_sub(128 << 10))).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    file.take(128 << 10).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 fn checked_bake_log(probes: &Path, path: &Path) -> Result<PathBuf, String> {
     let root = probes.canonicalize().map_err(|e| format!("Lighting folder: {e}"))?;
     let target = path.canonicalize().map_err(|e| format!("Lighting log: {e}"))?;
@@ -314,6 +406,54 @@ fn bake_folders(config: &crate::config::Config, key: &str) -> Result<(PathBuf, P
     }
 }
 
+fn cloud_profile(text: &str) -> Value {
+    let mut atmosphere = serde_json::Map::new();
+    let mut colour = vec![Value::Null; 3];
+    for spec in super::settings().iter().filter(|s| s.key.starts_with("cloud_")) {
+        let mut value = crate::enhanced::read_setting(text, spec);
+        // Canonical f32 values keep the cache stable when the native port rewrites its INI.
+        if spec.kind == "float" {
+            value = Value::from(value.as_f64().unwrap_or_default() as f32 as f64);
+        }
+        match spec.key.as_str() {
+            "cloud_red" => colour[0] = value,
+            "cloud_green" => colour[1] = value,
+            "cloud_blue" => colour[2] = value,
+            key => {
+                atmosphere.insert(key.into(), value);
+            }
+        }
+    }
+    atmosphere.insert("cloud_colour".into(), Value::Array(colour));
+    serde_json::json!({"version": 1, "atmosphere": atmosphere})
+}
+
+/// Freeze saved cloud choices into the version-wide profile consumed by both GI and rendering.
+/// Writing the same profile is a no-op, preserving semantic cache reuse and in-flight reads.
+pub fn sync_cloud_profile(config: &crate::config::Config, key: &str, home: &Path) -> Result<(), String> {
+    let Some((game, version)) = key.split_once('/') else {
+        return Err("invalid game version".into());
+    };
+    let Ok((levels, probes, baker)) = bake_folders(config, key) else {
+        return Ok(());
+    };
+    if !levels.is_dir() {
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(crate::differences::settings_file(home, game, version)).unwrap_or_default();
+    let profile = cloud_profile(&text);
+    let path = levels.join("cloud-profile.json");
+    let previous = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    if previous.as_ref() == Some(&profile) {
+        return Ok(());
+    }
+    if bake_cache_busy(&baker, &probes) {
+        return Err("Wait for lighting preparation to finish before changing cloud settings".into());
+    }
+    let text = serde_json::to_string_pretty(&profile).map_err(|e| e.to_string())? + "\n";
+    crate::differences::write_settings(&path, &text)
+}
+
 /// The bake status of a version (`rac1/pal`) from its probe-bake action's folders and baker.
 pub fn version_bake_status(config: &crate::config::Config, key: &str) -> BakeStatus {
     match bake_folders(config, key) {
@@ -330,7 +470,10 @@ pub fn version_bake_status(config: &crate::config::Config, key: &str) -> BakeSta
 /// again; the levels and the settings are not touched. A folder that is not the bakes' (one that
 /// holds anything but level bakes and the bake's report) is refused rather than emptied.
 pub fn delete_bakes(config: &crate::config::Config, key: &str) -> Result<(), String> {
-    let (_, probes, _) = bake_folders(config, key)?;
+    let (_, probes, baker) = bake_folders(config, key)?;
+    if bake_cache_busy(&baker, &probes) {
+        return Err("lighting preparation is still running; its cache was not deleted".into());
+    }
     delete_bake_folder(&probes)
 }
 
@@ -363,6 +506,66 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn cloud_preferences_resolve_to_one_version_wide_bake_profile() {
+        let defaults = cloud_profile("");
+        assert_eq!(defaults["version"], 1);
+        assert_eq!(defaults["atmosphere"]["cloud_enabled"], true);
+        assert_eq!(defaults["atmosphere"]["cloud_resolution"], 64);
+        let changed = cloud_profile("cloud_seed = 17\ncloud_density = 0.07\ncloud_red = 0.5\ncloud_enabled = 0\n");
+        assert_eq!(changed["atmosphere"]["cloud_seed"], 17);
+        assert!((changed["atmosphere"]["cloud_density"].as_f64().unwrap() - 0.07).abs() < 1e-7);
+        assert_eq!(changed["atmosphere"]["cloud_colour"][0], 0.5);
+        assert_eq!(changed["atmosphere"]["cloud_enabled"], false);
+        assert_eq!(cloud_profile("volume = 25\n"), defaults);
+        assert_eq!(cloud_profile("cloud_red = 0.97\n"), cloud_profile("cloud_red = 0.970000029\n"));
+    }
+
+    #[test]
+    #[ignore = "requires OPENRAC_TEST_BAKER pointing to the native baker"]
+    fn cloud_profile_is_accepted_by_native_baker() {
+        let baker = std::env::var_os("OPENRAC_TEST_BAKER").expect("OPENRAC_TEST_BAKER");
+        let root = tempfile::tempdir().unwrap();
+        let level = root.path().join("level_00");
+        std::fs::create_dir(&level).unwrap();
+        std::fs::write(
+            root.path().join("cloud-profile.json"),
+            serde_json::to_vec(&cloud_profile("cloud_seed = 17\n")).unwrap(),
+        )
+        .unwrap();
+        let output =
+            std::process::Command::new(baker).args(["--print-profile", "--level-dir"]).arg(level).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let resolved: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(resolved["atmosphere"]["cloud_seed"], 17);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_busy_status_tracks_the_kernel_lock_not_the_lock_files_presence() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+
+        unsafe extern "C" {
+            fn flock(fd: i32, operation: i32) -> i32;
+        }
+        const LOCK_EX: i32 = 2;
+        const LOCK_NB: i32 = 4;
+        const LOCK_UN: i32 = 8;
+
+        let root = temp("busy-lock");
+        let path = root.join("probe-bake.lock");
+        std::fs::write(&path, "0").unwrap();
+        assert_eq!(os_cache_busy(&root), Some(false), "a stale lock file is idle");
+
+        let file = OpenOptions::new().read(true).write(true).open(&path).unwrap();
+        assert_eq!(unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) }, 0);
+        assert_eq!(os_cache_busy(&root), Some(true), "a held OS lock is busy");
+        let _ = unsafe { flock(file.as_raw_fd(), LOCK_UN) };
+        assert_eq!(os_cache_busy(&root), Some(false));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

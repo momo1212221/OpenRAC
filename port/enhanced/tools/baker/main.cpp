@@ -215,6 +215,13 @@ void water_command(int argc, char** argv) {
 // Dispatches native enhanced-baker stages and reports failures at the command-line boundary.
 int main(int argc, char** argv) {
     try {
+        // The launcher asks this before offering another bake. It acquires and immediately releases
+        // the same OS lock as a real bake, so stale lock files do not look busy.
+        if (argc == 3 && std::string_view(argv[1]) == "--cache-status") {
+            std::cout << (bake_cache_busy(argv[2]) ? "busy" : "idle") << '\n';
+            return 0;
+        }
+
         if (argc == 4 && std::string_view(argv[1]) == "--print-emission-fingerprint") {
             std::cout << emission_texture_fingerprint(argv[2], argv[3]) << '\n';
             return 0;

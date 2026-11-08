@@ -1,22 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2026 the OpenRAC contributors
 
-//! Enhanced graphics: the experimental probe lighting, modern shadows and ambient occlusion of the
-//! native port (port/enhanced), as a built-in entry of the Mods tab. It is not a mod the player
-//! installs: the game carries the code, off unless `enhanced_rendering = 1` is in the version's
-//! settings file (docs/port/SETTINGS.md), and the entry writes that key and the others it shows
-//! there, a line at a time, as the game fixes are (differences.rs).
-//!
-//! With it on, Play starts the game with the Vulkan renderer, the only one that has it, and with
-//! `--probes <data>/probes/<version>`: the probe bakes made on this computer from the player's own
-//! extracted levels by the `probe-bake` action (openrac-enhanced-baker --bake-all --update).
-//! Each baked level records what it was made from (`openrac-bake.json`); a level whose export or
-//! baker changed since counts as not ready and is baked again. The baker is named by what it says
-//! it bakes (`--print-profile`: its probe format, bake version and quality), not by its file, which
-//! every build of a new commit changes. A level without a bake keeps the
-//! original lighting. Intel Macs ship without the baker (the maintainers' decision: Embree's static
-//! library cannot be built there, tools/build_port.py), so the entry says that there instead of
-//! offering a bake.
+//! Enhanced graphics owns the native renderer and its runtime quality settings.
+//! The independently enabled graphics_preparation module owns the baker, caches,
+//! prepared clouds, Ultra/AI assets and Metal sunlight options. Enabling this
+//! renderer never starts preparation. Their shared port settings and bake formats
+//! let both modules work together; compatibility exports remain for older callers.
 
 use std::path::{Path, PathBuf};
 
@@ -24,10 +13,12 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::differences::{read_switch, read_value, settings_file, with_value, write_settings};
-use crate::plugins::{check_value, Choice, PluginView, SettingSpec, SettingView};
+use crate::plugins::{check_value, Choice, PluginView, Preset, SettingSpec, SettingView};
 
-mod bakes;
-pub use bakes::{bake_log, bake_status, delete_bakes, version_bake_status, BakeStatus};
+// Compatibility exports; preparation is owned by its independent module.
+pub use crate::graphics_preparation::{
+    bake_log, bake_status, delete_bakes, sync_cloud_profile, version_bake_status, BakeStatus,
+};
 
 /// The entry's id on the Mods tab (`?mod=enhanced-graphics`).
 pub const ID: &str = "enhanced-graphics";
@@ -54,7 +45,7 @@ pub fn probes_dir(data: &Path, version: &str) -> PathBuf {
     data.join("probes").join(version)
 }
 
-fn spec(key: &str, name: &str, kind: &str, default: Value, description: &str) -> SettingSpec {
+pub(crate) fn spec(key: &str, name: &str, kind: &str, default: Value, description: &str) -> SettingSpec {
     SettingSpec {
         key: key.into(),
         name: name.into(),
@@ -73,14 +64,26 @@ fn spec(key: &str, name: &str, kind: &str, default: Value, description: &str) ->
     }
 }
 
-fn range(mut s: SettingSpec, min: f64, max: f64, step: f64) -> SettingSpec {
+pub(crate) fn range(mut s: SettingSpec, min: f64, max: f64, step: f64) -> SettingSpec {
     (s.min, s.max, s.step) = (Some(min), Some(max), Some(step));
     s
 }
 
-fn advanced(mut s: SettingSpec) -> SettingSpec {
-    s.group = "advanced".into();
+pub(crate) fn group(mut s: SettingSpec, name: &str) -> SettingSpec {
+    s.group = name.into();
     s
+}
+
+fn advanced(s: SettingSpec) -> SettingSpec {
+    group(s, "advanced")
+}
+
+fn preset(id: &str, name: &str, values: &[(&str, Value)]) -> Preset {
+    Preset {
+        id: id.into(),
+        name: name.into(),
+        values: values.iter().map(|(key, value)| ((*key).into(), value.clone())).collect(),
+    }
 }
 
 /// The settings the entry's page shows, with the port's defaults and ranges (settings.cpp). The
@@ -88,6 +91,7 @@ fn advanced(mut s: SettingSpec) -> SettingSpec {
 /// own Enhanced menu.
 pub fn settings() -> Vec<SettingSpec> {
     let mut quality = spec("gtao_quality", "Occlusion quality", "choice", "performance".into(), "");
+    quality.group = "ambient_occlusion".into();
     quality.choices = vec![
         Choice { value: "performance".into(), name: "Performance".into() },
         Choice { value: "quality".into(), name: "Quality".into() },
@@ -105,6 +109,7 @@ pub fn settings() -> Vec<SettingSpec> {
         Choice { value: "medium".into(), name: "Medium".into() },
         Choice { value: "high".into(), name: "High".into() },
     ];
+    shadows.group = "lighting".into();
     let mut texture_filter = spec(
         "texture_filter",
         "Texture upscaling",
@@ -115,7 +120,10 @@ pub fn settings() -> Vec<SettingSpec> {
     texture_filter.choices = vec![
         Choice { value: "normal".into(), name: "Normal".into() },
         Choice { value: "edge-aware".into(), name: "Edge-aware (2x)".into() },
+        Choice { value: "edge-aware-4x".into(), name: "Edge-aware (4x)".into() },
+        Choice { value: "edge-aware-8x".into(), name: "Edge-aware (8x)".into() },
     ];
+    texture_filter.group = "textures".into();
     let mut temporal = spec(
         "temporal_quality",
         "Temporal upscaling",
@@ -130,32 +138,415 @@ pub fn settings() -> Vec<SettingSpec> {
         Choice { value: "balanced".into(), name: "Balanced".into() },
         Choice { value: "performance".into(), name: "Performance".into() },
     ];
+    temporal.group = "rendering".into();
+    let mut volumetric = spec(
+        "volumetric_quality",
+        "Volumetric lighting",
+        "choice",
+        "off".into(),
+        "Participating-light/fog quality for beams, glow and atmospheric depth.",
+    );
+    volumetric.choices = vec![
+        Choice { value: "off".into(), name: "Off".into() },
+        Choice { value: "low".into(), name: "Low".into() },
+        Choice { value: "medium".into(), name: "Medium".into() },
+        Choice { value: "high".into(), name: "High".into() },
+    ];
+    volumetric.group = "lighting".into();
+
+    let mut msaa =
+        spec("msaa", "MSAA", "choice", "1".into(), "Multisample anti-aliasing before temporal reconstruction.");
+    msaa.choices = ["1", "2", "4", "8", "16"]
+        .into_iter()
+        .map(|value| Choice {
+            value: value.into(),
+            name: if value == "1" { "Off".into() } else { format!("{value}x") },
+        })
+        .collect();
+    msaa.group = "rendering".into();
+
+    let mut anisotropy = spec(
+        "anisotropy",
+        "Anisotropic filtering",
+        "choice",
+        "auto".into(),
+        "Keeps textures sharp at oblique viewing angles.",
+    );
+    anisotropy.choices = ["auto", "1", "2", "4", "8", "16"]
+        .into_iter()
+        .map(|value| Choice {
+            value: value.into(),
+            name: match value {
+                "auto" => "Auto".into(),
+                "1" => "Off".into(),
+                _ => format!("{value}x"),
+            },
+        })
+        .collect();
+    anisotropy.group = "textures".into();
     vec![
-        shadows,
-        spec("gtao", "Ambient occlusion", "bool", true.into(), "Soft shade in corners and under objects."),
-        quality,
-        texture_filter,
+
+        group(
+            range(
+                spec(
+                    "render_scale",
+                    "Render scale",
+                    "int",
+                    100.into(),
+                    "Internal world resolution as a percentage of the window. Temporal upscaling then reconstructs to the final output.",
+                ),
+                25.0,
+                400.0,
+                5.0,
+            ),
+            "rendering",
+        ),
+        msaa,
         temporal,
-        spec(
-            "agx_preview",
-            "Color Correction",
+        group(
+            range(
+                spec(
+                    "temporal_sharpness",
+                    "Upscaling sharpening",
+                    "float",
+                    0.2.into(),
+                    "RCAS sharpening after temporal reconstruction.",
+                ),
+                0.0,
+                1.0,
+                0.05,
+            ),
+            "rendering",
+        ),
+        texture_filter,
+        anisotropy,
+        shadows,
+        volumetric,
+        group(
+            spec(
+                "local_lights",
+                "Dynamic lights",
+                "bool",
+                true.into(),
+                "Lets native projectile/explosion lights and authored lamp/object emitters illuminate the world.",
+            ),
+            "lighting",
+        ),
+        group(
+            spec(
+                "authored_object_lights",
+                "Additional lamp lights",
+                "bool",
+                false.into(),
+                "Adds the class-bound lamp/object emitters. Leave this off for the older Enhanced lighting look.",
+            ),
+            "lighting",
+        ),
+        group(
+            range(
+                spec(
+                    "probe_gi_multiplier",
+                    "Global illumination strength",
+                    "float",
+                    1.0.into(),
+                    "Multiplies the baked indirect lighting without requiring a new bake.",
+                ),
+                0.0,
+                5.0,
+                0.05,
+            ),
+            "lighting",
+        ),
+        group(
+            spec(
+                "rim_light",
+                "Rim lighting",
+                "bool",
+                true.into(),
+                "Adds a restrained edge light to characters and objects so silhouettes read more clearly.",
+            ),
+            "lighting",
+        ),
+        group(
+            spec(
+                "bloom",
+                "Bloom",
+                "bool",
+                true.into(),
+                "Lets bright lamps, projectiles and emissive materials cast a soft optical glow before the HUD.",
+            ),
+            "post_processing",
+        ),
+        group(
+            range(
+                spec(
+                    "bloom_strength",
+                    "Bloom strength",
+                    "float",
+                    0.35.into(),
+                    "Controls how strongly bright weapon effects, explosions, lamps and emissive materials glow.",
+                ),
+                0.0,
+                1.0,
+                0.05,
+            ),
+            "post_processing",
+        ),
+        group(
+            range(
+                spec(
+                    "bloom_radius",
+                    "Bloom radius",
+                    "float",
+                    1.0.into(),
+                    "Controls the spread of bright world emission without changing the native-resolution HUD.",
+                ),
+                0.5,
+                2.0,
+                0.1,
+            ),
+            "post_processing",
+        ),
+        group(
+            spec(
+                "agx_preview",
+                "Color correction",
+                "bool",
+                true.into(),
+                "Balances colour and contrast for a softer, more natural image.",
+            ),
+            "color",
+        ),
+        group(
+            range(
+                spec("agx_exposure", "Exposure", "float", 0.25.into(), "Base exposure in photographic stops."),
+                -4.0,
+                4.0,
+                0.05,
+            ),
+            "color",
+        ),
+        group(
+            range(
+                spec("agx_brightness", "Brightness", "float", 0.5.into(), "Makes the image darker or brighter."),
+                0.0,
+                1.0,
+                0.01,
+            ),
+            "color",
+        ),
+        group(
+            spec("gtao", "Ambient occlusion", "bool", true.into(), "Soft shade in corners and under objects."),
+            "ambient_occlusion",
+        ),
+        quality,
+        group(
+            range(
+                spec(
+                    "gtao_radius",
+                    "Occlusion radius",
+                    "float",
+                    1.25.into(),
+                    "How far ambient occlusion searches around a surface point.",
+                ),
+                0.05,
+                8.0,
+                0.05,
+            ),
+            "ambient_occlusion",
+        ),
+        group(
+            range(
+                spec(
+                    "gtao_strength",
+                    "Occlusion strength",
+                    "float",
+                    1.0.into(),
+                    "How dark the ambient occlusion contribution becomes.",
+                ),
+                0.0,
+                3.0,
+                0.05,
+            ),
+            "ambient_occlusion",
+        ),
+        group(
+            spec("motion_blur", "Motion blur", "bool", true.into(), "Subtle motion blur to enhance animations."),
+            "motion",
+        ),
+        group(
+            range(
+                spec(
+                    "motion_blur_strength",
+                    "Motion blur strength",
+                    "float",
+                    0.5.into(),
+                    "Exposure strength of the motion reconstruction.",
+                ),
+                0.0,
+                1.0,
+                0.05,
+            ),
+            "motion",
+        ),
+        advanced(range(
+            spec("gtao_slices", "GTAO directions", "int", 4.into(), "Horizon-search directions."),
+            1.0,
+            12.0,
+            1.0,
+        )),
+        advanced(range(
+            spec("gtao_steps", "GTAO steps", "int", 6.into(), "Samples on each side of every GTAO direction."),
+            4.0,
+            24.0,
+            1.0,
+        )),
+        advanced(spec(
+            "gtao_half_resolution",
+            "Half-resolution GTAO",
             "bool",
             true.into(),
-            "Balances colour and contrast for a softer, more natural image, and lets you adjust brightness.",
-        ),
-        range(
-            spec("agx_brightness", "Brightness", "float", 0.5.into(), "Makes the image darker or brighter."),
+            "Evaluates GTAO at half resolution and upsamples it along depth edges.",
+        )),
+        advanced(spec(
+            "gtao_hi_z",
+            "Hierarchical-depth GTAO",
+            "bool",
+            false.into(),
+            "Uses hierarchical depth for longer-distance GTAO horizon samples.",
+        )),
+        advanced(range(
+            spec(
+                "rim_light_strength",
+                "Rim-light strength",
+                "float",
+                0.30.into(),
+                "Intensity of the enhanced edge light.",
+            ),
             0.0,
             1.0,
             0.01,
-        ),
-        spec("motion_blur", "Motion blur", "bool", true.into(), "Subtle motion blur to enhance animations."),
-        advanced(range(spec("temporal_sharpness", "Upscaling sharpening", "float", 0.2.into(), ""), 0.0, 1.0, 0.05)),
+        )),
+        advanced(range(
+            spec(
+                "rim_light_falloff",
+                "Rim-light falloff",
+                "float",
+                6.46.into(),
+                "Higher values make the lit edge narrower.",
+            ),
+            1.0,
+            8.0,
+            0.01,
+        )),
+        advanced(spec(
+            "rim_shadow_lift",
+            "Lift rim-light shadows",
+            "bool",
+            true.into(),
+            "Keeps rim-lit silhouettes readable in deep shadow.",
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_radius",
+                "Motion blur radius",
+                "int",
+                64.into(),
+                "Maximum motion-blur trail radius in display pixels.",
+            ),
+            1.0,
+            128.0,
+            1.0,
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_samples",
+                "Motion blur samples",
+                "int",
+                16.into(),
+                "Reconstruction samples used along each motion trail.",
+            ),
+            8.0,
+            64.0,
+            1.0,
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_min_motion",
+                "Motion blur threshold",
+                "float",
+                1.0.into(),
+                "Ignores exposed motion below this many display pixels.",
+            ),
+            0.1,
+            4.0,
+            0.1,
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_spread",
+                "Motion blur spread",
+                "float",
+                0.5.into(),
+                "Perpendicular trail allowance relative to motion length.",
+            ),
+            0.0,
+            1.0,
+            0.05,
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_depth_tolerance",
+                "Motion blur depth tolerance",
+                "float",
+                0.009.into(),
+                "Depth rejection threshold used to avoid bleeding across surfaces.",
+            ),
+            0.001,
+            0.05,
+            0.001,
+        )),
+        advanced(range(
+            spec(
+                "motion_blur_cutscene_multiplier",
+                "Cutscene blur multiplier",
+                "float",
+                1.0.into(),
+                "Scales motion blur during real-time cutscenes.",
+            ),
+            0.0,
+            2.0,
+            0.05,
+        )),
+        advanced(range(
+            spec(
+                "probe_normal_bias",
+                "GI normal bias",
+                "float",
+                0.5.into(),
+                "Offsets GI receivers along the surface normal to reduce leaking.",
+            ),
+            0.0,
+            2.0,
+            0.05,
+        )),
+        advanced(range(
+            spec(
+                "probe_view_bias",
+                "GI view bias",
+                "float",
+                0.5.into(),
+                "Offsets GI sampling toward the camera to reduce surface artifacts.",
+            ),
+            0.0,
+            2.0,
+            0.05,
+        )),
     ]
 }
 
 /// A setting's value as the settings file holds it, or its default.
-fn read_setting(text: &str, spec: &SettingSpec) -> Value {
+pub(crate) fn read_setting(text: &str, spec: &SettingSpec) -> Value {
     if spec.key == "shadow_quality" && read_switch(text, "enhanced_shadows") == Some(false) {
         return "off".into();
     }
@@ -163,11 +554,17 @@ fn read_setting(text: &str, spec: &SettingSpec) -> Value {
     let value = match (spec.kind.as_str(), raw) {
         ("bool", _) => read_switch(text, &spec.key).map(Value::Bool),
         ("int", Some(v)) => v.parse::<i64>().ok().map(Value::from),
+        ("float", Some(v)) if spec.key.starts_with("cloud_") => {
+            v.parse::<f32>().ok().and_then(|v| v.to_string().parse::<f64>().ok()).map(Value::from)
+        }
         ("float", Some(v)) => v.parse::<f64>().ok().map(Value::from),
         ("choice", Some(v)) => Some(Value::String(v)),
         _ => None,
     };
-    value.and_then(|v| check_value(spec, &v)).unwrap_or_else(|| spec.default.clone())
+    value
+        .and_then(|v| check_value(spec, &v))
+        .filter(|v| spec.key != "cloud_resolution" || v.as_i64().is_some_and(|n| n % 16 == 0))
+        .unwrap_or_else(|| spec.default.clone())
 }
 
 /// A value as the port reads it: 1|0, a plain number, a choice's name.
@@ -194,11 +591,12 @@ pub struct EnhancedView {
 }
 
 /// The entry for `game`/`version`, its values from the version's settings file in `data_home`.
-pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> EnhancedView {
+pub(crate) fn view_all(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> EnhancedView {
     let text = std::fs::read_to_string(settings_file(data_home, game, version)).unwrap_or_default();
     let enabled = read_switch(&text, SWITCH).unwrap_or(false);
     let settings = settings()
         .into_iter()
+        .chain(crate::graphics_preparation::settings())
         .map(|spec| {
             let value = read_setting(&text, &spec);
             SettingView { spec, value, conflicts: Vec::new() }
@@ -219,7 +617,118 @@ pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> En
             reason: String::new(),
             blocked: String::new(),
             settings,
-            presets: Vec::new(),
+            presets: vec![
+                preset(
+                    "ultra-classic",
+                    "Ultra / Classic Lighting",
+                    &[
+                        ("hardware_auto", true.into()),
+                        ("ray_tracing", true.into()),
+                        ("shadow_quality", "high".into()),
+                        ("gtao", true.into()),
+                        ("gtao_quality", "quality".into()),
+                        ("offline_ultra_textures", true.into()),
+                        ("texture_filter", "normal".into()),
+                        ("temporal_quality", "native-aa".into()),
+                        ("volumetric_quality", "high".into()),
+                        ("local_lights", true.into()),
+                        ("authored_object_lights", false.into()),
+                        ("bloom", false.into()),
+                        ("bloom_strength", 0.35.into()),
+                        ("bloom_radius", 1.0.into()),
+                        ("agx_preview", true.into()),
+                        ("agx_brightness", 0.5.into()),
+                        ("motion_blur", true.into()),
+                        ("temporal_sharpness", 0.2.into()),
+                    ],
+                ),
+                preset(
+                    "ultra",
+                    "Ultra / Maximum",
+                    &[
+                        ("hardware_auto", true.into()),
+                        ("ray_tracing", true.into()),
+                        ("shadow_quality", "high".into()),
+                        ("gtao", true.into()),
+                        ("gtao_quality", "quality".into()),
+                        ("offline_ultra_textures", true.into()),
+                        ("texture_filter", "normal".into()),
+                        ("temporal_quality", "native-aa".into()),
+                        ("volumetric_quality", "high".into()),
+                        ("local_lights", true.into()),
+                        ("authored_object_lights", true.into()),
+                        ("bloom", true.into()),
+                        ("bloom_strength", 0.35.into()),
+                        ("bloom_radius", 1.0.into()),
+                        ("agx_preview", true.into()),
+                        ("agx_brightness", 0.5.into()),
+                        ("motion_blur", true.into()),
+                        ("temporal_sharpness", 0.2.into()),
+                    ],
+                ),
+                preset(
+                    "performance",
+                    "Performance",
+                    &[
+                        ("render_scale", 85.into()),
+                        ("msaa", "1".into()),
+                        ("temporal_quality", "performance".into()),
+                        ("shadow_quality", "medium".into()),
+                        ("volumetric_quality", "low".into()),
+                        ("gtao_quality", "performance".into()),
+                        ("gtao_half_resolution", true.into()),
+                        ("motion_blur", false.into()),
+                    ],
+                ),
+                preset(
+                    "balanced",
+                    "Balanced",
+                    &[
+                        ("render_scale", 100.into()),
+                        ("msaa", "1".into()),
+                        ("temporal_quality", "quality".into()),
+                        ("shadow_quality", "high".into()),
+                        ("volumetric_quality", "medium".into()),
+                        ("gtao_quality", "quality".into()),
+                        ("gtao_half_resolution", true.into()),
+                        ("probe_gi_multiplier", 1.0.into()),
+                        ("bloom_strength", 0.35.into()),
+                    ],
+                ),
+                preset(
+                    "maximum",
+                    "Maximum",
+                    &[
+                        ("render_scale", 125.into()),
+                        ("msaa", "4".into()),
+                        ("temporal_quality", "native-aa".into()),
+                        ("shadow_quality", "high".into()),
+                        ("volumetric_quality", "high".into()),
+                        ("gtao_quality", "quality".into()),
+                        ("gtao_half_resolution", false.into()),
+                        ("gtao_slices", 8.into()),
+                        ("gtao_steps", 16.into()),
+                        ("anisotropy", "16".into()),
+                        ("probe_gi_multiplier", 1.0.into()),
+                    ],
+                ),
+                preset(
+                    "cinematic",
+                    "Cinematic",
+                    &[
+                        ("render_scale", 100.into()),
+                        ("temporal_quality", "quality".into()),
+                        ("volumetric_quality", "high".into()),
+                        ("bloom", true.into()),
+                        ("bloom_strength", 0.45.into()),
+                        ("bloom_radius", 1.2.into()),
+                        ("motion_blur", true.into()),
+                        ("motion_blur_strength", 0.65.into()),
+                        ("agx_preview", true.into()),
+                        ("agx_exposure", 0.25.into()),
+                    ],
+                ),
+            ],
             hooks: Vec::new(),
             shared_hooks: Vec::new(),
             native: false,
@@ -232,6 +741,16 @@ pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> En
     }
 }
 
+/// Renderer settings exclude the independently owned preparation controls.
+pub fn view(home: &Path, game: &str, version: &str, bake: BakeStatus) -> EnhancedView {
+    let mut view = view_all(home, game, version, bake);
+    view.entry.settings.retain(|s| !crate::graphics_preparation::owns(&s.spec.key));
+    for preset in &mut view.entry.presets {
+        preset.values.retain(|key, _| !crate::graphics_preparation::owns(key));
+    }
+    view
+}
+
 /// Switches enhanced rendering on or off for the version.
 pub fn set_enabled(data_home: &Path, game: &str, version: &str, on: bool) -> Result<(), String> {
     let file = settings_file(data_home, game, version);
@@ -241,9 +760,12 @@ pub fn set_enabled(data_home: &Path, game: &str, version: &str, on: bool) -> Res
 
 /// Sets one of the entry's settings, checked as the port would read it.
 pub fn set_setting(data_home: &Path, game: &str, version: &str, key: &str, value: &Value) -> Result<(), String> {
-    let all = settings();
+    let all: Vec<_> = settings().into_iter().chain(crate::graphics_preparation::settings()).collect();
     let spec = all.iter().find(|s| s.key == key).ok_or_else(|| format!("{key} is not an enhanced graphics setting"))?;
     let value = check_value(spec, value).ok_or_else(|| format!("{} cannot be {value}", spec.name))?;
+    if key == "cloud_resolution" && value.as_i64().is_none_or(|n| n % 16 != 0) {
+        return Err("Cloud preparation quality must be a multiple of 16".into());
+    }
     let file = settings_file(data_home, game, version);
     let text = std::fs::read_to_string(&file).unwrap_or_default();
     let text = if key == "shadow_quality" {
@@ -257,6 +779,14 @@ pub fn set_setting(data_home: &Path, game: &str, version: &str, key: &str, value
         }
     } else {
         with_value(&text, key, &written(&value))
+    };
+    let text = if key == "cloud_enabled"
+        && value == Value::Bool(true)
+        && read_value(&text, "volumetric_quality").as_deref().unwrap_or("off") == "off"
+    {
+        with_value(&text, "volumetric_quality", "medium")
+    } else {
+        text
     };
     write_settings(&file, &text)
 }
@@ -287,16 +817,58 @@ mod tests {
     }
 
     #[test]
+    fn cloud_settings_are_saved_validated_and_enable_the_atmosphere_grid() {
+        let home = temp("cloud-settings");
+        set_setting(&home, "rac1", "pal", "cloud_enabled", &true.into()).unwrap();
+        set_setting(&home, "rac1", "pal", "cloud_seed", &42.into()).unwrap();
+        assert!(set_setting(&home, "rac1", "pal", "cloud_resolution", &33.into()).is_err());
+        assert!(set_setting(&home, "rac1", "pal", "cloud_density", &(-1.0).into()).is_err());
+        let text = std::fs::read_to_string(settings_file(&home, "rac1", "pal")).unwrap();
+        assert_eq!(read_switch(&text, "cloud_enabled"), Some(true));
+        assert_eq!(read_value(&text, "cloud_seed").as_deref(), Some("42"));
+        assert_eq!(read_value(&text, "volumetric_quality").as_deref(), Some("medium"));
+        let all = crate::graphics_preparation::settings();
+        let red = all.iter().find(|s| s.key == "cloud_red").unwrap();
+        assert_eq!(read_setting("cloud_red = 0.949999988\n", red), red.default);
+        let coverage = all.iter().find(|s| s.key == "cloud_coverage").unwrap();
+        assert_eq!(read_setting("cloud_coverage = 0.990000010\n", coverage), Value::from(0.99));
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
     fn simplified_settings_preserve_shadow_compatibility() {
         let home = temp("shadow-options");
         let all = settings();
         assert_eq!(
             all.iter().filter(|s| s.group == "advanced").map(|s| s.key.as_str()).collect::<Vec<_>>(),
-            vec!["temporal_sharpness"]
+            vec![
+                "gtao_slices",
+                "gtao_steps",
+                "gtao_half_resolution",
+                "gtao_hi_z",
+                "rim_light_strength",
+                "rim_light_falloff",
+                "rim_shadow_lift",
+                "motion_blur_radius",
+                "motion_blur_samples",
+                "motion_blur_min_motion",
+                "motion_blur_spread",
+                "motion_blur_depth_tolerance",
+                "motion_blur_cutscene_multiplier",
+                "probe_normal_bias",
+                "probe_view_bias",
+            ]
         );
-        assert!(all
-            .iter()
-            .all(|s| s.key != "enhanced_shadows" && (s.key == "motion_blur" || !s.key.starts_with("motion_blur_"))));
+        assert!(all.iter().all(|s| s.key != "enhanced_shadows"));
+        for hidden_debug in [
+            "probe_spheres",
+            "medial_axis_debug",
+            "ceiling_area_lights",
+            "environment_probe_debug",
+            "sun_direction_override",
+        ] {
+            assert!(all.iter().all(|s| s.key != hidden_debug));
+        }
         for version in ["pal", "ntsc"] {
             let file = settings_file(&home, "rac1", version);
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();

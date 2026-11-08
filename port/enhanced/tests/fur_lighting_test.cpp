@@ -32,6 +32,8 @@ vec4 probe_point_position[8],probe_point_colour[8];
 #define LOCAL_COLOUR(i) probe_point_colour[i]
 #define LOCAL_CONE(i,d) 1.
 #define LOCAL_ATTENUATION(d,r) (1.0-(d)/(r))
+// Synthetic light banks have no screen-space occluders.
+#define LOCAL_VISIBILITY(p,i) 1.
 
 vec3 probe_unit(vec3 v){return v*inversesqrt(max(dot(v,v),1e-12));}
 )";

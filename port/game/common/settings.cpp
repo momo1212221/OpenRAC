@@ -5,11 +5,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cfenv>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <format>
 #include <fstream>
+#include <iomanip>
 #include <system_error>
 
 #include "common/log.h"
@@ -21,8 +23,10 @@ void Settings::reset_enhanced() {
     const Settings defaults;
     enhanced_graphics = defaults.enhanced_graphics;
     enhanced_shadows = defaults.enhanced_shadows;
+    ray_tracing = defaults.ray_tracing;
     shadow_quality = defaults.shadow_quality;
     volumetric_quality = defaults.volumetric_quality;
+    clouds = defaults.clouds;
     rim_light = defaults.rim_light;
     rim_shadow_lift = defaults.rim_shadow_lift;
     rim_lift_exponent = defaults.rim_lift_exponent;
@@ -43,18 +47,24 @@ void Settings::reset_enhanced() {
     agx_preview = defaults.agx_preview;
     agx_exposure = defaults.agx_exposure;
     agx_brightness = defaults.agx_brightness;
+    bloom = defaults.bloom;
+    bloom_strength = defaults.bloom_strength;
+    bloom_radius = defaults.bloom_radius;
     motion_blur = defaults.motion_blur;
     motion_blur_settings = defaults.motion_blur_settings;
     motion_blur_strength = defaults.motion_blur_strength;
     lily_momentum = defaults.lily_momentum;
     temporal_sharpness = defaults.temporal_sharpness;
     texture_filter = defaults.texture_filter;
+    local_lights = defaults.local_lights;
+    authored_object_lights = defaults.authored_object_lights;
 }
 
 std::optional<std::array<float, 3>> Settings::sunlight_direction() const {
     if (!sun_direction_override) {
         return std::nullopt;
     }
+
     constexpr float radians = 3.14159265358979323846f / 180.f;
     const float azimuth = sun_azimuth * radians, elevation = sun_elevation * radians;
     // The shader and shadow renderer use ray travel, opposite the source direction.
@@ -82,14 +92,16 @@ constexpr const char* kDisplayMode[] = {"windowed", "borderless"};
 constexpr const char* kAspect[] = {"4:3", "16:10", "16:9", "21:9", "32:9", "window", "custom"};
 constexpr const char* kHud[] = {"centre", "edges"};
 constexpr const char* kGtaoQuality[] = {"performance", "quality"};
-constexpr const char* kTextureFilter[] = {"normal", "edge-aware"};
+constexpr const char* kTextureFilter[] = {"normal", "edge-aware", "edge-aware-4x", "edge-aware-8x"};
 constexpr const char* kVSync[] = {"off", "on", "adaptive"};
 
 std::string trimmed(const std::string& s) {
     const auto first = s.find_first_not_of(" \t\r\n");
+
     if (first == std::string::npos) {
         return {};
     }
+
     return s.substr(first, s.find_last_not_of(" \t\r\n") - first + 1);
 }
 
@@ -101,6 +113,7 @@ bool parse(const std::string& value, const char* const (&names)[N], E& out) {
             return true;
         }
     }
+
     return false;
 }
 
@@ -109,10 +122,12 @@ bool parse_bool(const std::string& value, bool& out) {
         out = true;
         return true;
     }
+
     if (value == "0" || value == "false" || value == "off" || value == "no") {
         out = false;
         return true;
     }
+
     return false;
 }
 
@@ -120,9 +135,11 @@ bool parse_bool(const std::string& value, bool& out) {
 bool parse_int(const std::string& value, int low, int high, int& out) {
     int number = 0;
     char after = 0;
+
     if (std::sscanf(value.c_str(), "%d%c", &number, &after) != 1 || number < low || number > high) {
         return false;
     }
+
     out = number;
     return true;
 }
@@ -130,12 +147,24 @@ bool parse_int(const std::string& value, int low, int high, int& out) {
 bool parse_float(const std::string& value, float low, float high, float& out) {
     float number = 0.0f;
     char after = 0;
+
     if (std::sscanf(value.c_str(), "%f%c", &number, &after) != 1 || !std::isfinite(number)
         || number < low || number > high) {
         return false;
     }
+
     out = number;
     return true;
+}
+
+// Cloud choices must retain the same f32 identity as the offline profile, even while the game
+// executes retail code with FE_TOWARDZERO.
+bool parse_cloud_float(const std::string& value, float low, float high, float& out) {
+    const int previous = std::fegetround();
+    std::fesetround(FE_TONEAREST);
+    const bool valid = parse_float(value, low, high, out);
+    std::fesetround(previous);
+    return valid;
 }
 
 // Two whole numbers with `between` between them ("1920x1080", "64:27"), each at least 1.
@@ -144,10 +173,12 @@ bool parse_pair(const std::string& value, char between, int& a, int& b) {
     int second = 0;
     char sep = 0;
     char after = 0;
+
     if (std::sscanf(value.c_str(), "%d%c%d%c", &first, &sep, &second, &after) != 3 || sep != between
         || first < 1 || second < 1 || first > 100000 || second > 100000) {
         return false;
     }
+
     a = first;
     b = second;
     return true;
@@ -157,15 +188,19 @@ bool parse_pair(const std::string& value, char between, int& a, int& b) {
 template <std::size_t N>
 bool parse_listed(const std::string& value, const int (&list)[N], int& out) {
     int number = 0;
+
     if (value == "off") {
         number = 1;
     } else if (!parse_int(value, 0, 1000, number)) {
         return false;
     }
+
     number = std::max(number, 1);  // 0 is "off" too
+
     if (std::find(std::begin(list), std::end(list), number) == std::end(list)) {
         return false;
     }
+
     out = number;
     return true;
 }
@@ -189,6 +224,7 @@ bool parse_frame_rate(const std::string& value, Settings& s) {
     } else {
         return false;
     }
+
     return true;
 }
 
@@ -204,17 +240,20 @@ std::string frame_rate_value(const Settings& s) {
         case FrameRate::Count:
             break;
     }
+
     return "display";
 }
 
 // The game fixes switched off, for the summary: ", as the console: fix_a, fix_b", or nothing.
 std::string fixes_off() {
     std::string off;
+
     for (int i = 0; i < fixes::count(); ++i) {
         if (!fixes::on(i)) {
             off += (off.empty() ? ", as the console: " : ", ") + std::string(fixes::fix(i).key);
         }
     }
+
     return off;
 }
 
@@ -244,20 +283,26 @@ void load(const std::filesystem::path& file) {
     // out, and said once.
     bool old_strafe = false;
     std::string line;
+
     while (in && std::getline(in, line)) {
         const auto eq = line.find('=');
+
         if (eq == std::string::npos || trimmed(line).starts_with('#')) {
             continue;
         }
+
         const std::string key = trimmed(line.substr(0, eq));
         const std::string value = trimmed(line.substr(eq + 1));
         bool known = true;
+
         if (key == "display_mode" || key == "fullscreen") {
             // Even a value the port does not know: the player chose something.
             g_display_mode_in_file = true;
         }
+
         if (key == "display_mode") {
             known = parse(value, kDisplayMode, s.display_mode);
+
             // The exclusive full screen the port had once: borderless now.
             if (value == "fullscreen") {
                 s.display_mode = DisplayMode::Borderless;
@@ -268,6 +313,7 @@ void load(const std::filesystem::path& file) {
             // has both is the newer one's.
             bool on = false;
             known = parse_bool(value, on);
+
             if (known && on && s.display_mode == DisplayMode::Windowed) {
                 s.display_mode = DisplayMode::Borderless;
             }
@@ -298,10 +344,44 @@ void load(const std::filesystem::path& file) {
             known = parse_bool(value, s.enhanced_graphics);
         } else if (key == "volumetric_quality") {
             known = parse(value, renderer::kVolumetricQualityKeys, s.volumetric_quality);
+        } else if (key == "cloud_enabled") {
+            known = parse_bool(value, s.clouds.enabled);
+        } else if (key == "cloud_resolution") {
+            int resolution = int(s.clouds.resolution);
+            known = parse_int(value, 32, 128, resolution) && resolution % 16 == 0;
+
+            if (known) {
+                s.clouds.resolution = unsigned(resolution);
+            }
+        } else if (key == "cloud_seed") {
+            int seed = int(s.clouds.seed);
+            known = parse_int(value, 0, 65535, seed);
+
+            if (known) {
+                s.clouds.seed = unsigned(seed);
+            }
+        } else if (key == "cloud_coverage") {
+            known = parse_cloud_float(value, 0.0f, 0.99f, s.clouds.coverage);
+        } else if (key == "cloud_density") {
+            known = parse_cloud_float(value, 0.0f, 1.0f, s.clouds.density);
+        } else if (key == "cloud_base") {
+            known = parse_cloud_float(value, -100000.0f, 100000.0f, s.clouds.base);
+        } else if (key == "cloud_thickness") {
+            known = parse_cloud_float(value, 0.01f, 2000.0f, s.clouds.thickness);
+        } else if (key == "cloud_scale") {
+            known = parse_cloud_float(value, 1e-05f, 1.0f, s.clouds.scale);
+        } else if (key == "cloud_red") {
+            known = parse_cloud_float(value, 0.0f, 4.0f, s.clouds.colour[0]);
+        } else if (key == "cloud_green") {
+            known = parse_cloud_float(value, 0.0f, 4.0f, s.clouds.colour[1]);
+        } else if (key == "cloud_blue") {
+            known = parse_cloud_float(value, 0.0f, 4.0f, s.clouds.colour[2]);
         } else if (key == "shadow_quality") {
             known = parse(value, renderer::kShadowQualityKeys, s.shadow_quality);
         } else if (key == "enhanced_shadows") {
             known = parse_bool(value, s.enhanced_shadows);
+        } else if (key == "ray_tracing") {
+            known = parse_bool(value, s.ray_tracing);
         } else if (key == "rim_light") {
             known = parse_bool(value, s.rim_light);
         } else if (key == "texture_pack") {
@@ -364,6 +444,12 @@ void load(const std::filesystem::path& file) {
             known = parse_float(value, -4.0f, 4.0f, s.agx_exposure);
         } else if (key == "agx_brightness") {
             known = parse_float(value, 0.0f, 1.0f, s.agx_brightness);
+        } else if (key == "bloom") {
+            known = parse_bool(value, s.bloom);
+        } else if (key == "bloom_strength") {
+            known = parse_float(value, 0.0f, 1.0f, s.bloom_strength);
+        } else if (key == "bloom_radius") {
+            known = parse_float(value, 0.5f, 2.0f, s.bloom_radius);
         } else if (key == "motion_blur") {
             known = parse_bool(value, s.motion_blur);
         } else if (key == "lily_momentum") {
@@ -386,6 +472,10 @@ void load(const std::filesystem::path& file) {
             known = parse_float(value, 0.0f, 1.0f, s.temporal_sharpness);
         } else if (key == "texture_filter") {
             known = parse(value, kTextureFilter, s.texture_filter);
+        } else if (key == "local_lights") {
+            known = parse_bool(value, s.local_lights);
+        } else if (key == "authored_object_lights") {
+            known = parse_bool(value, s.authored_object_lights);
         } else if (key == "anisotropy") {
             if (value == "auto") {
                 s.anisotropy = 0;
@@ -408,6 +498,7 @@ void load(const std::filesystem::path& file) {
             known = parse_bool(value, s.gpu_breadcrumbs);
         } else if (key == "show_fps") {
             bool enabled = false;
+
             // Existing files also accept boolean words for the original counter.
             if (value == "2") {
                 s.show_fps = FrameCounter::Timings;
@@ -421,12 +512,14 @@ void load(const std::filesystem::path& file) {
         } else if (key == "menu_bar_key") {
             // Any key name SDL knows; the overlay uses the default for one it does not.
             known = !value.empty();
+
             if (known) {
                 s.menu_bar_key = value;
             }
         } else if (key == "menu_button") {
             // Any button name SDL knows, or "none"; the overlay uses the default for another.
             known = !value.empty();
+
             if (known) {
                 s.menu_bar_button = value;
                 has_menu_button = true;
@@ -474,6 +567,7 @@ void load(const std::filesystem::path& file) {
             // An option the game keeps itself (game_option): any whole number in the file's range.
             int number = 0;
             known = parse_int(value, -kGameOptionLimit, kGameOptionLimit, number);
+
             if (known) {
                 s.game_options[key] = number;
             }
@@ -481,10 +575,12 @@ void load(const std::filesystem::path& file) {
             // A game fix (fixes.h): on is the port's, off the console's behaviour.
             bool on = true;
             known = parse_bool(value, on);
+
             if (known) {
                 fixes::set(fix, on);
             }
         }
+
         if (!known) {
             log::warn(
                 "{}: {} = {} is not a value the port knows; the default is used",
@@ -494,9 +590,11 @@ void load(const std::filesystem::path& file) {
             );
         }
     }
+
     if (has_frame_rate && !has_vsync) {
         s.vsync = s.frame_rate == FrameRate::Display ? VSync::On : VSync::Off;
     }
+
     if (old_strafe) {
         log::info(
             "{}: the strafe is a mod now, lock-strafe (OpenRAC/openrac-mods): add it in the "
@@ -505,6 +603,7 @@ void load(const std::filesystem::path& file) {
             file.string()
         );
     }
+
     g_gain = gain_now();
     log::info("settings from {}: {}", file.string(), summary());
 }
@@ -513,6 +612,7 @@ bool first_start_display(bool scripted) {
     if (g_display_mode_in_file || scripted) {
         return false;
     }
+
     g_settings.display_mode = DisplayMode::Borderless;
     return true;
 }
@@ -545,6 +645,7 @@ void save() {
     if (g_file.empty()) {
         return;
     }
+
     std::error_code made;
     std::filesystem::create_directories(g_file.parent_path(), made);
     // Through a file beside it, then over the old one: a stop mid-write (Android ends a game in
@@ -552,19 +653,23 @@ void save() {
     std::filesystem::path written = g_file;
     written += ".new";
     std::ofstream out(written, std::ios::trunc);
+
     if (!out) {
         log::warn("the settings could not be written to {}", g_file.string());
         return;
     }
+
     const Settings& s = g_settings;
     out << "# OpenRAC: the port's settings (the Video options page of the game's menu changes "
            "them;\n"
         << "# docs/port/SETTINGS.md says what each is)\n"
         << "display_mode = " << kDisplayMode[static_cast<int>(s.display_mode)] << "\n"
         << "monitor = " << s.monitor << "\n";
+
     if (s.window_width > 0 && s.window_height > 0) {
         out << "window_size = " << s.window_width << "x" << s.window_height << "\n";
     }
+
     out << "aspect = " << kAspect[static_cast<int>(s.aspect)] << "\n"
         << "aspect_custom = " << s.aspect_custom_x << ":" << s.aspect_custom_y << "\n"
         << "hud = " << kHud[static_cast<int>(s.hud)] << "\n"
@@ -575,9 +680,22 @@ void save() {
         << "enhanced_graphics = " << (s.enhanced_graphics ? 1 : 0) << "\n"
         << "volumetric_quality = "
         << renderer::kVolumetricQualityKeys[static_cast<int>(s.volumetric_quality)] << "\n"
+        << std::setprecision(9) << "cloud_enabled = " << (s.clouds.enabled ? 1 : 0) << "\n"
+        << "cloud_resolution = " << s.clouds.resolution << "\n"
+        << "cloud_seed = " << s.clouds.seed << "\n"
+        << "cloud_coverage = " << s.clouds.coverage << "\n"
+        << "cloud_density = " << s.clouds.density << "\n"
+        << "cloud_base = " << s.clouds.base << "\n"
+        << "cloud_thickness = " << s.clouds.thickness << "\n"
+        << "cloud_scale = " << s.clouds.scale << "\n"
+        << "cloud_red = " << s.clouds.colour[0] << "\n"
+        << "cloud_green = " << s.clouds.colour[1] << "\n"
+        << "cloud_blue = " << s.clouds.colour[2] << "\n"
+        << std::setprecision(6)
         << "shadow_quality = " << renderer::kShadowQualityKeys[static_cast<int>(s.shadow_quality)]
         << "\n"
         << "enhanced_shadows = " << (s.enhanced_shadows ? 1 : 0) << "\n"
+        << "ray_tracing = " << (s.ray_tracing ? 1 : 0) << "\n"
         << "rim_light = " << (s.rim_light ? 1 : 0) << "\n"
         << "texture_pack = " << (s.texture_pack ? 1 : 0) << "\n"
         << "rim_shadow_lift = " << (s.rim_shadow_lift ? 1 : 0) << "\n"
@@ -604,11 +722,15 @@ void save() {
         << "gtao_radius = " << s.gtao_settings.radius << "\n"
         << "gtao_strength = " << s.gtao_settings.strength << "\n"
         << "texture_filter = " << kTextureFilter[static_cast<int>(s.texture_filter)] << "\n"
+        << "local_lights = " << (s.local_lights ? 1 : 0) << "\n"
         << "temporal_quality = " << renderer::kTemporalKeys[static_cast<int>(s.temporal_quality)]
         << "\n"
         << "agx_preview = " << (s.agx_preview ? 1 : 0) << "\n"
         << "agx_exposure = " << s.agx_exposure << "\n"
         << "agx_brightness = " << s.agx_brightness << "\n"
+        << "bloom = " << (s.bloom ? 1 : 0) << "\n"
+        << "bloom_strength = " << s.bloom_strength << "\n"
+        << "bloom_radius = " << s.bloom_radius << "\n"
         << "motion_blur = " << (s.motion_blur ? 1 : 0) << "\n"
         << "lily_momentum = " << s.lily_momentum << "\n"
         << "motion_blur_strength = " << s.motion_blur_strength << "\n"
@@ -643,32 +765,41 @@ void save() {
     if (!s.touch_layout.empty()) {
         out << "touch_layout = " << s.touch_layout << "\n";
     }
+
     if (s.verbose_log) {
         out << "verbose_log = 1\n";
     }
+
     // The game's own options, as it last set them (set_game_option).
     for (const auto& [key, value] : s.game_options) {
         out << key << " = " << value << "\n";
     }
+
     // The player's bindings, written back as they were read: this file is rewritten whole, so a
     // key left out here would be lost the next time any setting changed.
     if (!s.bindings.empty()) {
         out << "# What the player bound each pad button to (the launcher's Controls)\n";
+
         for (const auto& [key, value] : s.bindings) {
             out << key << " = " << value << "\n";
         }
     }
+
     if (fixes::count() > 0) {
         out << "# Game fixes: 1 the port's, 0 the console's behaviour (Options, Game fixes)\n";
+
         for (int i = 0; i < fixes::count(); ++i) {
             out << fixes::fix(i).key << " = " << (fixes::on(i) ? 1 : 0) << "\n";
         }
     }
+
     out.close();
     std::error_code moved;
+
     if (!out.fail()) {
         std::filesystem::rename(written, g_file, moved);
     }
+
     if (out.fail() || moved) {
         log::warn("the settings could not be written to {}", g_file.string());
         std::filesystem::remove(written, moved);
@@ -682,6 +813,7 @@ bool set_hdr_mode(std::string_view name) {
             return true;
         }
     }
+
     return false;
 }
 
@@ -728,6 +860,7 @@ float aspect_ratio(const Settings& settings, int window_width, int window_height
         case Aspect::Count:
             break;
     }
+
     return 4.0f / 3.0f;
 }
 
@@ -736,6 +869,7 @@ int step_listed(std::span<const int> list, int now, int by) {
         const auto next = std::upper_bound(list.begin(), list.end(), now);
         return next != list.end() ? *next : list.back();
     }
+
     const auto at = std::lower_bound(list.begin(), list.end(), now);
     return at != list.begin() ? *(at - 1) : list.front();
 }
@@ -772,7 +906,8 @@ const char* name(VSync vsync) {
 }
 
 const char* name(renderer::TextureFilter filter) {
-    constexpr const char* names[] = {"Normal", "Edge-aware (2x)"};
+    constexpr const char* names[] =
+        {"Normal", "Edge-aware (2x)", "Edge-aware (4x)", "Edge-aware (8x)"};
     return names[std::clamp(static_cast<int>(filter), 0, static_cast<int>(std::size(names)) - 1)];
 }
 
@@ -788,6 +923,7 @@ std::string frame_rate_name(const Settings& settings) {
         case FrameRate::Count:
             break;
     }
+
     return "Display";
 }
 

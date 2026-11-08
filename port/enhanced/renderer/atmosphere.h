@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 
+#include "enhanced/lighting/cloud_field.h"
 #include "renderer/effects.h"
 #include "renderer/shader.h"
 
@@ -22,12 +23,14 @@ struct AtmosphereVolume {
 struct AtmosphereSettings {
     bool enabled = true;
     float haze = 1;
-    float height_density = 0;
+    // Thin default aerial medium: enough for visible shadowed sun shafts and atmospheric depth without
+    // replacing the authored skybox or requiring an expensive extra post-process.
+    float height_density = .00022f;
     float base_height = 0;
-    float height_falloff = .1f;
+    float height_falloff = 0;
     float distance = 750;
-    float sun_strength = .15f;
-    float anisotropy = .3f;
+    float sun_strength = .65f;
+    float anisotropy = .70f;
     float jitter_size = 1.0f;  // Fraction of the froxel used for sun-shadow jitter.
     std::array<AtmosphereVolume, 8> volumes{};
 };
@@ -43,7 +46,9 @@ public:
     Atmosphere& operator=(const Atmosphere&) = delete;
     static std::string fragment_source(std::string source);
     static std::string sampling_source();
-    void load();
+    void load(
+        const std::filesystem::path& cloud_cache = {}, const lighting::CloudParameters& clouds = {}
+    );
     void prepare(
         const scene::LevelScene&,
         const renderer::FrameInput&,
@@ -60,6 +65,8 @@ private:
     std::array<renderer::Shader, 2> m_compute;
     renderer::Shader m_sky;
     unsigned m_buffer = 0, m_texture = 0, m_vao = 0, m_dummy_depth = 0;
+    unsigned m_cloud_texture = 0, m_cloud_resolution = 0;
+    lighting::CloudParameters m_cloud_parameters;
     int m_width = 0, m_height = 0, m_slices = 0;
     bool m_active = false, m_failed = false, m_sky_active = false;
     renderer::Mat4 m_view = renderer::identity();

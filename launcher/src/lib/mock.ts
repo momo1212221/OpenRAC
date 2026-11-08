@@ -184,6 +184,35 @@ const summary = summaryFile as RawSummary;
 
 // ---- made-up state -------------------------------------------------------------------
 
+const preparationKey = (key: string) =>
+  key.startsWith("cloud_") || ["hardware_auto", "ray_tracing", "offline_ultra_textures"].includes(key);
+const mockAddons = [
+  {
+    ...structuredClone(mockEnhanced),
+    mod: {
+      ...structuredClone(mockEnhanced.mod),
+      id: "graphics-preparation",
+      name: "Graphics preparation",
+      enabled: false,
+      description:
+        "Prepare lighting/GI, water, clouds, Ultra textures and AI assets independently of Enhanced graphics.",
+      settings: mockEnhanced.mod.settings.filter((s) => preparationKey(s.key)),
+      presets: [],
+    },
+  },
+  {
+    ...structuredClone(mockEnhanced),
+    mod: {
+      ...structuredClone(mockEnhanced.mod),
+      id: "save-backup-sync",
+      name: "Backup & Cloud Saves",
+      enabled: false,
+      description: "Independent backups, restore and folder-based cloud sync.",
+      settings: [],
+      presets: [],
+    },
+  },
+];
 const platform: Platform = onAndroid ? "android" : "linux";
 
 /** ?android: the Android launcher's GPU driver packages. */
@@ -226,6 +255,10 @@ const DEV = {
 
 /** A fork's branches with development builds, as the preview has them (updates.ts, devBranches). */
 export const MOCK_DEV_BRANCHES = ["develop", "feature-launcher-logo", "fix-pad-navigation"];
+
+let mockCloudFolder: string | null = null;
+let mockCloudSnapshots = 0;
+let mockCloudState = "empty";
 
 let config: Config = {
   // ?setup: a first start where no OpenRAC folder was found, so the welcome screen asks for one.
@@ -1926,11 +1959,28 @@ function samplePack(name: string): PackView {
 
 /** A game's texture pack and saved textures, as the preview pretends (`?notextures`: none yet). */
 const mockTextures: TexturePackView = query.has("notextures")
-  ? { id: "", enabled: true, dumping: false, packCount: 0, packAnimated: 0, pack: [], dumpCount: 0, dump: [] }
+  ? {
+      id: "",
+      enabled: true,
+      dumping: false,
+      ultraEnabled: true,
+      ultraReady: false,
+      ultraTextures: 0,
+      ultraBytes: 0,
+      packCount: 0,
+      packAnimated: 0,
+      pack: [],
+      dumpCount: 0,
+      dump: [],
+    }
   : {
       id: "",
       enabled: true,
       dumping: false,
+      ultraEnabled: true,
+      ultraReady: true,
+      ultraTextures: 4437,
+      ultraBytes: 1088757831,
       packCount: 38,
       packAnimated: 2,
       pack: [
@@ -2524,6 +2574,21 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
         // ?nocompositing: a Steam Deck's webview, without page slides.
         noCompositing: new URLSearchParams(typeof location === "undefined" ? "" : location.search).has("nocompositing"),
         safeRenderingAfterCrash: false,
+        graphics: {
+          architecture: "aarch64",
+          gpus: ["Apple M2"],
+          vendor: "apple",
+          nvidiaRtx: false,
+          amdGpu: false,
+          cudaAvailable: false,
+          appleSilicon: true,
+          rendererBackend: "vulkan-moltenvk",
+          computeBackend: "metal",
+          hardwareRayTracing: false,
+          rayTracingRendererReady: true,
+          offlineTextureBackend: "coregraphics",
+          recommendedProfile: "ultra-classic",
+        },
       });
     case "get_config":
       return delay<Config>({ ...config });
@@ -2714,7 +2779,61 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
     case "texture_packs_set":
       if (typeof args.enabled === "boolean") mockTextures.enabled = args.enabled;
       if (typeof args.dumping === "boolean") mockTextures.dumping = args.dumping;
+      if (typeof args.ultra === "boolean") {
+        mockTextures.ultraEnabled = args.ultra;
+        if (!args.ultra) {
+          mockTextures.ultraReady = false;
+          mockTextures.ultraTextures = 0;
+          mockTextures.ultraBytes = 0;
+        }
+      }
       return delay<TexturePackView>({ ...mockTextures, id: `${String(args.game)}-${String(args.version)}` });
+    case "enhanced_auto_configure":
+      return delay({
+        applied: true,
+        profile: "ultra-classic",
+        graphics: {
+          architecture: "aarch64",
+          gpus: ["Apple M2"],
+          vendor: "apple",
+          nvidiaRtx: false,
+          amdGpu: false,
+          cudaAvailable: false,
+          appleSilicon: true,
+          rendererBackend: "vulkan-moltenvk",
+          computeBackend: "metal",
+          hardwareRayTracing: false,
+          rayTracingRendererReady: true,
+          offlineTextureBackend: "coregraphics",
+          recommendedProfile: "ultra-classic",
+        },
+      });
+    case "texture_packs_prepare_ultra":
+      if (!mockTextures.ultraEnabled) {
+        return delay({
+          enabled: false,
+          cached: true,
+          sourceFiles: 0,
+          textures: 0,
+          skippedCustom: 0,
+          bytes: 0,
+          maxEdge: 4096,
+          scale: 8,
+        });
+      }
+      mockTextures.ultraReady = true;
+      mockTextures.ultraTextures = 4437;
+      mockTextures.ultraBytes = 1088757831;
+      return delay({
+        enabled: true,
+        cached: false,
+        sourceFiles: 13051,
+        textures: 4437,
+        skippedCustom: 3516,
+        bytes: 1088757831,
+        maxEdge: 4096,
+        scale: 8,
+      });
     case "texture_packs_open":
       return delay(null);
     case "texture_packs_preview":
@@ -2768,6 +2887,45 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
       return delay(args.keep ? "~/Downloads/Nanotech Upscaler rac1-pal.zip" : "");
     case "texture_packs_export":
       return delay({ saved: "~/Downloads/rac2-ntsc-texture-pack.zip", textures: mockTextures.packCount, leftOut: 3 });
+    case "ai_texture_bake": {
+      const options = (args.options ?? {}) as Record<string, unknown>;
+      const mode = typeof options.mode === "string" ? options.mode : "balanced";
+      const model =
+        mode === "faithful" ? "high-fidelity-4x" : mode === "enhanced" ? "ultrasharp-4x" : "ultramix-balanced-4x";
+      mockTextures.packCount = Math.max(mockTextures.packCount, 2521);
+      return delay({
+        processed: 2521,
+        model,
+        mode,
+        preservedMicrodetails: options.preserveMicrodetail === false ? 0 : 18420,
+        preservedStars: options.preserveStars === false ? 0 : 1376,
+        output: "/home/you/OpenRAC/texture_packs/rac1-pal",
+        backup: "/home/you/OpenRAC/texture_packs/rac1-pal.before-ai-demo",
+      });
+    }
+    case "ai_mesh_bake":
+      return delay({
+        available: true,
+        discovered: 684,
+        processed: 612,
+        backend: "openrac-mesh-ai",
+        output: "/home/you/OpenRAC/mods/pal",
+        backup: "/home/you/OpenRAC/ai_assets/pal/backups/before-mesh-ai-demo",
+      });
+    case "graphics_delete_texture_cache":
+      mockTextures.ultraReady = false;
+      return delay(null);
+    case "launcher_addon_enabled":
+      return delay(mockAddons.find((a) => a.mod.id === args.id)?.mod.enabled ?? false);
+    case "launcher_addons_view":
+    case "launcher_addons_set_enabled":
+    case "launcher_addons_set_setting": {
+      const entry = mockAddons.find((a) => a.mod.id === args.id);
+      if (entry && command === "launcher_addons_set_enabled") entry.mod.enabled = !!args.enabled;
+      if (entry && command === "launcher_addons_set_setting")
+        entry.mod.settings = entry.mod.settings.map((s) => (s.key === args.key ? { ...s, value: args.value } : s));
+      return delay(mockAddons.map((a) => ({ ...a, mod: { ...a.mod, state: a.mod.enabled ? "ready" : "off" } })));
+    }
     case "enhanced_view":
     case "enhanced_set_enabled":
     case "enhanced_set_setting":
@@ -2785,7 +2943,15 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
       }
       return delay({
         ...mockEnhanced,
-        mod: { ...mockEnhanced.mod, state: mockEnhanced.mod.enabled ? "ready" : "off" },
+        mod: {
+          ...mockEnhanced.mod,
+          settings: mockEnhanced.mod.settings.filter((s) => !preparationKey(s.key)),
+          presets: (mockEnhanced.mod.presets ?? []).map((p) => ({
+            ...p,
+            values: Object.fromEntries(Object.entries(p.values).filter(([k]) => !preparationKey(k))),
+          })),
+          state: mockEnhanced.mod.enabled ? "ready" : "off",
+        },
       });
     }
     case "modset_share_preview":
@@ -2976,6 +3142,62 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
     case "open_game_folder":
       console.info(`[preview] ${command}`, args);
       return delay(null);
+    case "cloud_saves_config":
+      return delay({
+        folder: mockCloudFolder,
+        cloudDir: mockCloudFolder ? `${mockCloudFolder}/OpenRAC Cloud Saves/v1` : null,
+      });
+    case "cloud_saves_set_folder": {
+      mockCloudFolder = typeof args.folder === "string" && args.folder ? args.folder : null;
+      mockCloudState = mockCloudFolder ? "local-changes" : "empty";
+      return delay({
+        folder: mockCloudFolder,
+        cloudDir: mockCloudFolder ? `${mockCloudFolder}/OpenRAC Cloud Saves/v1` : null,
+      });
+    }
+    case "cloud_saves_status":
+      return delay({
+        enabled: !!mockCloudFolder,
+        folder: mockCloudFolder,
+        cloudDir: mockCloudFolder ? `${mockCloudFolder}/OpenRAC Cloud Saves/v1` : null,
+        state: mockCloudFolder ? mockCloudState : "disabled",
+        snapshots: mockCloudSnapshots,
+        heads: [],
+        latest: null,
+        localHasSaves: true,
+        localChanged: mockCloudState === "local-changes",
+        cloudChanged: mockCloudState === "cloud-changes",
+        conflict: mockCloudState === "conflict",
+      });
+    case "cloud_saves_sync": {
+      if (!mockCloudFolder) throw new Error("choose a cloud save folder first");
+      const strategy = typeof args.strategy === "string" ? args.strategy : "auto";
+      const action = mockCloudState === "conflict" && strategy === "auto" ? "conflict" : "uploaded";
+      if (action !== "conflict") {
+        mockCloudSnapshots = Math.max(1, mockCloudSnapshots + 1);
+        mockCloudState = "synced";
+      }
+      return delay({
+        action,
+        message:
+          action === "conflict"
+            ? "Both this device and the cloud changed. Choose which one to keep; neither was overwritten."
+            : "The local saves were added to the cloud folder.",
+        status: {
+          enabled: true,
+          folder: mockCloudFolder,
+          cloudDir: `${mockCloudFolder}/OpenRAC Cloud Saves/v1`,
+          state: mockCloudState,
+          snapshots: mockCloudSnapshots,
+          heads: [],
+          latest: null,
+          localHasSaves: true,
+          localChanged: false,
+          cloudChanged: false,
+          conflict: mockCloudState === "conflict",
+        },
+      });
+    }
     case "inspect_saves": {
       const serial = typeof args.serial === "string" ? args.serial : "SCES_509.16";
       return delay({

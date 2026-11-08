@@ -147,6 +147,18 @@ void source_files(Hash& hash, const std::filesystem::path& root, const char* lab
     }
 }
 
+void cloud_profile_source(Hash& hash, const std::filesystem::path& directory) {
+    const auto root = directory.parent_path();
+    const auto path = root / "cloud-profile.json";
+    hash.u32(0x434C4401u);
+    const bool present = std::filesystem::is_regular_file(path);
+    hash.u32(present ? 1u : 0u);
+
+    if (present) {
+        source_file(hash, root, path);
+    }
+}
+
 // Adds one fixture triangle in the stored transport field order.
 void triangle_hash(Hash& hash, const BakeTriangle& triangle) {
     for (auto p : triangle.vertices) {
@@ -179,6 +191,7 @@ void triangle_hash(Hash& hash, const BakeTriangle& triangle) {
     }
 
     hash.u32(static_cast<std::uint32_t>(triangle.emission_texture));
+
     if (triangle.emission_contrast != 1) {
         hash.u32(0x45434f4e);  // Emission contrast changes transport.
         hash.f32(triangle.emission_contrast);
@@ -257,27 +270,36 @@ std::uint64_t probe_input_hash(const std::filesystem::path& directory) {
 
     Hash hash;
     source_files(hash, directory, "base");
+    cloud_profile_source(hash, directory);
+
     // Coastlines affect placement, while the transport scene hash deliberately retains otherwise valid GI.
     if (std::filesystem::exists(directory / "water.bin")) {
         source_file(hash, directory, directory / "water.bin");
     }
+
     scene::LevelData source;
     source.dir = directory;
     const auto catalog = scene::load_material_catalog(source);
+
     if (!catalog) {
         throw std::runtime_error(catalog.error().message);
     }
+
     const auto transport = materials::transport_catalog_stamp(*catalog);
+
     if (!transport) {
         throw std::runtime_error(transport.error().message);
     }
+
     // Preserve old identities for runtime-only material profiles.
     if (!transport->empty()) {
         hash.u32(0x4D415401u);
+
         for (const char byte : *transport) {
             hash.byte(static_cast<std::uint8_t>(byte));
         }
     }
+
     return hash.value;
 }
 
@@ -318,6 +340,7 @@ std::uint64_t probe_scene_hash(
     // products. File identity is stable across baker and game FP modes.
     if (!level.dir.empty()) {
         source_files(hash, level.dir, "base");
+        cloud_profile_source(hash, level.dir);
 
         if (!level.overrides.empty() && level.overrides != level.dir) {
             source_files(hash, level.overrides, "override");
@@ -326,10 +349,12 @@ std::uint64_t probe_scene_hash(
         // Resolved transport changes participate; catalog formatting and runtime fields do not.
         if (level.material_bindings && !level.material_bindings->transport_stamp.empty()) {
             hash.u32(0x4D415401u);
+
             for (const char byte : level.material_bindings->transport_stamp) {
                 hash.byte(static_cast<std::uint8_t>(byte));
             }
         }
+
         return hash.value;
     }
 
@@ -348,6 +373,24 @@ std::uint64_t probe_bake_settings_hash(const ProbeGrid& grid, const BakeSettings
     hash.u32(settings.use_level_sky ? 1u : 0u);
     hash.f32(settings.sky_intensity);
     hash.f32(settings.sky_weight);
+    const auto& atmosphere = settings.atmosphere;
+    hash.u32(0x41544D02u);  // ATM1: static cloud/fog field is part of GI transport.
+    hash.u32(atmosphere.enabled ? 1u : 0u);
+    hash.u32(CloudField::version);
+    hash.u32(atmosphere.cloud_enabled ? 1u : 0u);
+    hash.u32(atmosphere.cloud_resolution);
+    hash.f32(atmosphere.fog_density);
+    hash.floats(atmosphere.fog_colour);
+    hash.f32(atmosphere.fog_base);
+    hash.f32(atmosphere.fog_falloff);
+    hash.f32(atmosphere.distance);
+    hash.f32(atmosphere.cloud_coverage);
+    hash.f32(atmosphere.cloud_density);
+    hash.floats(atmosphere.cloud_colour);
+    hash.f32(atmosphere.cloud_base);
+    hash.f32(atmosphere.cloud_thickness);
+    hash.f32(atmosphere.cloud_scale);
+    hash.u32(atmosphere.cloud_seed);
 
     // Unit gain retains physical fixture identities; other gains invalidate existing bakes.
     if (settings.surface_emission_scale != 1) {
@@ -359,12 +402,14 @@ std::uint64_t probe_bake_settings_hash(const ProbeGrid& grid, const BakeSettings
     if (!settings.surface_emission_regions.empty()) {
         hash.u32(0x454D5247u);  // EMRG identifies ordered room-local surface emission overrides.
         hash.u32(static_cast<std::uint32_t>(settings.surface_emission_regions.size()));
+
         for (const auto& region : settings.surface_emission_regions) {
             hash.floats(region.minimum);
             hash.floats(region.maximum);
             hash.f32(region.scale);
         }
     }
+
     hash.floats(settings.sunlight_scale);
 
     // Preserve existing bake identities when no direction override is requested.
@@ -374,11 +419,13 @@ std::uint64_t probe_bake_settings_hash(const ProbeGrid& grid, const BakeSettings
     }
 
     hash.u32(settings.terrain_vertex_albedo ? 1u : 0u);
+
     // Existing bakes keep their identity at full strength.
     if (settings.terrain_vertex_albedo && settings.terrain_vertex_albedo_strength != 1) {
         hash.u32(0x54494E54u);  // TINT marks the optional vertex-colour blend.
         hash.f32(settings.terrain_vertex_albedo_strength);
     }
+
     hash.floats(grid.origin);
     hash.floats(grid.frame.axis);
     hash.floats(grid.spacing);

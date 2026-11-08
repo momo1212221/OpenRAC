@@ -288,6 +288,64 @@ void apply_profile(const std::filesystem::path& path, LevelBakeProfile& profile)
 
         return result;
     };
+    auto atmosphere = [&](const json::Value& value, BakeAtmosphereSettings result) {
+        if (!value.is_object()) {
+            fail("atmosphere requires an object");
+        }
+
+        // An atmosphere profile opts in; an explicit enabled field below can still turn it off.
+        result.enabled = true;
+
+        for (const auto& [key, field] : value.members()) {
+            if (key == "cloud_enabled") {
+                if (field.type() != json::Value::Type::Bool) {
+                    fail("atmosphere.cloud_enabled requires a boolean");
+                }
+
+                result.cloud_enabled = field.boolean();
+            } else if (key == "cloud_resolution") {
+                result.cloud_resolution = integer(field, 32, 128);
+
+                if (result.cloud_resolution % 16) {
+                    fail("cloud_resolution requires a multiple of 16");
+                }
+            } else if (key == "enabled") {
+                if (field.type() != json::Value::Type::Bool) {
+                    fail("atmosphere.enabled requires a boolean");
+                }
+
+                result.enabled = field.boolean();
+            } else if (key == "fog_density") {
+                result.fog_density = number(field, 0, 1);
+            } else if (key == "fog_colour") {
+                result.fog_colour = vector(field, 0);
+            } else if (key == "fog_base") {
+                result.fog_base = number(field, -100000, 100000);
+            } else if (key == "fog_falloff") {
+                result.fog_falloff = number(field, 0, 4);
+            } else if (key == "distance") {
+                result.distance = number(field, 10, 2000);
+            } else if (key == "cloud_coverage") {
+                result.cloud_coverage = number(field, 0, .99);
+            } else if (key == "cloud_density") {
+                result.cloud_density = number(field, 0, 1);
+            } else if (key == "cloud_colour") {
+                result.cloud_colour = vector(field, 0);
+            } else if (key == "cloud_base") {
+                result.cloud_base = number(field, -100000, 100000);
+            } else if (key == "cloud_thickness") {
+                result.cloud_thickness = number(field, .01, 2000);
+            } else if (key == "cloud_scale") {
+                result.cloud_scale = number(field, .00001, 10);
+            } else if (key == "cloud_seed") {
+                result.cloud_seed = integer(field, 0, 65535);
+            } else {
+                fail("unknown atmosphere setting: " + key);
+            }
+        }
+
+        return result;
+    };
     auto& activation = profile.activation;
     auto& bake = activation.bake;
 
@@ -305,6 +363,8 @@ void apply_profile(const std::filesystem::path& path, LevelBakeProfile& profile)
             // Scene-only exports do not require walkable floors or gameplay markers.
             profile.strategy =
                 value.string() == "scene" ? BakeStrategy::Scene : BakeStrategy::Gameplay;
+        } else if (key == "atmosphere") {
+            bake.atmosphere = atmosphere(value, bake.atmosphere);
         } else if (key == "sky") {
             if (value.string() != "level" && value.string() != "uniform") {
                 fail("sky must be level or uniform");
@@ -441,6 +501,11 @@ LevelBakeProfile load_level_bake_profile(
     if (!overrides.empty()) {
         apply_profile(overrides / "probe-bake.json", profile);
     }
+
+    // Version-wide player cloud preferences override authored defaults and native mod profiles.
+    apply_profile(directory.parent_path() / "cloud-profile.json", profile);
+    auto& atmosphere = profile.activation.bake.atmosphere;
+    CloudField::validate(cloud_parameters(atmosphere));
 
     // Scene strategy has no playable-floor graph for local reflection capture placement.
     if (profile.strategy == BakeStrategy::Scene) {

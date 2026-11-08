@@ -166,6 +166,8 @@ camelCase) and generated from there into `src/lib/generated/` (below).
 | `plugins_orphans` / `plugins_remove_with`                                                          | `{game, id}` / `{game, version, id, also}`                                         | the dependencies only it needed (`Orphan`, `auto`); removes it (or a mod pack) and those                                                                                    |
 | `open_game_folder`                                                                                 | `{game, path}`                                                                     | opens a folder inside the game's set-up folder (an export); refuses anything else                                                                                           |
 | `inspect_saves` / `backup_saves` / `restore_backup`                                                | `{serial}` / `{serial, note}` / `{serial, backupName}`                             | the card's slots and backups; a backup; a restore (refused while the game uses the card)                                                                                    |
+| `cloud_saves_config` / `cloud_saves_set_folder`                                                    | / `{folder}`                                                                       | the player-owned sync folder (OneDrive, Dropbox, iCloud, Syncthing, NAS, ...); OpenRAC hosts nothing                                                                        |
+| `cloud_saves_status` / `cloud_saves_sync`                                                          | `{serial}` / `{serial, strategy}`                                                  | immutable save snapshots, SHA-256 checked; auto sync or explicit conflict resolution (`use-local`, `use-cloud`)                                                             |
 | `open_saves_folder`                                                                                | `{serial}`                                                                         | opens the game's memory card folder, made if it is not there                                                                                                                |
 | `export_saves`                                                                                     | `{serial, slot}` (null: all)                                                       | an OpenRAC saves file (`core/src/save_transfer.rs`) where the player chooses; `{saved, slots}`                                                                              |
 | `preview_save_import` / `import_saves`                                                             | `{serial, source}` / `{serial, source, choice}`                                    | what a saves file holds (`SaveImportPreview`); imports it after a backup, replacing or merging slots                                                                        |
@@ -431,6 +433,25 @@ a save moved to Kerwan or Rilgar, never visited, lands there and leaves
 Ratchet at the start
 ([docs/port/RAC1_PAL_TESTING.md](../../docs/port/RAC1_PAL_TESTING.md) for
 scripted presses and pictures). Never point a test at the player's own card.
+
+## Cloud saves without an OpenRAC server
+
+Cloud Saves uses `core/src/cloud_saves.rs`. The player chooses an ordinary folder that another
+program may sync (OneDrive, Dropbox, iCloud Drive, Google Drive, Syncthing, a NAS, or similar).
+OpenRAC has no account, storage service or provider token. The live memory card always stays in
+OpenRAC's local data folder.
+
+Each changed card is exported through the same checked `openrac-saves` archive used by Export and
+Import. The cloud folder holds content-addressed archive objects and immutable snapshot metadata.
+Each snapshot names its parents. If two devices change the same parent before their folder sync has
+converged, both become graph heads and the launcher reports a conflict; automatic sync never picks
+one. Restoring a cloud head goes through `save_transfer::import_saves`, which verifies the archive
+and backs up the local card before replacing it. Choosing **Keep this device** creates a new snapshot
+whose parents are all current heads, preserving the conflicting histories instead of deleting them.
+
+The normal launcher play path syncs immediately before Play and after the game exits. A pre-play
+conflict blocks Play until it is resolved. Direct `--play` shortcuts use the same core sync around
+the child process, so a non-Steam/Steam shortcut cannot silently start on a stale card either.
 
 ## Saves between devices
 

@@ -771,10 +771,11 @@ void TexturePool::bind_upscaled_texture_colours(
     }
     const unsigned wrap = (repeat_s ? 1u : 0u) | (repeat_t ? 2u : 0u);
     const auto& image = m_entries[texture - 1].image;
-    const unsigned cached =
-        filter != TextureFilter::Normal && !m_entries[texture - 1].field
-            ? m_upscaled_texture_colours->prepare(source, image.width, image.height, wrap, m_frame)
-            : 0;
+    const unsigned cached = filter != TextureFilter::Normal && !m_entries[texture - 1].field
+                                ? m_upscaled_texture_colours->prepare(
+                                      source, image.width, image.height, wrap, filter, m_frame
+                                  )
+                                : 0;
     // Cache creation uses its compute program. Restore the material before its uniforms.
     shader.use();
     glActiveTexture(GL_TEXTURE0 + kUpscaledTextureColoursUnit);

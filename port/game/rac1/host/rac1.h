@@ -171,7 +171,9 @@ void rac1_world_post_hit(
     uint32_t mask,
     float damage,
     const float position[3],
-    const float velocity[3]
+    const float velocity[3],
+    int32_t source_oclass,
+    const float source_position[3]
 );
 /* A hit record the collision queries wrote (collision.c), told to the mods. */
 void rac1_world_hit_recorded(gaddr victim);

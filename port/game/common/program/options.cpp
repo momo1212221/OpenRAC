@@ -31,7 +31,8 @@ namespace {
         "[--level N] [--skip-movies] [--unlock-all-weapons] [--unlock-all-gadgets] "
         "[--mods DIR] [--map] [--ship-map] [--destinations] "
         "[--check-levels] [--settings FILE] [--controls DIR] "
-        "[--plugins FILE] [--probes DIR] [--no-mods] [--debug-overlay] [--debug-dump FILE]",
+        "[--plugins FILE] [--probes DIR] [--prepared-graphics 0|1] [--ultra-textures 0|1] "
+        "[--prepared-meshes DIR] [--no-mods] [--debug-overlay] [--debug-dump FILE]",
         program_name(),
         openrac_game.game
     );
@@ -202,6 +203,18 @@ Options parse(int argc, char** argv) {
             o.controls = value();
         } else if (a == "--plugins") {
             o.plugins = value();
+        } else if (a == "--prepared-meshes") {
+            o.modules.meshes = value();
+        } else if (a == "--prepared-graphics" || a == "--ultra-textures") {
+            const std::string selected = value();
+            if (selected != "0" && selected != "1") {
+                usage("expected 0 or 1 for " + a);
+            }
+            if (a == "--prepared-graphics") {
+                o.modules.enabled = selected == "1";
+            } else {
+                o.modules.ultra_textures = selected == "1";
+            }
         } else if (a == "--probes") {
             o.probes = value();
         } else if (a == "--no-mods") {

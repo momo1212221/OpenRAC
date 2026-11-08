@@ -230,3 +230,35 @@ describe("a mod page's site", () => {
     expect(pageOrigin("http://openrac-mod.localhost/rac1/a/ui/index.html")).toBe("http://openrac-mod.localhost");
   });
 });
+
+describe("bounded installed mod services", () => {
+  it("binds service identity to the parent, and refuses ungranted pages", async () => {
+    const asked: unknown[][] = [];
+    const host = {
+      ...backend(),
+      service: (...a: unknown[]) => {
+        asked.push(a);
+        return Promise.resolve("ok");
+      },
+    };
+    const data = {
+      openrac: 1,
+      id: 8,
+      call: "service",
+      args: { operation: "status", id: "save-backup-sync", game: "rac4", value: null },
+    };
+    expect((await reply(data, info, host))?.message.ok).toBe(false);
+    expect(asked).toEqual([]);
+    const granted = { ...info, mod: { ...info.mod, id: "graphics-preparation" }, services: ["graphics-preparation"] };
+    expect((await reply(data, granted, host))?.message.value).toBe("ok");
+    expect(asked).toEqual([["rac1", "pal", "graphics-preparation", "status", null]]);
+  });
+  it("rejects oversized and malformed service requests", () => {
+    expect(
+      readRequest({ openrac: 1, id: 1, call: "service", args: { operation: "../shell", value: null } }),
+    ).toHaveProperty("error");
+    expect(
+      readRequest({ openrac: 1, id: 1, call: "service", args: { operation: "status", value: "x".repeat(1 << 21) } }),
+    ).toHaveProperty("error");
+  });
+});

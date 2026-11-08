@@ -447,7 +447,7 @@
         "args": [
           "--bake-all",
           "--levels-dir",
-          "{root}/assets/port/rac1/pal",
+          "{data}/port/pal",
           "--output-dir",
           "{data}/probes/pal",
           "--jobs",
@@ -474,6 +474,34 @@
         ],
         "docs": "port/enhanced/lighting/README.md",
         "todo": "The native baker decodes profile-driven source tables, schedules levels, verifies outputs and installs the bake without Python."
+      },
+      {
+        "id": "probe-bake-output",
+        "label": "Show live lighting output",
+        "description": "Read the running preparation log. This does not start or stop calculation.",
+        "kind": "check",
+        "area": "port",
+        "state": "connected",
+        "program": "{python}",
+        "args": [
+          "tools/follow_bake.py",
+          "--cache-dir",
+          "{data}/probes/pal",
+          "--baker",
+          "{artifact}"
+        ],
+        "cwd": ".",
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "requires": [
+          "python",
+          "artifact"
+        ],
+        "artifact": "port/build/release/openrac-enhanced-baker.exe",
+        "output": "{data}/probes/pal"
       },
       {
         "id": "play",
@@ -1216,6 +1244,34 @@
         ],
         "docs": "port/enhanced/lighting/README.md",
         "todo": "The native baker decodes profile-driven source tables, schedules levels, verifies outputs and installs the bake without Python."
+      },
+      {
+        "id": "probe-bake-output",
+        "label": "Show live lighting output",
+        "description": "Read the running preparation log. This does not start or stop calculation.",
+        "kind": "check",
+        "area": "port",
+        "state": "connected",
+        "program": "{python}",
+        "args": [
+          "tools/follow_bake.py",
+          "--cache-dir",
+          "{data}/probes/ntsc",
+          "--baker",
+          "{artifact}"
+        ],
+        "cwd": ".",
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "requires": [
+          "python",
+          "artifact"
+        ],
+        "artifact": "port/build/release/openrac-enhanced-baker.exe",
+        "output": "{data}/probes/ntsc"
       },
       {
         "id": "play",
@@ -1991,6 +2047,34 @@
         "todo": "The native baker decodes profile-driven source tables, schedules levels, verifies outputs and installs the bake without Python."
       },
       {
+        "id": "probe-bake-output",
+        "label": "Show live lighting output",
+        "description": "Read the running preparation log. This does not start or stop calculation.",
+        "kind": "check",
+        "area": "port",
+        "state": "connected",
+        "program": "{python}",
+        "args": [
+          "tools/follow_bake.py",
+          "--cache-dir",
+          "{data}/probes/pal1",
+          "--baker",
+          "{artifact}"
+        ],
+        "cwd": ".",
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "requires": [
+          "python",
+          "artifact"
+        ],
+        "artifact": "port/build/release/openrac-enhanced-baker.exe",
+        "output": "{data}/probes/pal1"
+      },
+      {
         "id": "play",
         "label": "Play",
         "description": "The game as a native PC program: its decompiled C built for this computer, drawn by OpenRAC's own renderer, with the assets from your disc.",
@@ -2510,6 +2594,34 @@
         "todo": "The native baker decodes profile-driven source tables, schedules levels, verifies outputs and installs the bake without Python."
       },
       {
+        "id": "probe-bake-output",
+        "label": "Show live lighting output",
+        "description": "Read the running preparation log. This does not start or stop calculation.",
+        "kind": "check",
+        "area": "port",
+        "state": "connected",
+        "program": "{python}",
+        "args": [
+          "tools/follow_bake.py",
+          "--cache-dir",
+          "{data}/probes/jp",
+          "--baker",
+          "{artifact}"
+        ],
+        "cwd": ".",
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "requires": [
+          "python",
+          "artifact"
+        ],
+        "artifact": "port/build/release/openrac-enhanced-baker.exe",
+        "output": "{data}/probes/jp"
+      },
+      {
         "id": "play",
         "label": "Play",
         "description": "The game as a native PC program: its decompiled C built for this computer, drawn by OpenRAC's own renderer, with the assets from your disc.",
@@ -2995,6 +3107,34 @@
         ],
         "docs": "port/enhanced/lighting/README.md",
         "todo": "The same baker as Ratchet & Clank's: Going Commando's exports carry their gameplay copy from format 18, whose environment transitions and moby placements seed the local lighting (port/enhanced/lighting/profiles/rac2)."
+      },
+      {
+        "id": "probe-bake-output",
+        "label": "Show live lighting output",
+        "description": "Read the running preparation log. This does not start or stop calculation.",
+        "kind": "check",
+        "area": "port",
+        "state": "connected",
+        "program": "{python}",
+        "args": [
+          "tools/follow_bake.py",
+          "--cache-dir",
+          "{data}/probes/ntsc",
+          "--baker",
+          "{artifact}"
+        ],
+        "cwd": ".",
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "requires": [
+          "python",
+          "artifact"
+        ],
+        "artifact": "port/build/release/openrac-enhanced-baker.exe",
+        "output": "{data}/probes/ntsc"
       },
       {
         "id": "port-rebuild",
@@ -3496,6 +3636,34 @@
         "todo": "The same baker as Ratchet & Clank's: Going Commando's exports carry their gameplay copy from format 18, whose environment transitions and moby placements seed the local lighting (port/enhanced/lighting/profiles/rac2)."
       },
       {
+        "id": "probe-bake-output",
+        "label": "Show live lighting output",
+        "description": "Read the running preparation log. This does not start or stop calculation.",
+        "kind": "check",
+        "area": "port",
+        "state": "connected",
+        "program": "{python}",
+        "args": [
+          "tools/follow_bake.py",
+          "--cache-dir",
+          "{data}/probes/pal",
+          "--baker",
+          "{artifact}"
+        ],
+        "cwd": ".",
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "requires": [
+          "python",
+          "artifact"
+        ],
+        "artifact": "port/build/release/openrac-enhanced-baker.exe",
+        "output": "{data}/probes/pal"
+      },
+      {
         "id": "port-rebuild",
         "label": "Rebuild the game from scratch",
         "description": "Deletes everything built before and compiles Going Commando again from the start, keeping the decompilation and disc it was built from. The launcher offers this when the game was built from an older checkout. A few minutes.",
@@ -3993,6 +4161,34 @@
         ],
         "docs": "port/enhanced/lighting/README.md",
         "todo": "The same baker as Ratchet & Clank's: Going Commando's exports carry their gameplay copy from format 18, whose environment transitions and moby placements seed the local lighting (port/enhanced/lighting/profiles/rac2)."
+      },
+      {
+        "id": "probe-bake-output",
+        "label": "Show live lighting output",
+        "description": "Read the running preparation log. This does not start or stop calculation.",
+        "kind": "check",
+        "area": "port",
+        "state": "connected",
+        "program": "{python}",
+        "args": [
+          "tools/follow_bake.py",
+          "--cache-dir",
+          "{data}/probes/ntsc2",
+          "--baker",
+          "{artifact}"
+        ],
+        "cwd": ".",
+        "platforms": [
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "requires": [
+          "python",
+          "artifact"
+        ],
+        "artifact": "port/build/release/openrac-enhanced-baker.exe",
+        "output": "{data}/probes/ntsc2"
       },
       {
         "id": "port-rebuild",

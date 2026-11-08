@@ -175,6 +175,8 @@ struct RenderTarget;
 
 struct FrameInput {
     TextureFilter texture_filter = TextureFilter::Normal;
+    bool local_lights = true;
+    bool authored_object_lights = false;
     ShadowQuality shadow_quality = ShadowQuality::High;
     VolumetricQuality volumetric_quality = VolumetricQuality::Off;
     bool sun_pixel_shadow = false;

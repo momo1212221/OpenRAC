@@ -71,7 +71,7 @@ LEVELS_STAMP = f"levels-{levels_format()}.json"
 # What a player's launcher offers for a version, from launcher/actions.json. The rest (the
 # decompilation's builds and checks, building the port, the tools' tests) needs a checkout, except
 # PLAYER_BUILDS.
-PLAY = ("port-levels", "port-levels-check", "port-part", "probe-bake", "play")
+PLAY = ("port-levels", "port-levels-check", "port-part", "probe-bake", "probe-bake-output", "play")
 # Mods: the level editor (Godot projects of the disc's levels, packed back into the game's data),
 # models and textures, packs, and playing with them. In a checkout they work in its assets/; the
 # carried copy is read-only, so they work in the data folder instead (MOD_FOLDERS).
@@ -383,7 +383,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
 
     # The tools, without their tests; the catalogue; the progress the library shows.
-    for name in ("openrac.py", "extractor.py", "asm_part.py") + (() if args.android else ("build_game.py",)):
+    for name in ("openrac.py", "extractor.py", "asm_part.py", "follow_bake.py") + (() if args.android else ("build_game.py",)):
         (out / "tools").mkdir(exist_ok=True)
         shutil.copy2(ROOT / "tools" / name, out / "tools" / name)
     # The helpers they import, found from the copy's own tools/ (they find the copy's root by

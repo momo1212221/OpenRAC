@@ -469,7 +469,7 @@ typedef int (*openrac_menu_fn)(void* user, const openrac_menu_frame* frame);
 
 /* The most items the mods together add to the pause menu's Options page (openrac_api.ui_pause_item).
  * Since 1.9. */
-#define OPENRAC_UI_PAUSE_ITEMS_MAX 2
+#define OPENRAC_UI_PAUSE_ITEMS_MAX 4
 
 /* The main menu's own items, for openrac_api.ui_main_item's `after`. Since 1.7. */
 #define OPENRAC_UI_NEW_GAME "new_game"
@@ -818,6 +818,10 @@ typedef struct openrac_hit {
     float damage;
     float position[3];
     float velocity[3];
+    /* Interface 1.13: the retail moby that originated the hit (a wrench, projectile, enemy
+     * attack), preserved even when `attacker` is a synthetic/remote source. 0: unknown. */
+    int32_t source_oclass;
+    float source_position[3];
 } openrac_hit;
 
 /* Told a hit the game posted (openrac_api.on_moby_hit); returns 1 to take it back (the victim

@@ -30,9 +30,12 @@ export interface ToolInfo {
   mod: { id: string; name: string; version: string };
   /** "android" or "desktop". */
   system: string;
+  services?: string[];
+  hostVersion?: string;
 }
 
 export type ToolRequest =
+  | { id: number; call: "service"; operation: string; value: unknown }
   | { id: number; call: "info" }
   | { id: number; call: "list"; root: ToolRoot }
   | { id: number; call: "read"; root: ToolRoot; path: string; start?: number; length?: number }
@@ -79,6 +82,12 @@ export function readRequest(data: unknown): ToolRequest | { id: number; error: s
   const args = isObject(data.args) ? data.args : {};
   const refuse = (error: string) => ({ id, error });
   switch (data.call) {
+    case "service": {
+      if (!text(args.operation, 64) || !/^[a-z][a-z.]{0,63}$/.test(args.operation)) return refuse("invalid operation");
+      const value = plainJson(args.value);
+      if (value === undefined) return refuse("invalid service payload");
+      return { id, call: "service", operation: args.operation, value };
+    }
     case "info":
       return { id, call: "info" };
     case "list":
@@ -127,6 +136,7 @@ export function readRequest(data: unknown): ToolRequest | { id: number; error: s
 
 /** The calls' work, so a test can stand in for the launcher. */
 export interface ToolBackend {
+  service?(game: string, version: string, id: string, operation: string, value: unknown): Promise<unknown>;
   list(game: string, version: string, root: ToolRoot): Promise<ToolFile[]>;
   read(
     game: string,
@@ -146,6 +156,7 @@ export interface ToolBackend {
 }
 
 export const launcherBackend: ToolBackend = {
+  service: api.modService,
   list: api.modToolList,
   read: api.modToolRead,
   storeGet: api.modToolStoreGet,
@@ -196,6 +207,9 @@ export function trackSaves(backend: ToolBackend): ToolBackend & { dropUnfinished
 export async function answer(request: ToolRequest, info: ToolInfo, backend: ToolBackend): Promise<unknown> {
   const { game, version } = info;
   switch (request.call) {
+    case "service":
+      if (!info.services?.includes(info.mod.id) || !backend.service) throw new Error("No granted service for this mod");
+      return backend.service(game, version, info.mod.id, request.operation, request.value);
     case "info":
       return info;
     case "list":

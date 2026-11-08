@@ -747,14 +747,16 @@ OPENRAC_MOD_EXPORT int openrac_mod_load(const openrac_api* api, openrac_mod* mod
             return 12;
         }
         /* Interface 1.9: the pause menu's Options items, without a label or of no page of the
-         * mod's refused, two at most. */
+         * mod's refused, four at most. */
         if (api->api_minor >= 9
             && (api->ui_pause_item(mod, "", home) != OPENRAC_HOOK_UNKNOWN
                 || api->ui_pause_item(mod, NULL, home) != OPENRAC_HOOK_UNKNOWN
                 || api->ui_pause_item(mod, "X", 9) != OPENRAC_HOOK_UNKNOWN
                 || api->ui_pause_item(mod, "Multiplayer", home) != OPENRAC_HOOK_OK
                 || api->ui_pause_item(mod, "Party", s_ui_second) != OPENRAC_HOOK_OK
-                || api->ui_pause_item(mod, "Third", home) != OPENRAC_HOOK_UNKNOWN)) {
+                || api->ui_pause_item(mod, "Third", home) != OPENRAC_HOOK_OK
+                || api->ui_pause_item(mod, "Fourth", s_ui_second) != OPENRAC_HOOK_OK
+                || api->ui_pause_item(mod, "Fifth", home) != OPENRAC_HOOK_UNKNOWN)) {
             return 13;
         }
     }

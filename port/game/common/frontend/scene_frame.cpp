@@ -188,6 +188,8 @@ void set_lighting(SceneFrame& frame) {
 
     const bool enhanced = enhanced_graphics_available() && graphics.enhanced_graphics;
     input.texture_filter = enhanced ? graphics.texture_filter : renderer::TextureFilter::Normal;
+    input.local_lights = enhanced && graphics.local_lights;
+    input.authored_object_lights = enhanced && graphics.authored_object_lights;
     if (auto* lighting = owner.scene.level_lighting()) {
         lighting->set_material_overrides(enhanced);
     }
@@ -422,15 +424,21 @@ bool draw_world(SceneFrame& frame) {
         target.resolves_itself = owner.frame.resolves_itself();
         target.wide_2d = picture_scale < 1.0f && graphics.hud == settings::Hud::Edges;
 
-        const bool grade_colour = graphics.agx_preview && graphics.enhanced_graphics
-                                  && enhanced_graphics_available() && scene.has_camera
-                                  && !input.keep_colour && (scene.draws & 0x1Fu) != 0;
+        const float bloom_strength = graphics.bloom ? graphics.bloom_strength : 0.0f;
+        const bool grade_colour = (graphics.agx_preview || bloom_strength > 0.0f)
+                                  && graphics.enhanced_graphics && enhanced_graphics_available()
+                                  && scene.has_camera && !input.keep_colour
+                                  && (scene.draws & 0x1Fu) != 0;
         std::function<void()> finish_colour;
         // Temporal resolve can compose this known colour-only operation before late world and HUD work.
         if (grade_colour) {
-            finish_colour = [&owner, exposure = graphics.adjusted_agx_exposure()] {
+            finish_colour = [&owner,
+                             exposure = graphics.adjusted_agx_exposure(),
+                             agx = graphics.agx_preview,
+                             bloom_strength,
+                             bloom_radius = graphics.bloom_radius] {
                 crash::breadcrumb("tone mapping");
-                owner.agx.apply(owner.frame, exposure);
+                owner.agx.apply(owner.frame, exposure, agx, bloom_strength, bloom_radius);
             };
         }
         bool graded_by_temporal = false;

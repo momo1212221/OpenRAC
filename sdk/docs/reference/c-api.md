@@ -88,7 +88,7 @@ checks api->api_minor before it uses anything newer than the minor it was built 
 | `OPENRAC_UI_CHOICES_MAX` | `64` |  |
 | `OPENRAC_UI_TEXT_MAX` | `47` |  |
 | `OPENRAC_UI_MAIN_ITEMS_MAX` | `2` | The most items the mods together add to the main menu (openrac_api.ui_main_item): Ratchet & Clank's has room for two rows below its own three. Since 1.7. |
-| `OPENRAC_UI_PAUSE_ITEMS_MAX` | `2` | The most items the mods together add to the pause menu's Options page (openrac_api.ui_pause_item). Since 1.9. |
+| `OPENRAC_UI_PAUSE_ITEMS_MAX` | `4` | The most items the mods together add to the pause menu's Options page (openrac_api.ui_pause_item). Since 1.9. |
 | `OPENRAC_UI_NEW_GAME` | `"new_game"` | The main menu's own items, for openrac_api.ui_main_item's `after`. Since 1.7. |
 | `OPENRAC_UI_LOAD_GAME` | `"load_game"` |  |
 | `OPENRAC_UI_OPTIONS` | `"options"` |  |
@@ -608,6 +608,8 @@ the game's weapon or attack `mask`, `damage`, at `position` moving at `velocity`
 | `float damage` |  |
 | `float position[3]` |  |
 | `float velocity[3]` |  |
+| `int32_t source_oclass` | Interface 1.13: the retail moby that originated the hit (a wrench, projectile, enemy attack), preserved even when `attacker` is a synthetic/remote source. 0: unknown. |
+| `float source_position[3]` |  |
 
 ## `openrac_held_piece`
 

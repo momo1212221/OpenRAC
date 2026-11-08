@@ -75,6 +75,20 @@ std::string describe_level_bake_profile(const LevelBakeProfile& profile) {
            << ",\"relocation_iterations\":" << settings.relocation_iterations
            << ",\"relocation_max_fraction\":" << settings.relocation_max_fraction;
 
+    const auto& a = settings.atmosphere;
+    output << ",\"atmosphere\":{\"enabled\":" << (a.enabled ? "true" : "false")
+           << ",\"fog_density\":" << a.fog_density << ",\"fog_base\":" << a.fog_base
+           << ",\"fog_falloff\":" << a.fog_falloff << ",\"distance\":" << a.distance
+           << ",\"fog_colour\":[" << a.fog_colour[0] << ',' << a.fog_colour[1] << ','
+           << a.fog_colour[2] << ']' << ",\"cloud_algorithm\":" << CloudField::version
+           << ",\"cloud_enabled\":" << (a.cloud_enabled ? "true" : "false")
+           << ",\"cloud_resolution\":" << a.cloud_resolution
+           << ",\"cloud_coverage\":" << a.cloud_coverage << ",\"cloud_density\":" << a.cloud_density
+           << ",\"cloud_base\":" << a.cloud_base << ",\"cloud_thickness\":" << a.cloud_thickness
+           << ",\"cloud_scale\":" << a.cloud_scale << ",\"cloud_seed\":" << a.cloud_seed
+           << ",\"cloud_colour\":[" << a.cloud_colour[0] << ',' << a.cloud_colour[1] << ','
+           << a.cloud_colour[2] << "]}";
+
     // Planners retain the optional direction in each completed bake's input record.
     if (settings.sunlight_direction) {
         const auto& direction = *settings.sunlight_direction;

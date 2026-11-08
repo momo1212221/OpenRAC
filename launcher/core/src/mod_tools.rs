@@ -33,6 +33,9 @@ pub const PAGE_CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-e
 pub struct Tool {
     /// An HTML file inside the mod.
     pub page: String,
+    /// Optional bounded launcher service; requires explicit permission in the parent window.
+    #[serde(default)]
+    pub service: Option<String>,
 }
 
 /// A folder of the game's files a page may read.

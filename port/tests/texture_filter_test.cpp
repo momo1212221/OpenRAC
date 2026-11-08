@@ -212,7 +212,9 @@ public:
             std::fill(image.pixels.begin(), image.pixels.end(), static_cast<unsigned char>(64 * i));
             const auto source =
                 m_pool.add(std::move(image), renderer::AlphaScale::Full, "scratch", false, true);
-            outputs[i] = m_upscaler->prepare(m_pool.gl_texture(source), side, side, 0, 1);
+            outputs[i] = m_upscaler->prepare(
+                m_pool.gl_texture(source), side, side, 0, renderer::TextureFilter::EdgeAware, 1
+            );
             CHECK(outputs[i] != 0);
         }
 

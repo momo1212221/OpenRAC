@@ -73,6 +73,7 @@ uniform vec4 probe_point_colour[8];
 #define LOCAL_POSITION(i) probe_point_position[i]
 #define LOCAL_COLOUR(i) probe_point_colour[i]
 #define LOCAL_CONE(i,d) 1.
+#define LOCAL_VISIBILITY(p,i) 1.
 #define LOCAL_ATTENUATION(d,r) (1.0-(d)/(r))
 #endif
 
@@ -729,13 +730,14 @@ vec3 probe_direct(vec3 p, vec3 n, vec4 selector, float visibility) {
         // Authored radiance can exceed FP16; narrow only the bounded angular/range weights.
         if(i>=8) {
             mp_float weight=mp_float(response)*mp_float(LOCAL_ATTENUATION(distance,radius))
-                            *mp_float(LOCAL_CONE(i,delta/distance));
+                            *mp_float(LOCAL_CONE(i,delta/distance))*mp_float(LOCAL_VISIBILITY(p,i));
             direct+=max(LOCAL_COLOUR(i).rgb,vec3(0))*float(weight);
             continue;
         }
 #endif
         mp_vec3 contribution = max(mp_vec3(LOCAL_COLOUR(i).rgb), mp_vec3(0))
-            * mp_float(response) * mp_float(LOCAL_ATTENUATION(distance,radius)) * mp_float(LOCAL_CONE(i,delta/distance));
+            * mp_float(response) * mp_float(LOCAL_ATTENUATION(distance,radius)) * mp_float(LOCAL_CONE(i,delta/distance))
+            * mp_float(LOCAL_VISIBILITY(p,i));
         direct += vec3(contribution);
     }
     return direct;

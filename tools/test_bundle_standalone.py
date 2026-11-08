@@ -47,6 +47,16 @@ class PlayerActions(unittest.TestCase):
         self.pal = {a["id"]: a for a in self.actions["versions"]["rac1/pal"]}
         self.ntsc = {a["id"]: a for a in self.actions["versions"]["rac1/ntsc"]}
 
+    def test_log_viewer_observes_the_same_cache_as_the_bake(self):
+        for key, actions in self.actions["versions"].items():
+            by_id = {a["id"]: a for a in actions}
+            if "probe-bake" not in by_id:
+                continue
+            bake, viewer = by_id["probe-bake"], by_id["probe-bake-output"]
+            self.assertEqual(viewer["output"], bake["output"], key)
+            self.assertEqual(viewer["args"], ["tools/follow_bake.py", "--cache-dir", bake["output"], "--baker", "{artifact}"])
+            self.assertEqual(viewer["artifact"], bake["artifact"])
+
     def test_an_apk_plays_only_the_games_it_carries(self):
         def platforms(actions, key):
             return next(a for a in actions["versions"][key] if a["id"] == "play").get("platforms", [])

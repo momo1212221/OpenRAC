@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/OpenRAC/OpenRAC/releases/latest"><img src="https://img.shields.io/github/v/release/OpenRAC/OpenRAC?filter=launcher-v*&label=download&color=e8a317" alt="Download the latest launcher"></a>
+  <a href="https://github.com/momo1212221/OpenRAC/releases/tag/launcher-dev-develop"><img src="https://img.shields.io/github/v/release/momo1212221/OpenRAC?include_prereleases&label=download&color=e8a317" alt="Download the latest launcher"></a>
   <a href="https://github.com/OpenRAC/OpenRAC/actions/workflows/checks.yml"><img src="https://github.com/OpenRAC/OpenRAC/actions/workflows/checks.yml/badge.svg" alt="Checks"></a>
   <a href="https://openrac.dev/"><img src="https://img.shields.io/badge/website-openrac.dev-e8a317" alt="openrac.dev"></a>
   <a href="https://discord.gg/Sfd2B54PDG"><img src="https://img.shields.io/badge/Discord-join%20us-5865F2?logo=discord&logoColor=white" alt="Join us on Discord"></a>
@@ -44,7 +44,7 @@ OpenRAC brings the PlayStation 2 Ratchet & Clank games to PC as real native game
 
 ## Play
 
-1. [Download the launcher](https://github.com/OpenRAC/OpenRAC/releases/latest) and install it.
+1. [Download the launcher](https://github.com/momo1212221/OpenRAC/releases/tag/launcher-dev-develop) and install it.
 2. Open it and pick the folder with your disc images (`.iso` or `.chd`).
 3. Press **Play**.
 

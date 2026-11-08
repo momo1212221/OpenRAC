@@ -191,7 +191,9 @@ int (*openrac_game_moby_hit)(
     uint32_t mask,
     float damage,
     const float position[3],
-    const float velocity[3]
+    const float velocity[3],
+    int32_t source_oclass,
+    const float source_position[3]
 );
 
 int rac1_hero_guarded(void) {

@@ -16,7 +16,15 @@ enabled: boolean,
 /**
  * Whether the next Play saves the textures.
  */
-dumping: boolean, packCount: number, 
+dumping: boolean, 
+/**
+ * Whether the launcher prepares/reuses the persistent Ultra4K pack before Play.
+ */
+ultraEnabled: boolean, 
+/**
+ * Whether a completed Ultra4K pack is present for the current sources.
+ */
+ultraReady: boolean, ultraTextures: number, ultraBytes: number, packCount: number, 
 /**
  * Of those, the animated ones (a folder of frames or a GIF named by the texture).
  */

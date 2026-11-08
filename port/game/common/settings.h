@@ -19,6 +19,7 @@
 #include <string_view>
 
 #include "common/hdr.h"
+#include "enhanced/lighting/cloud_settings.h"
 #include "renderer/gtao_settings.h"
 #include "renderer/motion_blur_settings.h"
 #include "renderer/shadow_settings.h"
@@ -86,7 +87,7 @@ inline constexpr int kGameplayFovStep = 5;
 
 struct Settings {
     DisplayMode display_mode = DisplayMode::Windowed;
-    int monitor = 0;  // 0: the display the window is on; n: the nth display, counted from 1
+    int monitor = 0;       // 0: the display the window is on; n: the nth display, counted from 1
     int window_width = 0;  // the window's size when last windowed; 0 x 0: the port's default
     int window_height = 0;
     Aspect aspect = Aspect::Standard;
@@ -95,16 +96,19 @@ struct Settings {
     Hud hud = Hud::Centre;
     int gameplay_fov =
         kDefaultGameplayFov;  // Vertical field of view as a percentage of the gameplay camera.
-    int render_scale = 100;  // the frame's resolution, as a percentage of the window's picture
-    int msaa = 1;            // samples a pixel: 1 (off), 2, 4, 8, 16
+    int render_scale = 100;   // the frame's resolution, as a percentage of the window's picture
+    int msaa = 1;             // samples a pixel: 1 (off), 2, 4, 8, 16
     renderer::GtaoSettings gtao_settings;
     // Enhanced rendering at all (port/enhanced; the launcher's Mods entry): read at start, Vulkan
     // only. Off, nothing of it is made and the game draws as a build without it.
     bool enhanced_rendering = false;
     bool enhanced_graphics = true;  // F4 within it; retains individual feature preferences
     bool enhanced_shadows = true;   // cascades and Ratchet map; off restores original shadows
+    bool ray_tracing = true;        // hardware RT where the active backend exposes it
     renderer::ShadowQuality shadow_quality = renderer::ShadowQuality::High;
     renderer::VolumetricQuality volumetric_quality = renderer::VolumetricQuality::Off;
+    lighting::CloudParameters
+        clouds;  // Pending preparation preferences; runtime uses the verified cache.
     bool rim_light = true;
     // A texture pack from <data>/texture_packs/<game id>/ (docs/port/TEXTURE_PACKS.md); takes
     // effect at the next start.
@@ -138,15 +142,21 @@ struct Settings {
     bool agx_preview = true;                 // SDR-only AgX colour treatment experiment.
     float agx_exposure = 0.25f;              // Base exposure in stops, before AgX.
     float agx_brightness = 0.5f;             // 0..1 adds -0.8..+0.8 EV; midpoint is neutral.
+    bool bloom = true;                       // Scene-linear glow before the native-resolution HUD.
+    float bloom_strength = 0.35f;            // 0..1 intensity of bright emissive neighbourhoods.
+    float bloom_radius = 1.0f;               // 0.5..2 spatial spread of the bounded bloom taps.
 
     float adjusted_agx_exposure() const { return agx_exposure + (agx_brightness - .5f) * 1.6f; }
 
     bool motion_blur = true;  // Motion relative to the tracking focus.
     renderer::MotionBlurSettings motion_blur_settings;
     float lily_momentum = .25f;  // Tilt response time in seconds; zero follows waves immediately.
-    float motion_blur_strength = 0.5f;       // Exposure strength in [0, 1].
-    float temporal_sharpness = 0.2f;         // AMD RCAS strength in [0, 1].
+    float motion_blur_strength = 0.5f;  // Exposure strength in [0, 1].
+    float temporal_sharpness = 0.2f;    // AMD RCAS strength in [0, 1].
     renderer::TextureFilter texture_filter = renderer::TextureFilter::EdgeAware;
+    bool local_lights = true;  // Native projectiles/explosions from the game.
+    bool authored_object_lights =
+        false;           // Extra lamp/object emitters layered on top of the original look.
     int anisotropy = 0;  // 0: mode default; otherwise 1 (off), 2, 4, 8, 16
     // Scenery detail: false draws every tie and shrub, however far (the port's default); true,
     // "Original", leaves out the ties and shrubs beyond the game's draw distances (a low-end option,
@@ -187,7 +197,8 @@ struct Settings {
     // button name ("paddle1", the Steam Controller's R4; "misc1"); or "none".
     std::string menu_bar_button = "start+back";
     bool mute_unfocused = false;  // silence while another window has the keyboard
-    bool skip_cutscenes = true;   // Start skips an in-game cutscene (without the game's L1 L2 R1 R2 hold)
+    bool skip_cutscenes =
+        true;  // Start skips an in-game cutscene (without the game's L1 L2 R1 R2 hold)
     // Lower input latency, off by default (the timing players know). Reads the pad again just
     // before each tick (frontend.h refresh_pads), and turns the camera in the frames between ticks
     // with the right stick as it is now (frontend/camera_latch.h, the picture only). The game's

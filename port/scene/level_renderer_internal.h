@@ -26,10 +26,13 @@ inline bool gpu_driven() {
 // The joint palette texture: RGBA32F, four texels (columns) per matrix, this many texels a row.
 inline constexpr int kPaletteWidth = 1024;
 inline constexpr gl::GLenum kRgba32f = 0x8814;
+inline constexpr gl::GLenum kR32f = 0x822E;
 inline constexpr gl::GLenum kPaletteUnit = 1;
 // The ties' lit colours: RGBA8, one texel per colour, this many a row.
 inline constexpr int kLightWidth = 1024;
 inline constexpr gl::GLenum kLightUnit = 2;
+// Static sunlight needs its own buffer slot; water binds an unsigned coarse-mesh buffer at unit 13.
+inline constexpr gl::GLenum kRtSunUnit = 32;
 
 inline const void* offset(std::size_t bytes) {
     return reinterpret_cast<const void*>(bytes);

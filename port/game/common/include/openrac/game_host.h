@@ -488,7 +488,9 @@ typedef struct openrac_game_play {
         uint32_t mask,
         float damage,
         const float position[3],
-        const float velocity[3]
+        const float velocity[3],
+        int32_t source_oclass,
+        const float source_position[3]
     );
     /* Up to 8 points besides the camera that keep the mobys near them running (each moby's update
      * distance), until set again. */
@@ -649,7 +651,9 @@ extern int (*openrac_game_moby_hit)(
     uint32_t mask,
     float damage,
     const float position[3],
-    const float velocity[3]
+    const float velocity[3],
+    int32_t source_oclass,
+    const float source_position[3]
 );
 
 /* Host rendering and menus use the game's descriptor, not a particular disc's level count.
