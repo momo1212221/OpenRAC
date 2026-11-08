@@ -188,7 +188,7 @@ SunCascades sun_cascades(
             radius = std::max(radius, std::sqrt(dot(p, p)));
         }
         radius = std::ceil(radius * 16) / 16;
-        const int resolution = kSunResolutions[i] / shadow_resolution_divisor(quality);
+        const int resolution = renderer::sun_shadow_resolution(kSunResolutions[i], quality);
         radius *=
             static_cast<float>(resolution) / (resolution - 6);  // snapping + filtered PCF margin
         auto light_centre = transform_point(basis, centre);
