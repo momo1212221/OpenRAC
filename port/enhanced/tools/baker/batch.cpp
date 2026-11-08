@@ -24,6 +24,7 @@
 #include "enhanced/tools/baker/output/density_stage.h"
 #include "enhanced/tools/baker/output/environment_stage.h"
 #include "enhanced/tools/baker/output/probe_output.h"
+#include "enhanced/tools/baker/output/quality_heatmap.h"
 #include "enhanced/tools/baker/output/report.h"
 #include "enhanced/tools/baker/pipeline/stage_file.h"
 #include "enhanced/tools/baker/probe_rounding.h"
@@ -325,6 +326,40 @@ void write_quality_summary(
     }
 }
 
+void write_quality_heatmap(
+    const std::vector<BatchJob>& jobs, const std::filesystem::path& output_directory
+) {
+    std::vector<ProbeVolume> volumes;
+    std::vector<std::string> names;
+    volumes.reserve(jobs.size());
+    names.reserve(jobs.size());
+
+    for (const auto& job : jobs) {
+        std::ifstream input(job.path, std::ios::binary);
+        if (!input) {
+            throw std::runtime_error("verified probe output disappeared before quality heatmap");
+        }
+        const std::vector<std::uint8_t> bytes(
+            (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>()
+        );
+        volumes.push_back(decode_probes(bytes));
+        names.push_back(job.path.filename().string());
+    }
+
+    std::vector<ProbeQualityGrid> grids;
+    grids.reserve(volumes.size());
+    for (std::size_t i = 0; i < volumes.size(); ++i) {
+        grids.push_back({names[i], &volumes[i]});
+    }
+
+    const auto written = write_stage_file(
+        output_directory / "bake-quality.svg", probe_quality_svg(grids)
+    );
+    if (!written) {
+        throw std::runtime_error(written.error().message);
+    }
+}
+
 // Read the actual file back and verify exactly the bytes produced by this grid.
 ProbeVolume verify_batch_file(const BatchJob& job, const std::vector<std::uint8_t>& encoded) {
     auto checked = verify_probe_file(job.path, job.grid, encoded);
@@ -545,8 +580,9 @@ void run_probe_batch(
         output
     );
 
-    // All GI grids have passed runtime readback at this point; publish an inspectable aggregate.
+    // All GI grids have passed runtime readback at this point; publish inspectable diagnostics.
     write_quality_summary(jobs, options.output_directory);
+    write_quality_heatmap(jobs, options.output_directory);
 
     if (probe_input_hash(level.dir) != options.source_snapshot) {
         throw std::runtime_error(
