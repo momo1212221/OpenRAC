@@ -1,0 +1,34 @@
+name: post-sync clang-format
+
+on:
+  push:
+    branches:
+      - fix/post-sync-clang-format
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/post-sync-clang-format
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install clang-format==21.1.8
+      - name: Format touched C/C++/Objective-C++ files
+        run: |
+          clang-format -i             port/enhanced/lighting/bake.h             port/renderer/metal/mtlgl.mm             port/renderer/metal/mtlgl_draw.mm             port/renderer/metal/mtlgl_internal.h             port/renderer/metal/mtlgl_resources.mm             port/tests/metal_shader_test.mm
+      - name: Commit exact formatter output
+        run: |
+          if git diff --quiet --             port/enhanced/lighting/bake.h             port/renderer/metal/mtlgl.mm             port/renderer/metal/mtlgl_draw.mm             port/renderer/metal/mtlgl_internal.h             port/renderer/metal/mtlgl_resources.mm             port/tests/metal_shader_test.mm; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add             port/enhanced/lighting/bake.h             port/renderer/metal/mtlgl.mm             port/renderer/metal/mtlgl_draw.mm             port/renderer/metal/mtlgl_internal.h             port/renderer/metal/mtlgl_resources.mm             port/tests/metal_shader_test.mm
+          git commit -m "style: format post-sync port files"
+          git push origin HEAD:fix/post-sync-clang-format
