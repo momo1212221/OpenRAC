@@ -12,16 +12,18 @@ vec3 chrome_direct(vec3 p,vec3 n,vec3 eye,vec4 selector,float visibility) {
             if(probe_sunlight_direction.w!=0.) travel=probe_sunlight_direction.xyz;
             radiance*=probe_sunlight_scale;
         }
+        float roughness=material_sidecar_roughness(object_reflection_material.x);
         result+=radiance*mix(.1,1.,visibility)*ggx_specular(n,eye,-travel,
-                    object_reflection_material.x,object_reflection_material.y);
+                    roughness,object_reflection_material.y);
     }
     LOCAL_LIGHT_LOOP(i) {
         vec3 delta=LOCAL_POSITION(i).xyz-p;
         float radius=LOCAL_POSITION(i).w,distance=length(delta);
         if(radius<=0. || distance>=radius || distance<1e-6) continue;
         vec3 radiance=max(LOCAL_COLOUR(i).rgb,vec3(0))*LOCAL_ATTENUATION(distance,radius)*LOCAL_CONE(i,delta/distance);
+        float roughness=material_sidecar_roughness(object_reflection_material.x);
         result+=radiance*ggx_specular(n,eye,delta/distance,
-                    object_reflection_material.x,object_reflection_material.y);
+                    roughness,object_reflection_material.y);
     }
     return result;
 }
@@ -34,6 +36,7 @@ vec4 chrome_surface(vec3 original) {
     vec3 geometric=cross(dFdx(eye_position),dFdy(eye_position));
     vec3 normal_view=orient_shading_normal(mat3(view)*v_normal,geometric,-eye_position);
     vec3 n=transpose(mat3(view))*normal_view;
+    n=material_sidecar_normal(n);
     vec3 eye=probe_unit(transpose(mat3(view))*(-eye_position));
     float sun_visibility=1.,hero_visibility=1.;
     vec3 indirect=vec3(0);bool covered=false;
@@ -58,7 +61,8 @@ vec4 chrome_surface(vec3 original) {
     if (environment_count == 0 && !covered && !authored_fallback) return vec4(original, 1);
     vec3 fallback=covered ? gi_specular_fallback(indirect*probe_gi_multiplier,
                             dot(n,eye),object_reflection_material.y) : probe_linear(original);
-    vec3 reflection=environment_specular(v_world_position,n,eye,object_reflection_material.x,
+    float roughness=material_sidecar_roughness(object_reflection_material.x);
+    vec3 reflection=environment_specular(v_world_position,n,eye,roughness,
                         object_reflection_material.y,fallback);
     reflection+=chrome_direct(v_world_position,n,eye,v_probe_selector,visibility);
     reflection*=object_reflection_material.z*object_reflection_tint.rgb;
