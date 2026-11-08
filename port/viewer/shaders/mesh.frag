@@ -59,6 +59,9 @@ uniform float material_emission_contrast;
 uniform float material_diffuse_scale;
 uniform int material_fallback;
 uniform sampler2D gtao_visibility;
+// Layer 0: tangent-space normal. Layer 1: AO / roughness / height. Layer 2: emissive RGB.
+uniform int material_sidecars_enabled;
+uniform sampler2DArray material_sidecars;
 #endif
 
 #ifdef OPENRAC_HERO_WETNESS
@@ -96,6 +99,32 @@ vec3 emission_texel(bool authored_tint) {
     return result;
 }
 
+vec4 material_sidecar(float layer) {
+    return material_sidecars_enabled != 0
+        ? texture(material_sidecars, vec3(fract(v_uv), layer))
+        : vec4(layer == 0. ? vec3(.5,.5,1.) : layer == 1. ? vec3(1.,.5,.5) : vec3(0.), 1.);
+}
+float material_sidecar_ao() { return material_sidecars_enabled != 0 ? material_sidecar(1.).r : 1.; }
+float material_sidecar_roughness(float fallback) {
+    return material_sidecars_enabled != 0 ? material_sidecar(1.).g : fallback;
+}
+vec3 material_sidecar_emission() {
+    return material_sidecars_enabled != 0 ? probe_linear(material_sidecar(2.).rgb) : vec3(0.);
+}
+vec3 material_sidecar_normal(vec3 base_normal) {
+    if (material_sidecars_enabled == 0) return base_normal;
+    vec3 mapped = material_sidecar(0.).xyz * 2. - 1.;
+    vec3 dp1 = dFdx(v_world_position), dp2 = dFdy(v_world_position);
+    vec2 duv1 = dFdx(v_uv), duv2 = dFdy(v_uv);
+    vec3 dp2perp = cross(dp2, base_normal);
+    vec3 dp1perp = cross(base_normal, dp1);
+    vec3 tangent = dp2perp * duv1.x + dp1perp * duv2.x;
+    vec3 bitangent = dp2perp * duv1.y + dp1perp * duv2.y;
+    float denom = max(max(dot(tangent,tangent), dot(bitangent,bitangent)), 1e-8);
+    float inv = inversesqrt(denom);
+    return probe_unit(mat3(tangent*inv, bitangent*inv, base_normal) * mapped);
+}
+
 vec3 authored_emission() {
     vec3 emitted = vec3(0.0);
     if (any(greaterThan(material_emission, vec3(0.0)))) {
@@ -112,7 +141,7 @@ vec3 authored_emission() {
 vec3 surface_emission(vec4 texel) {
     // Scripted brightness follows the original encoded GS modulation, then decodes once.
     return probe_linear(clamp(texel.rgb * v_script_emission, vec3(0.0), vec3(1.0)))
-        + authored_emission();
+        + authored_emission() + material_sidecar_emission();
 }
 
 uniform int probe_look_count;
@@ -247,6 +276,7 @@ vec3 probe_surface(vec4 texel, vec3 original) {
     vec3 eye_position = (view * vec4(v_world_position, 1.0)).xyz;
     vec3 eye_normal = orient_shading_normal(mat3(view) * n, mat3(view) * geometric, -eye_position);
     n = transpose(mat3(view)) * eye_normal;
+    n = material_sidecar_normal(n);
     if (probe_mode == 4) {
         // Read the same grid blend directly, even when normal shading uses cached irradiance.
         vec3 ignored;
@@ -368,7 +398,7 @@ vec3 probe_surface(vec4 texel, vec3 original) {
         return probe_display(fallback);
     }
     // Artistic GI exposure; keep the bake and direct-light energy unchanged.
-    indirect *= probe_gi_multiplier;
+    indirect *= probe_gi_multiplier * material_sidecar_ao();
     if (probe_retail_anchor != 0 && probe_receiver == 2 && probe_mode == 1) {
         indirect = retail_ambient_floor(indirect, v_probe_ambient);
     }

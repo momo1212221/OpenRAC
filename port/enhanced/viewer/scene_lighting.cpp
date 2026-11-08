@@ -8,19 +8,130 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstring>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "common/log.h"
 #include "enhanced/renderer/reflection_material.h"
 #include "enhanced/renderer/water.h"
 #include "enhanced_viewer_shaders.h"
 #include "renderer/gl.h"
+#include "renderer/texture_pack.h"
 #include "scene/level_renderer.h"
 
 namespace openrac::lighting {
 
 namespace {
+constexpr unsigned kMaterialSidecarUnit = 10;
+
+bool same_extent(const renderer::Rgba8Image& image, int width, int height) {
+    return image.width == width && image.height == height
+           && image.pixels.size() == static_cast<std::size_t>(width)
+                                      * static_cast<std::size_t>(height) * 4;
+}
+
+renderer::Rgba8Image material_default(int width, int height, std::array<std::uint8_t, 4> value) {
+    renderer::Rgba8Image image(width, height);
+    for (std::size_t i = 0; i < image.pixels.size(); i += 4) {
+        std::copy(value.begin(), value.end(), image.pixels.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+    return image;
+}
+
+std::optional<renderer::Rgba8Image> load_sidecar(
+    std::uint64_t hash, renderer::texture_pack::MaterialMap map, int width, int height
+) {
+    auto image = renderer::texture_pack::load_material_map(hash, map);
+    if (image && !same_extent(*image, width, height)) {
+        log::warn(
+            "material sidecar {:016x}: {}x{} does not match {}x{}; map ignored",
+            hash,
+            image->width,
+            image->height,
+            width,
+            height
+        );
+        image.reset();
+    }
+    return image;
+}
+
+unsigned upload_sidecar_array(std::uint64_t hash) {
+    const auto paths = renderer::texture_pack::material_maps(hash);
+    if (!paths) {
+        return 0;
+    }
+
+    std::optional<renderer::Rgba8Image> reference;
+    for (const auto map : {
+             renderer::texture_pack::MaterialMap::Normal,
+             renderer::texture_pack::MaterialMap::Roughness,
+             renderer::texture_pack::MaterialMap::Height,
+             renderer::texture_pack::MaterialMap::Ao,
+             renderer::texture_pack::MaterialMap::Emissive,
+         }) {
+        reference = renderer::texture_pack::load_material_map(hash, map);
+        if (reference && reference->width > 0 && reference->height > 0) {
+            break;
+        }
+        reference.reset();
+    }
+    if (!reference) {
+        return 0;
+    }
+
+    const int width = reference->width, height = reference->height;
+    auto normal = load_sidecar(hash, renderer::texture_pack::MaterialMap::Normal, width, height)
+                      .value_or(material_default(width, height, {128, 128, 255, 255}));
+    auto roughness =
+        load_sidecar(hash, renderer::texture_pack::MaterialMap::Roughness, width, height)
+            .value_or(material_default(width, height, {128, 128, 128, 255}));
+    auto height_map = load_sidecar(hash, renderer::texture_pack::MaterialMap::Height, width, height)
+                          .value_or(material_default(width, height, {128, 128, 128, 255}));
+    auto ao = load_sidecar(hash, renderer::texture_pack::MaterialMap::Ao, width, height)
+                  .value_or(material_default(width, height, {255, 255, 255, 255}));
+    auto emissive = load_sidecar(hash, renderer::texture_pack::MaterialMap::Emissive, width, height)
+                        .value_or(material_default(width, height, {0, 0, 0, 255}));
+
+    const std::size_t plane = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4;
+    std::vector<std::uint8_t> layers(plane * 3);
+    std::memcpy(layers.data(), normal.pixels.data(), plane);
+    for (std::size_t i = 0; i < plane; i += 4) {
+        layers[plane + i] = ao.pixels[i];
+        layers[plane + i + 1] = roughness.pixels[i];
+        layers[plane + i + 2] = height_map.pixels[i];
+        layers[plane + i + 3] = 255;
+    }
+    std::memcpy(layers.data() + plane * 2, emissive.pixels.data(), plane);
+
+    unsigned texture = 0;
+    gl::glGenTextures(1, &texture);
+    gl::glActiveTexture(gl::GL_TEXTURE0 + kMaterialSidecarUnit);
+    gl::glBindTexture(gl::GL_TEXTURE_2D_ARRAY, texture);
+    gl::glTexImage3D(
+        gl::GL_TEXTURE_2D_ARRAY,
+        0,
+        gl::GL_RGBA8,
+        width,
+        height,
+        3,
+        0,
+        gl::GL_RGBA,
+        gl::GL_UNSIGNED_BYTE,
+        layers.data()
+    );
+    gl::glTexParameteri(gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR);
+    gl::glTexParameteri(gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
+    gl::glTexParameteri(gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_WRAP_S, gl::GL_REPEAT);
+    gl::glTexParameteri(gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_WRAP_T, gl::GL_REPEAT);
+    gl::glGenerateMipmap(gl::GL_TEXTURE_2D_ARRAY);
+    gl::glBindTexture(gl::GL_TEXTURE_2D_ARRAY, 0);
+    gl::glActiveTexture(gl::GL_TEXTURE0);
+    return texture;
+}
+
 // Static world variants cannot contain the live, skinned hero; discard every fur declaration there.
 std::string hero_only_source(const char* source) {
     return std::string("#ifndef OPENRAC_STATIC_COLOUR\n") + source + "\n#endif\n";
@@ -228,10 +339,29 @@ void SceneLighting::bind_surface_material(
     }
 }
 
+void SceneLighting::bind_material_sidecars(
+    const renderer::Shader& shader, const scene::Material& source
+) const {
+    const auto enabled_location = shader.uniform("material_sidecars_enabled");
+    if (enabled_location < 0) {
+        return;
+    }
+
+    const auto found = source.texture_pack_hash ? m_material_sidecars.find(source.texture_pack_hash)
+                                                : m_material_sidecars.end();
+    const bool enabled = found != m_material_sidecars.end() && found->second != 0;
+    gl::glUniform1i(enabled_location, enabled ? 1 : 0);
+    gl::glUniform1i(shader.uniform("material_sidecars"), int(kMaterialSidecarUnit));
+    gl::glActiveTexture(gl::GL_TEXTURE0 + kMaterialSidecarUnit);
+    gl::glBindTexture(gl::GL_TEXTURE_2D_ARRAY, enabled ? found->second : 0);
+    gl::glActiveTexture(gl::GL_TEXTURE0);
+}
+
 void SceneLighting::bind_material(
     const renderer::Shader& shader, std::uint32_t model, int slot, const scene::Material& source
 ) const {
     bind_surface_material(shader, model, slot, source);
+    bind_material_sidecars(shader, source);
     const auto location = shader.uniform("object_reflection_enabled");
 
     if (location < 0) {
@@ -309,6 +439,39 @@ bool SceneLighting::early_supported() const {
     return EarlyLighting::supported();
 }
 
+void SceneLighting::load_material_sidecars(const scene::LevelData& level) {
+    release_material_sidecars();
+    if (!gl::enhanced_rendering_available()) {
+        return;
+    }
+
+    for (const auto& material : level.materials) {
+        const auto hash = material.texture_pack_hash;
+        if (!hash || m_material_sidecars.contains(hash)
+            || !renderer::texture_pack::material_maps(hash)) {
+            continue;
+        }
+
+        const unsigned texture = upload_sidecar_array(hash);
+        if (texture) {
+            m_material_sidecars.emplace(hash, texture);
+        }
+    }
+    if (!m_material_sidecars.empty()) {
+        log::info("material sidecars: {} texture sets resident", m_material_sidecars.size());
+    }
+}
+
+void SceneLighting::release_material_sidecars() {
+    for (const auto& [hash, texture] : m_material_sidecars) {
+        (void)hash;
+        if (texture) {
+            gl::glDeleteTextures(1, &texture);
+        }
+    }
+    m_material_sidecars.clear();
+}
+
 void SceneLighting::load(const scene::LevelData& level) {
 #ifdef OPENRAC_LIGHT_AUTHORING
     if (gl::enhanced_rendering_available()) {
@@ -345,6 +508,7 @@ void SceneLighting::load(const scene::LevelData& level) {
     }
 
     enhanced::set_reflection_subjects(std::move(subjects));
+    load_material_sidecars(level);
     m_probes.load(level);
 
     // Foliage is optional: bad material authoring must not disable unrelated enhanced lighting.
@@ -408,6 +572,7 @@ void SceneLighting::release() {
     m_fur.release();
     m_foliage.clear();
     m_materials.clear();
+    release_material_sidecars();
     m_water_float.release();
     m_atmosphere.release();
     m_probes.release();
