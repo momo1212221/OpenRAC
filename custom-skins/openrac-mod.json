@@ -2,9 +2,9 @@
   "format": 2,
   "id": "custom-skins",
   "name": "Custom Skin Studio",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "Moritz Wallinger",
-  "description": "Export and edit Ratchet's base skin, then build a normal OpenRAC texture-pack ZIP.",
+  "description": "Edit Ratchet's skin in a visual UI, preview textures, paint or replace PNGs, and build a normal OpenRAC skin-pack ZIP.",
   "license": "MIT",
   "homepage": "https://github.com/momo1212221/OpenRAC/tree/feat/custom-skins",
   "games": {
