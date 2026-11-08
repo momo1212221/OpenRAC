@@ -27,11 +27,20 @@ struct ShadowAtlasLayout {
 
 constexpr ShadowAtlasLayout shadow_atlas_layout(renderer::ShadowQuality quality) {
     ShadowAtlasLayout layout;
-    const int divisor = renderer::shadow_resolution_divisor(quality);
-    layout.size /= divisor;
-    for (auto& rect : layout.rects) {
-        for (auto& coordinate : rect) {
-            coordinate /= divisor;
+    if (quality == renderer::ShadowQuality::Ultra) {
+        layout.size *= 2;
+        for (auto& rect : layout.rects) {
+            for (auto& coordinate : rect) {
+                coordinate *= 2;
+            }
+        }
+    } else {
+        const int divisor = renderer::shadow_resolution_divisor(quality);
+        layout.size /= divisor;
+        for (auto& rect : layout.rects) {
+            for (auto& coordinate : rect) {
+                coordinate /= divisor;
+            }
         }
     }
     layout.rects[4][2] = layout.rects[4][3] = renderer::hero_shadow_resolution(quality);
