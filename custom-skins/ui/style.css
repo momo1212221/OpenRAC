@@ -1,0 +1,13 @@
+:root{font-family:Inter,system-ui,sans-serif;color-scheme:dark;background:#101217;color:#f3f5f8}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#252a35 0,#101217 48%);min-height:100vh}
+main{max-width:1180px;margin:auto;padding:28px}header{display:flex;gap:24px;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
+h1{font-size:clamp(2rem,5vw,3.6rem);margin:0 0 8px;letter-spacing:-.04em}p{color:#b8bec9;line-height:1.5}.eyebrow{text-transform:uppercase;letter-spacing:.16em;font-size:.74rem;font-weight:800;color:#ffad40;margin:0 0 8px}
+button,.fileButton,select,input{font:inherit}button,.fileButton{border:1px solid #3a424f;background:#20252e;color:#f5f7fa;padding:10px 12px;border-radius:10px;font-weight:700;cursor:pointer;text-align:center}
+button:hover,.fileButton:hover,button.active{background:#2a313c;border-color:#667487}button:disabled{opacity:.45;cursor:not-allowed}.primary{background:#e57912;border-color:#ff9737;color:white}.primary:hover{background:#f08316}
+.meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px;padding:14px;border:1px solid #303642;border-radius:14px;background:#15181f}
+label{display:grid;gap:7px;font-weight:650;font-size:.88rem}input[type=text],input:not([type]),select,.meta input{width:100%;background:#0f1217;color:#f4f6f8;border:1px solid #3c4553;border-radius:9px;padding:9px}
+.workspace{display:grid;grid-template-columns:285px minmax(0,1fr);gap:16px}aside,.stage{border:1px solid #303642;background:#14171d;border-radius:16px}
+aside{padding:17px;display:flex;flex-direction:column;gap:13px}.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}hr{width:100%;border:0;border-top:1px solid #303642}
+output{color:#9fa9b8;font-size:.8rem}.hint{font-size:.8rem;margin:0}.stage{min-height:610px;display:grid;place-items:center;align-content:center;gap:14px;padding:22px;overflow:auto}
+canvas{max-width:100%;max-height:70vh;image-rendering:pixelated;background:repeating-conic-gradient(#222 0 25%,#333 0 50%) 50%/20px 20px;border-radius:8px;box-shadow:0 16px 60px #0008;touch-action:none}
+#status{margin:0;font-size:.9rem;text-align:center}.fileButton{display:block}@media(max-width:800px){main{padding:16px}.workspace{grid-template-columns:1fr}.meta{grid-template-columns:1fr}header{flex-direction:column}.stage{min-height:420px}}
