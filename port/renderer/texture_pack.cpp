@@ -169,6 +169,7 @@ std::unordered_map<std::uint64_t, MaterialMaps> materials_under(const fs::path& 
             const fs::path path = directory.path() / name;
             return fs::is_regular_file(path, e) ? path : fs::path{};
         };
+        maps.albedo = file("albedo.png");
         maps.normal = file("normal.png");
         maps.roughness = file("roughness.png");
         maps.height = file("height.png");
@@ -774,6 +775,9 @@ std::optional<Rgba8Image> load_material_map(std::uint64_t hash, MaterialMap map)
             return std::nullopt;
         }
         switch (map) {
+            case MaterialMap::Albedo:
+                path = found->second.albedo;
+                break;
             case MaterialMap::Normal:
                 path = found->second.normal;
                 break;
