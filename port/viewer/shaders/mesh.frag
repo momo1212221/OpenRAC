@@ -64,6 +64,8 @@ uniform int material_sidecars_enabled;
 uniform sampler2D material_sidecar_normal_tex;
 uniform sampler2D material_sidecar_ormh_tex;
 uniform sampler2D material_sidecar_emissive_tex;
+uniform sampler2D material_sidecar_specular_tex;
+uniform sampler2D material_sidecar_detail_tex;
 #endif
 
 #ifdef OPENRAC_HERO_WETNESS
@@ -115,8 +117,27 @@ float material_sidecar_ao() { return material_sidecar_ormh_sample().r; }
 float material_sidecar_roughness(float fallback) {
     return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().g : fallback;
 }
+float material_sidecar_metallic() {
+    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().b : 0.;
+}
 float material_sidecar_height() {
-    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().b : .5;
+    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().a : .5;
+}
+float material_sidecar_specular(float fallback) {
+    if (material_sidecars_enabled == 0) return fallback;
+    vec4 sample = texture(material_sidecar_specular_tex, fract(v_uv));
+    return sample.a > .5 ? sample.r : fallback;
+}
+vec3 material_sidecar_detail() {
+    return material_sidecars_enabled != 0
+        ? texture(material_sidecar_detail_tex, fract(v_uv)).rgb
+        : vec3(0.);
+}
+float material_sidecar_cavity() { return material_sidecar_detail().r; }
+float material_sidecar_curvature() { return material_sidecar_detail().g; }
+float material_sidecar_edgewear() { return material_sidecar_detail().b; }
+float material_sidecar_occlusion() {
+    return material_sidecar_ao() * mix(1., .82, material_sidecar_cavity());
 }
 vec3 material_sidecar_emission() {
     return material_sidecars_enabled != 0
@@ -410,7 +431,7 @@ vec3 probe_surface(vec4 texel, vec3 original) {
         return probe_display(fallback);
     }
     // Artistic GI exposure; keep the bake and direct-light energy unchanged.
-    indirect *= probe_gi_multiplier * material_sidecar_ao();
+    indirect *= probe_gi_multiplier * material_sidecar_occlusion();
     if (probe_retail_anchor != 0 && probe_receiver == 2 && probe_mode == 1) {
         indirect = retail_ambient_floor(indirect, v_probe_ambient);
     }
