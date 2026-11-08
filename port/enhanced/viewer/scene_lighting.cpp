@@ -191,6 +191,39 @@ unsigned upload_material_texture(
     return texture;
 }
 
+std::array<unsigned, 5> upload_default_sidecars() {
+    // These values are the exact neutral values used by the fragment shader when sidecars are
+    // disabled: +Z normal, full AO, mid roughness/height, zero metal/emission/detail and a
+    // specular alpha of zero so authored reflection settings remain authoritative.
+    return {
+        upload_material_texture(
+            material_default(1, 1, {128, 128, 255, 255}),
+            kMaterialNormalUnit,
+            MaterialMipKind::Normal
+        ),
+        upload_material_texture(
+            material_default(1, 1, {255, 128, 0, 128}),
+            kMaterialOrmhUnit,
+            MaterialMipKind::Ormh
+        ),
+        upload_material_texture(
+            material_default(1, 1, {0, 0, 0, 255}),
+            kMaterialEmissiveUnit,
+            MaterialMipKind::Emissive
+        ),
+        upload_material_texture(
+            material_default(1, 1, {0, 0, 0, 0}),
+            kMaterialSpecularUnit,
+            MaterialMipKind::Specular
+        ),
+        upload_material_texture(
+            material_default(1, 1, {0, 0, 0, 255}),
+            kMaterialDetailUnit,
+            MaterialMipKind::Detail
+        ),
+    };
+}
+
 std::array<unsigned, 5> upload_sidecars(std::uint64_t hash) {
     const auto paths = renderer::texture_pack::material_maps(hash);
     if (!paths) {
@@ -491,7 +524,8 @@ void SceneLighting::bind_material_sidecars(
     const bool enabled = found != m_material_sidecars.end();
     gl::glUniform1i(enabled_location, enabled ? 1 : 0);
 
-    const std::array<unsigned, 5> textures = enabled ? found->second : std::array<unsigned, 5>{};
+    const std::array<unsigned, 5>& textures =
+        enabled ? found->second : m_material_sidecar_defaults;
     for (const auto [unit, uniform, texture] : {
              std::tuple{kMaterialNormalUnit, "material_sidecar_normal_tex", textures[0]},
              std::tuple{kMaterialOrmhUnit, "material_sidecar_ormh_tex", textures[1]},
@@ -594,6 +628,10 @@ void SceneLighting::load_material_sidecars(const scene::LevelData& level) {
         return;
     }
 
+    // The frame graph records every reflected sampler read before executing draws. Keep neutral
+    // sidecar images resident even when no installed texture pack provides material maps.
+    m_material_sidecar_defaults = upload_default_sidecars();
+
     for (const auto& material : level.materials) {
         const auto hash = material.texture_pack_hash;
         if (!hash || m_material_sidecars.contains(hash)
@@ -621,6 +659,12 @@ void SceneLighting::release_material_sidecars() {
         }
     }
     m_material_sidecars.clear();
+    for (const auto texture : m_material_sidecar_defaults) {
+        if (texture) {
+            gl::glDeleteTextures(1, &texture);
+        }
+    }
+    m_material_sidecar_defaults.fill(0);
 }
 
 void SceneLighting::load(const scene::LevelData& level) {
