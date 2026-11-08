@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { supports } from "$lib/capabilities";
   // A game's saves: the memory card's used slots as rows (planet, bolts, when it was saved), the
   // empty ones in one line, and the backups folded under a line of their own, each called by its
   // note. File names, sizes and the card's folder name are a contributor's details: a chip and
@@ -166,12 +167,18 @@
         </button>
       {/if}
       {#if used.length}
-        <button class="small" onclick={() => (transfer = { mode: "export", source: null })}
-          ><Icon name="upload" size={14} />Export</button
+        <button
+          class="small"
+          disabled={!supports(app.info, "saveTransfer")}
+          onclick={() => (transfer = { mode: "export", source: null })}><Icon name="upload" size={14} />Export</button
         >
       {/if}
-      <button class="small" onclick={() => void startImport()}><Icon name="download" size={14} />Import</button>
-      <button class="small" onclick={openFolder}><Icon name="folder" size={14} />Open folder</button>
+      <button class="small" disabled={!supports(app.info, "saveTransfer")} onclick={() => void startImport()}
+        ><Icon name="download" size={14} />Import</button
+      >
+      <button class="small" disabled={!supports(app.info, "openFolders")} onclick={openFolder}
+        ><Icon name="folder" size={14} />Open folder</button
+      >
     </div>
   </div>
 
@@ -286,7 +293,7 @@
                     {/if}
                     <button
                       class="ghost small restore"
-                      disabled={restoringBackupName === backup.name}
+                      disabled={restoringBackupName === backup.name || !supports(app.info, "saveEditing")}
                       onclick={() => void restoreBackup(backup)}
                     >
                       {#if restoringBackupName === backup.name}<span class="spinner"></span>{/if}Restore
