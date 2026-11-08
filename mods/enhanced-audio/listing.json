@@ -1,6 +1,6 @@
 {
   "id": "enhanced-audio",
-  "description": "Optional combat and health audio cues: hit confirmation, damage feedback, dry-fire and a low-health heartbeat.",
+  "description": "Combat and health audio cues with an optional Enhanced RAC Style status panel.",
   "tags": [
     "audio",
     "accessibility",
