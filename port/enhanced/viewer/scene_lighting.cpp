@@ -28,8 +28,8 @@ constexpr unsigned kMaterialSidecarUnit = 10;
 
 bool same_extent(const renderer::Rgba8Image& image, int width, int height) {
     return image.width == width && image.height == height
-           && image.pixels.size() == static_cast<std::size_t>(width)
-                                      * static_cast<std::size_t>(height) * 4;
+           && image.pixels.size()
+                  == static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4;
 }
 
 renderer::Rgba8Image material_default(int width, int height, std::array<std::uint8_t, 4> value) {
@@ -95,7 +95,8 @@ unsigned upload_sidecar_array(std::uint64_t hash) {
     auto emissive = load_sidecar(hash, renderer::texture_pack::MaterialMap::Emissive, width, height)
                         .value_or(material_default(width, height, {0, 0, 0, 255}));
 
-    const std::size_t plane = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4;
+    const std::size_t plane =
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4;
     std::vector<std::uint8_t> layers(plane * 3);
     std::memcpy(layers.data(), normal.pixels.data(), plane);
     for (std::size_t i = 0; i < plane; i += 4) {
@@ -122,7 +123,9 @@ unsigned upload_sidecar_array(std::uint64_t hash) {
         gl::GL_UNSIGNED_BYTE,
         layers.data()
     );
-    gl::glTexParameteri(gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR);
+    gl::glTexParameteri(
+        gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR
+    );
     gl::glTexParameteri(gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
     gl::glTexParameteri(gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_WRAP_S, gl::GL_REPEAT);
     gl::glTexParameteri(gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_WRAP_T, gl::GL_REPEAT);

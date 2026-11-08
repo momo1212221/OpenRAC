@@ -120,7 +120,13 @@ struct MaterialMaps {
 // The material sidecars under Materials/<hash>/, when a pack provides any.
 std::optional<MaterialMaps> material_maps(std::uint64_t hash);
 
-enum class MaterialMap : std::uint8_t { Normal, Roughness, Height, Ao, Emissive };
+enum class MaterialMap : std::uint8_t {
+    Normal,
+    Roughness,
+    Height,
+    Ao,
+    Emissive
+};
 
 // Decodes one material sidecar through the same configured PNG loader as colour replacements.
 std::optional<Rgba8Image> load_material_map(std::uint64_t hash, MaterialMap map);
