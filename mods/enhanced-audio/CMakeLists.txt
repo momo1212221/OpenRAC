@@ -20,3 +20,7 @@ endif()
 
 find_package(OpenRACMod 1.12 REQUIRED)
 openrac_add_mod(enhanced_audio MANIFEST openrac-mod.json SOURCES src/mod.cpp)
+
+# openrac_add_mod lays out the native library and human-readable files. Carry this mod's
+# original cue assets into that package folder as well so package_mod.py includes them.
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/assets" DESTINATION "${CMAKE_BINARY_DIR}/package/enhanced_audio")
