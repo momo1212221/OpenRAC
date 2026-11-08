@@ -885,6 +885,8 @@ type ZipFile = (usize, PathBuf);
 /// A pack's .zip, checked: its textures with their files, its manifest.
 struct Scanned {
     items: Vec<(Item, Vec<ZipFile>)>,
+    // Materials/<hash>/<map> files are tied to a colour texture but are not replacements themselves.
+    materials: Vec<(String, ZipFile)>,
     manifest: Manifest,
     skipped: u32,
 }
@@ -894,7 +896,20 @@ pub const NOT_A_PACK_BUT_A_MOD: &str = "This .zip is a mod, not a texture pack."
 
 /// The folders a pack keeps at its top; a single other top folder (the pack zipped with its own
 /// folder) is taken off.
-const PACK_FOLDERS: &[&str] = &["Interface", "Shared", "Planets", "Animated"];
+const PACK_FOLDERS: &[&str] = &["Interface", "Shared", "Planets", "Animated", "Materials"];
+
+const MATERIAL_FILES: &[&str] =
+    &["normal.png", "roughness.png", "height.png", "ao.png", "emissive.png", "material.json"];
+
+fn material_sidecar(rel: &str) -> Option<(String, PathBuf)> {
+    let parts: Vec<&str> = rel.split('/').collect();
+    if parts.len() != 3 || parts[0] != "Materials" || !is_hash(parts[1])
+        || !MATERIAL_FILES.contains(&parts[2])
+    {
+        return None;
+    }
+    Some((parts[1].to_ascii_lowercase(), PathBuf::from(rel)))
+}
 
 fn open_zip(path: &Path) -> Result<zip::ZipArchive<std::fs::File>, String> {
     let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -940,6 +955,7 @@ fn scan(archive: &mut zip::ZipArchive<std::fs::File>, id: &str) -> Result<Scanne
         _ => None,
     };
     let mut items: BTreeMap<String, (Item, Vec<ZipFile>)> = BTreeMap::new();
+    let mut materials: Vec<(String, ZipFile)> = Vec::new();
     let mut manifest = None;
     let mut skipped = 0;
     let mut bad: Vec<String> = Vec::new();
@@ -967,6 +983,10 @@ fn scan(archive: &mut zip::ZipArchive<std::fs::File>, id: &str) -> Result<Scanne
                 serde_json::from_str::<Manifest>(&text)
                     .map_err(|_| "The pack's manifest cannot be read.".to_string())?,
             );
+            continue;
+        }
+        if let Some((hash, path)) = material_sidecar(&rel) {
+            materials.push((hash, (i, path)));
             continue;
         }
         let parent = folder.rsplit('/').next().unwrap_or_default();
@@ -1029,10 +1049,19 @@ fn scan(archive: &mut zip::ZipArchive<std::fs::File>, id: &str) -> Result<Scanne
             return Err(format!("The animation folder {} has no frames.", item.rel.display()));
         }
     }
+    for (hash, (_, path)) in &materials {
+        if !items.contains_key(hash) {
+            return Err(format!(
+                "Material sidecar {} has no colour texture {} in this pack.",
+                path.display(),
+                hash
+            ));
+        }
+    }
     if items.is_empty() {
         return Err("This .zip holds no texture pictures.".into());
     }
-    Ok(Scanned { items: items.into_values().collect(), manifest, skipped })
+    Ok(Scanned { items: items.into_values().collect(), materials, manifest, skipped })
 }
 
 /// What a pack's .zip holds, refused when it is another game's or not a pack.
@@ -1101,7 +1130,12 @@ pub fn import(
     let staging = root.join(format!(".{id}.importing"));
     let _ = std::fs::remove_dir_all(&staging);
     let unpack = |archive: &mut zip::ZipArchive<std::fs::File>| -> Result<(), String> {
-        for (i, rel) in scanned.items.iter().flat_map(|(_, files)| files) {
+        for (i, rel) in scanned
+            .items
+            .iter()
+            .flat_map(|(_, files)| files)
+            .chain(scanned.materials.iter().map(|(_, file)| file))
+        {
             let mut entry = archive.by_index(*i).map_err(|e| e.to_string())?;
             let mut bytes = Vec::new();
             (&mut entry)
@@ -1124,7 +1158,7 @@ pub fn import(
     let count = scanned.items.len() as u32;
     let result = match mode {
         ImportMode::Replace => replace_with(&pack, &staging, &id),
-        ImportMode::Merge => merge_into(&pack, &staging, &scanned.items).map(|()| None),
+        ImportMode::Merge => merge_into(&pack, &staging, &scanned.items, &scanned.materials).map(|()| None),
     };
     let _ = std::fs::remove_dir_all(&staging);
     result.map(|kept| (count, kept))
@@ -1181,7 +1215,12 @@ fn remove_item(pack: &Path, item: &Item) {
     }
 }
 
-fn merge_into(pack: &Path, staging: &Path, items: &[(Item, Vec<ZipFile>)]) -> Result<(), String> {
+fn merge_into(
+    pack: &Path,
+    staging: &Path,
+    items: &[(Item, Vec<ZipFile>)],
+    materials: &[(String, ZipFile)],
+) -> Result<(), String> {
     let current: HashMap<String, Item> = items_under(pack).into_iter().map(|i| (i.hash.clone(), i)).collect();
     for (item, files) in items {
         // One picture a texture: the pack's own gives way, and an animation is replaced whole.
@@ -1196,6 +1235,15 @@ fn merge_into(pack: &Path, staging: &Path, items: &[(Item, Vec<ZipFile>)]) -> Re
             std::fs::rename(staging.join(rel), &target).map_err(|e| format!("{}: {e}", target.display()))?;
         }
     }
+    for (_, (_, rel)) in materials {
+        let target = pack.join(rel);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        // A newer material map replaces only the corresponding sidecar; other maps remain valid.
+        let _ = std::fs::remove_file(&target);
+        std::fs::rename(staging.join(rel), &target).map_err(|e| format!("{}: {e}", target.display()))?;
+    }
     Ok(())
 }
 
@@ -1207,21 +1255,33 @@ pub fn export_name(id: &str) -> String {
 /// An item's files on disk, relative to the pack: the picture, or the animation folder's frames
 /// and settings.
 fn item_files(pack: &Path, item: &Item) -> Vec<PathBuf> {
-    if !(item.animated && item.rel.extension().is_none()) {
-        return vec![item.rel.clone()];
+    let mut files = if !(item.animated && item.rel.extension().is_none()) {
+        vec![item.rel.clone()]
+    } else {
+        let mut frames: Vec<PathBuf> = std::fs::read_dir(pack.join(&item.rel))
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|n| frame_file(n))
+                    .map(|n| item.rel.join(n))
+                    .collect()
+            })
+            .unwrap_or_default();
+        frames.sort();
+        frames
+    };
+
+    const NAMES: &[&str] =
+        &["normal.png", "roughness.png", "height.png", "ao.png", "emissive.png", "material.json"];
+    let material = Path::new("Materials").join(&item.hash);
+    for name in NAMES {
+        let rel = material.join(name);
+        if pack.join(&rel).is_file() {
+            files.push(rel);
+        }
     }
-    let mut files: Vec<PathBuf> = std::fs::read_dir(pack.join(&item.rel))
-        .map(|entries| {
-            entries
-                .flatten()
-                .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .filter(|n| frame_file(n))
-                .map(|n| item.rel.join(n))
-                .collect()
-        })
-        .unwrap_or_default();
-    files.sort();
     files
 }
 
@@ -1379,6 +1439,9 @@ mod tests {
                 (MANIFEST, manifest("rac2-ntsc")),
                 ("Interface/0123456789ABCDEF.png", png(1)),
                 ("Planets/Oozla/fedcba9876543210.png", png(2)),
+                ("Materials/0123456789abcdef/normal.png", png(3)),
+                ("Materials/0123456789abcdef/roughness.png", png(4)),
+                ("Materials/0123456789abcdef/material.json", br#"{"roughnessScale":0.8}"#.to_vec()),
                 ("README.txt", b"made by me".to_vec()),
             ],
         );
@@ -1392,6 +1455,9 @@ mod tests {
         let pack = pack_dir(&data, "rac2-ntsc");
         assert_eq!(fs::read(pack.join(format!("Interface/{HASH_A}.png"))).unwrap(), png(1));
         assert!(pack.join(format!("Planets/Oozla/{HASH_B}.png")).is_file());
+        assert_eq!(fs::read(pack.join(format!("Materials/{HASH_A}/normal.png"))).unwrap(), png(3));
+        assert_eq!(fs::read(pack.join(format!("Materials/{HASH_A}/roughness.png"))).unwrap(), png(4));
+        assert!(pack.join(format!("Materials/{HASH_A}/material.json")).is_file());
         assert!(!pack.join("README.txt").exists());
         assert!(!data.join("texture_packs/.rac2-ntsc.importing").exists());
     }
@@ -1422,6 +1488,21 @@ mod tests {
         assert!(kept.join(format!("Shared/{HASH_C}.png")).is_file());
         assert!(!pack.join("Shared").exists());
         assert!(kept.file_name().unwrap().to_string_lossy().starts_with("rac2-ntsc (before import "));
+    }
+
+    #[test]
+    fn material_sidecars_require_their_colour_texture() {
+        let t = tempfile::tempdir().unwrap();
+        let zip = t.path().join("orphan-material.zip");
+        make_zip(
+            &zip,
+            &[
+                (MANIFEST, manifest("rac2-ntsc")),
+                ("Materials/0123456789abcdef/normal.png", png(3)),
+            ],
+        );
+        let error = preview_import(t.path(), "rac2", "ntsc", &zip).unwrap_err();
+        assert!(error.contains("has no colour texture"), "{error}");
     }
 
     #[test]
