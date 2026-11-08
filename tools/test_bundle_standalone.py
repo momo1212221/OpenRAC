@@ -130,6 +130,11 @@ class PlayerActions(unittest.TestCase):
         exported = self.pal["assets-export"]
         self.assertEqual(exported["args"][2], "{data}/port/pal")
         self.assertEqual([need["path"] for need in exported["needs"]], ["{data}/port/pal/levels-4.json"])
+        skin_export = self.pal["skin-export"]
+        self.assertEqual(skin_export["args"][2], "{data}/port/pal")
+        self.assertEqual([need["path"] for need in skin_export["needs"]], ["{data}/port/pal/levels-4.json"])
+        self.assertEqual(self.pal["skin-import"]["args"][4], "{data}/port/pal")
+        self.assertEqual(self.pal["skin-import"]["args"][-3:], ["{data}/overrides", "--name", "Custom Ratchet skin"])
         edited = self.pal["play-edited"]
         self.assertEqual(edited["args"][edited["args"].index("--levels") + 1], "{data}/port/pal")
         self.assertEqual([need["path"] for need in edited["needs"]], [self.pal["port-levels-check"]["makes"]])
@@ -263,8 +268,11 @@ class Bundle(unittest.TestCase):
                     self.assertTrue(bundle.editor_file(path.relative_to(editor)), path)
         # godot.py reads it, and so does the launcher, to tell an outdated project.
         self.assertTrue(bundle.editor_file(Path("project_format.json")))
-        # The guide the Audio tab's "How it works" opens.
+        # Guides and the local skin editor opened by the modding panels are carried too.
         self.assertTrue(bundle.editor_file(Path("AUDIO_MODDING.md")))
+        self.assertTrue(bundle.editor_file(Path("SKINS.md")))
+        for name in ("index.html", "style.css", "editor.js"):
+            self.assertTrue(bundle.editor_file(Path("skin_editor") / name))
 
     def test_a_copy_without_game_or_python(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -278,6 +286,8 @@ class Bundle(unittest.TestCase):
             self.assertIn("version: " + json.loads((bundle.ROOT/"launcher/src-tauri/tauri.conf.json").read_text())["version"],
                           (out/"STANDALONE").read_text())
             for rel in ("STANDALONE", "tools/openrac.py", "tools/extractor.py", "editor/extract.py",
+                        "editor/skins.py", "editor/SKINS.md", "editor/skin_editor/index.html",
+                        "editor/skin_editor/style.css", "editor/skin_editor/editor.js",
                         "editor/moby_classes.tsv", "games/rac1/game.json", "progress/summary.json",
                         "launcher/actions.json",
                         "port/enhanced/lighting/profiles/rac1/moby-seeds.json",
