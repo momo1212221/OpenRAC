@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- Replaced plain weapon XP HUD text with the native OpenRAC 1.14 overlay renderer.
+- Added Enhanced RAC Style weapon card with gold/orange tech framing.
+- Added segmented V1-V5/OMEGA progression strip and animated XP bar.
+- Added dedicated tier badge with special OMEGA treatment.
+- Added centred animated weapon-upgrade banner.
+- Replaced the basic text hit marker with a stylised in-game cross marker.
+- Raised the required OpenRAC mod interface to 1.14.
+
 ## 0.2.0
 
 - Added persistent per-save weapon XP.
