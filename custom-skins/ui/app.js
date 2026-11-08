@@ -28,16 +28,26 @@
   const $ = (id) => document.getElementById(id);
   const canvas = $("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const viewport = $("canvasViewport");
   const textureSelect = $("texture");
+  const textureList = $("textureList");
   const status = $("status");
+  const texInfo = $("texInfo");
   const undo = $("undo");
+  const redo = $("redo");
   const reset = $("reset");
   const build = $("build");
+  const buildSide = $("buildSide");
   const exportSource = $("exportSource");
+  const savePng = $("savePng");
   const color = $("color");
   const size = $("size");
   const opacity = $("opacity");
   const tint = $("tint");
+  const zoomLabel = $("zoomLabel");
+  const zoomIn = $("zoomIn");
+  const zoomOut = $("zoomOut");
+  const fit = $("fit");
 
   const state = {
     info: null,
@@ -46,9 +56,11 @@
     models: [],
     current: -1,
     history: [],
+    redo: [],
     mode: "brush",
     down: false,
     last: null,
+    zoom: 1,
   };
 
   function say(text, bad = false) {
@@ -119,16 +131,174 @@
     return found ? found[1] : null;
   }
 
+  function currentGroup() {
+    return state.current >= 0 ? state.groups[state.current] : null;
+  }
+
+  function modifiedGroups() {
+    return state.groups.filter((group) => group.edited || group.dirty);
+  }
+
+  function updateProjectState() {
+    const modified = modifiedGroups().length;
+    $("modifiedCount").textContent = `${modified} modified`;
+    $("modifiedCount").classList.toggle("subtle", modified === 0);
+    $("textureCount").textContent = String(state.groups.length);
+    $("gameBadge").textContent = state.info ? `${state.info.game.toUpperCase()} · ${state.info.version}` : "No game loaded";
+    $("levelSummary").textContent = state.models.length
+      ? `${state.models.length} prepared level model${state.models.length === 1 ? "" : "s"}`
+      : "Prepared levels required";
+
+    const group = currentGroup();
+    texInfo.textContent = group
+      ? `Texture ${state.current + 1}/${state.groups.length} · ${group.width}×${group.height}px · ${group.places.length} use${group.places.length === 1 ? "" : "s"}`
+      : "No texture selected";
+  }
+
+  function setEditingEnabled(enabled) {
+    for (const el of [undo, redo, reset, zoomIn, zoomOut, fit, savePng]) {
+      el.disabled = !enabled;
+    }
+  }
+
+  async function imageFrom(data) {
+    const url = URL.createObjectURL(new Blob([data], { type: "image/png" }));
+    try {
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error("Could not decode the PNG."));
+        img.src = url;
+      });
+      return img;
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+  }
+
+  async function renderTextureList() {
+    if (!state.groups.length) {
+      textureList.innerHTML = '<div class="empty"><strong>No skin loaded</strong><span>Click “Load Ratchet skin”.</span></div>';
+      updateProjectState();
+      return;
+    }
+
+    textureList.innerHTML = "";
+    for (let i = 0; i < state.groups.length; i++) {
+      const group = state.groups[i];
+      const button = document.createElement("button");
+      button.className = "texture-item";
+      button.type = "button";
+      if (i === state.current) button.classList.add("active");
+      if (group.edited || group.dirty) button.classList.add("modified");
+
+      const img = document.createElement("img");
+      img.className = "thumb";
+      img.alt = "";
+      const url = URL.createObjectURL(new Blob([group.edited || group.original], { type: "image/png" }));
+      img.src = url;
+      img.onload = () => URL.revokeObjectURL(url);
+      img.onerror = () => URL.revokeObjectURL(url);
+
+      const meta = document.createElement("div");
+      meta.className = "texture-meta";
+      const title = document.createElement("strong");
+      title.textContent = `Skin texture ${i + 1}`;
+      const detail = document.createElement("span");
+      detail.textContent = `${group.width}×${group.height} · ${group.places.length} level${group.places.length === 1 ? "" : "s"}`;
+      meta.append(title, detail);
+
+      button.append(img, meta);
+      button.onclick = () => {
+        void showGroup(i).catch((err) => say(err instanceof Error ? err.message : String(err), true));
+      };
+      textureList.append(button);
+    }
+    updateProjectState();
+  }
+
+  async function canvasPng() {
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) throw new Error("Could not encode the edited PNG.");
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+
+  async function saveCurrent() {
+    const group = currentGroup();
+    if (!group) return;
+    const data = await canvasPng();
+    group.edited = (await sha256(data)) === group.hash ? null : data;
+    group.dirty = false;
+  }
+
+  function markDirty() {
+    const group = currentGroup();
+    if (!group) return;
+    group.dirty = true;
+    updateProjectState();
+  }
+
+  function snapshot() {
+    if (!canvas.width || !canvas.height) return;
+    state.history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    if (state.history.length > 40) state.history.shift();
+    state.redo = [];
+    undo.disabled = state.history.length === 0;
+    redo.disabled = true;
+  }
+
+  function setZoom(value) {
+    state.zoom = Math.max(0.15, Math.min(8, value));
+    canvas.style.width = `${Math.max(1, Math.round(canvas.width * state.zoom))}px`;
+    canvas.style.height = `${Math.max(1, Math.round(canvas.height * state.zoom))}px`;
+    zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
+  }
+
+  function fitCanvas() {
+    if (state.current < 0 || !canvas.width || !canvas.height) return;
+    const width = Math.max(120, viewport.clientWidth - 70);
+    const height = Math.max(120, viewport.clientHeight - 70);
+    setZoom(Math.min(1.5, width / canvas.width, height / canvas.height));
+  }
+
+  async function showGroup(index, save = true) {
+    if (save && state.current >= 0) await saveCurrent();
+    const group = state.groups[index];
+    if (!group) return;
+
+    state.current = index;
+    state.history = [];
+    state.redo = [];
+    undo.disabled = true;
+    redo.disabled = true;
+    reset.disabled = false;
+
+    const source = group.edited || group.original;
+    const img = await imageFrom(source);
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+    canvas.hidden = false;
+    const empty = viewport.querySelector(".canvas-empty");
+    if (empty) empty.hidden = true;
+    textureSelect.value = String(index);
+    setEditingEnabled(true);
+    requestAnimationFrame(fitCanvas);
+    await renderTextureList();
+  }
+
   async function scan() {
     $("scan").disabled = true;
     build.disabled = true;
+    buildSide.disabled = true;
     exportSource.disabled = true;
     say("Reading prepared OpenRAC levels…");
     try {
       const info = await api("info");
       const listed = await api("list", { root: "levels" });
       const manifestPaths = listed.map((f) => f.path).filter((p) => /^level_\d{2}\/manifest\.json$/.test(p));
-      if (!manifestPaths.length) throw new Error("No prepared levels are available. Use the game's set-up/read-levels action first.");
+      if (!manifestPaths.length) throw new Error("No prepared levels are available. Prepare/read the game levels first.");
 
       const byHash = new Map();
       const models = [];
@@ -154,14 +324,7 @@
           const [width, height] = pngSize(original);
           let group = byHash.get(hash);
           if (!group) {
-            group = {
-              hash,
-              original,
-              width,
-              height,
-              edited: null,
-              places: [],
-            };
+            group = { hash, original, width, height, edited: null, dirty: false, places: [] };
             byHash.set(hash, group);
           }
           group.places.push({ level: dir, name, slot, count: names.length });
@@ -169,9 +332,7 @@
       }
 
       const groups = [...byHash.values()];
-      if (!groups.length) {
-        throw new Error("Ratchet class 0 was found, but its model referenced no readable PNG textures.");
-      }
+      if (!groups.length) throw new Error("Ratchet class 0 was found, but no readable PNG skin textures were referenced.");
 
       state.info = info;
       state.levelsFormat = levelsFormat || 4;
@@ -179,77 +340,27 @@
       state.models = models;
       state.current = -1;
       state.history = [];
+      state.redo = [];
 
       textureSelect.innerHTML = "";
       groups.forEach((group, i) => {
         const option = document.createElement("option");
         option.value = String(i);
-        const places = group.places.length;
-        option.textContent = `Skin ${i + 1} — ${group.width}×${group.height} — ${places} level texture${places === 1 ? "" : "s"}`;
+        option.textContent = `Skin ${i + 1} — ${group.width}×${group.height}`;
         textureSelect.append(option);
       });
       textureSelect.disabled = false;
       build.disabled = false;
+      buildSide.disabled = false;
       exportSource.disabled = false;
       await showGroup(0, false);
-      say(`Loaded ${groups.length} unique Ratchet texture${groups.length === 1 ? "" : "s"} from ${models.length} level model${models.length === 1 ? "" : "s"} (${info.game}/${info.version}).`);
+      say(`Loaded ${groups.length} unique Ratchet texture${groups.length === 1 ? "" : "s"} from ${models.length} level model${models.length === 1 ? "" : "s"}.`);
     } catch (err) {
       say(err instanceof Error ? err.message : String(err), true);
     } finally {
       $("scan").disabled = false;
+      updateProjectState();
     }
-  }
-
-  function snapshot() {
-    if (!canvas.width || !canvas.height) return;
-    state.history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
-    if (state.history.length > 30) state.history.shift();
-    undo.disabled = state.history.length === 0;
-  }
-
-  async function imageFrom(data) {
-    const url = URL.createObjectURL(new Blob([data], { type: "image/png" }));
-    try {
-      const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = () => reject(new Error("Could not decode the PNG."));
-        img.src = url;
-      });
-      return img;
-    } finally {
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-    }
-  }
-
-  async function canvasPng() {
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-    if (!blob) throw new Error("Could not encode the edited PNG.");
-    return new Uint8Array(await blob.arrayBuffer());
-  }
-
-  async function saveCurrent() {
-    if (state.current < 0) return;
-    const group = state.groups[state.current];
-    const data = await canvasPng();
-    group.edited = (await sha256(data)) === group.hash ? null : data;
-  }
-
-  async function showGroup(index, save = true) {
-    if (save) await saveCurrent();
-    const group = state.groups[index];
-    if (!group) return;
-    state.current = index;
-    state.history = [];
-    undo.disabled = true;
-    reset.disabled = false;
-    const source = group.edited || group.original;
-    const img = await imageFrom(source);
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0);
-    textureSelect.value = String(index);
   }
 
   function point(event) {
@@ -282,14 +393,20 @@
     state.last = point(event);
     canvas.setPointerCapture(event.pointerId);
     stroke(state.last, { x: state.last.x + 0.01, y: state.last.y + 0.01 });
+    markDirty();
   });
+
   canvas.addEventListener("pointermove", (event) => {
     if (!state.down || !state.last) return;
     const next = point(event);
     stroke(state.last, next);
     state.last = next;
   });
-  const endStroke = () => { state.down = false; state.last = null; };
+
+  const endStroke = () => {
+    state.down = false;
+    state.last = null;
+  };
   canvas.addEventListener("pointerup", endStroke);
   canvas.addEventListener("pointercancel", endStroke);
 
@@ -298,6 +415,7 @@
     $("brush").classList.add("active");
     $("erase").classList.remove("active");
   };
+
   $("erase").onclick = () => {
     state.mode = "erase";
     $("erase").classList.add("active");
@@ -310,19 +428,38 @@
 
   undo.onclick = () => {
     const previous = state.history.pop();
-    if (previous) ctx.putImageData(previous, 0, 0);
+    if (!previous) return;
+    state.redo.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    ctx.putImageData(previous, 0, 0);
     undo.disabled = state.history.length === 0;
+    redo.disabled = state.redo.length === 0;
+    markDirty();
+  };
+
+  redo.onclick = () => {
+    const next = state.redo.pop();
+    if (!next) return;
+    state.history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    ctx.putImageData(next, 0, 0);
+    undo.disabled = state.history.length === 0;
+    redo.disabled = state.redo.length === 0;
+    markDirty();
   };
 
   reset.onclick = async () => {
-    const group = state.groups[state.current];
+    const group = currentGroup();
     if (!group) return;
     snapshot();
-    group.edited = null;
     const img = await imageFrom(group.original);
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0);
+    group.edited = null;
+    group.dirty = false;
+    fitCanvas();
+    await renderTextureList();
+    say("Restored the original texture.");
   };
 
   $("applyTint").onclick = () => {
@@ -340,6 +477,7 @@
       image.data[i + 2] = Math.round(image.data[i + 2] * (1 - mix) + tb * mix);
     }
     ctx.putImageData(image, 0, 0);
+    markDirty();
   };
 
   $("gray").onclick = () => {
@@ -351,11 +489,12 @@
       image.data[i] = image.data[i + 1] = image.data[i + 2] = y;
     }
     ctx.putImageData(image, 0, 0);
+    markDirty();
   };
 
   $("replace").onchange = async () => {
     const file = $("replace").files?.[0];
-    const group = state.groups[state.current];
+    const group = currentGroup();
     if (!file || !group) return;
     try {
       const data = new Uint8Array(await file.arrayBuffer());
@@ -366,8 +505,11 @@
       snapshot();
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
-      say(`Loaded ${file.name} for this Ratchet texture.`);
+      markDirty();
+      fitCanvas();
+      say(`Loaded ${file.name}.`);
     } catch (err) {
       say(err instanceof Error ? err.message : String(err), true);
     } finally {
@@ -376,8 +518,12 @@
   };
 
   textureSelect.onchange = () => {
-    void showGroup(Number(textureSelect.value)).catch((err) => say(String(err), true));
+    void showGroup(Number(textureSelect.value)).catch((err) => say(err instanceof Error ? err.message : String(err), true));
   };
+
+  zoomIn.onclick = () => setZoom(state.zoom * 1.25);
+  zoomOut.onclick = () => setZoom(state.zoom / 1.25);
+  fit.onclick = fitCanvas;
 
   function crcTable() {
     const table = new Uint32Array(256);
@@ -400,7 +546,10 @@
     const size = parts.reduce((n, p) => n + p.length, 0);
     const out = new Uint8Array(size);
     let at = 0;
-    for (const part of parts) { out.set(part, at); at += part.length; }
+    for (const part of parts) {
+      out.set(part, at);
+      at += part.length;
+    }
     return out;
   }
 
@@ -409,6 +558,7 @@
     new DataView(a.buffer).setUint16(0, n, true);
     return a;
   }
+
   function u32(n) {
     const a = new Uint8Array(4);
     new DataView(a.buffer).setUint32(0, n >>> 0, true);
@@ -427,6 +577,7 @@
     const central = [];
     let offset = 0;
     const [time, date] = dosNow();
+
     for (const file of files) {
       const name = enc.encode(file.name);
       const data = bytes(file.data);
@@ -444,6 +595,7 @@
       central.push(record);
       offset += local.length;
     }
+
     const directory = concat(central);
     const end = concat([
       u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length),
@@ -460,8 +612,10 @@
 
   async function buildPack() {
     build.disabled = true;
+    buildSide.disabled = true;
     try {
       await saveCurrent();
+      await renderTextureList();
       const changed = state.groups.filter((group) => group.edited);
       if (!changed.length) throw new Error("Nothing changed yet. Edit or replace at least one Ratchet texture.");
 
@@ -501,27 +655,31 @@
       const name = packName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "ratchet-skin";
       const buffer = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength);
       const saved = await api("save", { name, extension: "zip", bytes: buffer }, [buffer]);
-      say(saved ? `Saved ${saved}. Add it with Mods → My mods → File…` : "Save cancelled.");
+      say(saved ? `Saved ${saved}. Install it with Mods → My mods → File…` : "Save cancelled.");
     } catch (err) {
       say(err instanceof Error ? err.message : String(err), true);
     } finally {
       build.disabled = false;
+      buildSide.disabled = false;
+      updateProjectState();
     }
   }
 
   async function exportWorkspace() {
     exportSource.disabled = true;
     try {
-      if (!state.info) throw new Error("Load Ratchet's skin first.");
+      if (!state.info || !state.groups.length) throw new Error("Load Ratchet's skin first.");
       await saveCurrent();
       const files = [];
       const seen = new Set();
+
       for (const model of state.models) {
         if (!seen.has(model.path)) {
           seen.add(model.path);
           files.push({ name: model.path, data: await read("levels", model.path) });
         }
       }
+
       for (const group of state.groups) {
         for (const place of group.places) {
           const path = `${place.level}/textures/${place.name}.png`;
@@ -531,6 +689,7 @@
           }
         }
       }
+
       const meta = {
         format: 1,
         kind: "openrac-custom-skin-workspace",
@@ -540,10 +699,13 @@
         models: state.models.map((m) => m.path),
         textures: state.groups.flatMap((g) => g.places.map((p) => `${p.level}/textures/${p.name}.png`)),
       };
-      const payload = zip([{ name: "skin.json", data: enc.encode(JSON.stringify(meta, null, 2) + "\n") }, ...files]);
+      const payload = zip([
+        { name: "skin.json", data: enc.encode(JSON.stringify(meta, null, 2) + "\n") },
+        ...files,
+      ]);
       const buffer = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength);
       const saved = await api("save", { name: "ratchet-skin-source", extension: "zip", bytes: buffer }, [buffer]);
-      say(saved ? `Exported ${saved}. It contains Ratchet's source GLBs and PNGs from your own game data; do not redistribute those originals.` : "Export cancelled.");
+      say(saved ? `Exported ${saved}. The source ZIP contains assets from your own game data; do not redistribute the originals.` : "Export cancelled.");
     } catch (err) {
       say(err instanceof Error ? err.message : String(err), true);
     } finally {
@@ -551,12 +713,59 @@
     }
   }
 
+  async function saveCurrentPng() {
+    try {
+      const group = currentGroup();
+      if (!group) throw new Error("Select a texture first.");
+      await saveCurrent();
+      const data = group.edited || group.original;
+      const place = group.places[0];
+      const filename = place?.name ? `ratchet-${place.name}` : `ratchet-texture-${state.current + 1}`;
+      const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+      const saved = await api("save", { name: filename, extension: "png", bytes: buffer }, [buffer]);
+      say(saved ? `Saved ${saved}.` : "Save cancelled.");
+      await renderTextureList();
+    } catch (err) {
+      say(err instanceof Error ? err.message : String(err), true);
+    }
+  }
+
   $("scan").onclick = () => void scan();
   build.onclick = () => void buildPack();
+  buildSide.onclick = () => void buildPack();
   exportSource.onclick = () => void exportWorkspace();
+  savePng.onclick = () => void saveCurrentPng();
+
+  window.addEventListener("keydown", (event) => {
+    const modifier = event.metaKey || event.ctrlKey;
+    if (modifier && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      if (event.shiftKey) redo.click();
+      else undo.click();
+      return;
+    }
+    if (modifier && (event.key === "+" || event.key === "=")) {
+      event.preventDefault();
+      zoomIn.click();
+      return;
+    }
+    if (modifier && event.key === "-") {
+      event.preventDefault();
+      zoomOut.click();
+      return;
+    }
+    if (modifier && event.key === "0") {
+      event.preventDefault();
+      fit.click();
+    }
+  });
+
+  setEditingEnabled(false);
+  updateProjectState();
 
   void api("info").then((info) => {
     state.info = info;
+    updateProjectState();
     say(`Ready for ${info.game}/${info.version}. Click “Load Ratchet skin”.`);
   }).catch((err) => say(err instanceof Error ? err.message : String(err), true));
 })();
