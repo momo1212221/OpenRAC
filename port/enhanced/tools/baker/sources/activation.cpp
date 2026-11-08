@@ -365,7 +365,14 @@ void apply_profile(const std::filesystem::path& path, LevelBakeProfile& profile)
             continue;
         }
 
-        if (key == "strategy") {
+        if (key == "gi_quality") {
+            if (!value.is_string()
+                || (value.string() != "standard" && value.string() != "ultra")) {
+                fail("gi_quality must be standard or ultra");
+            }
+            profile.gi_quality =
+                value.string() == "ultra" ? GiBakeQuality::Ultra : GiBakeQuality::Standard;
+        } else if (key == "strategy") {
             // Strategies select placement, while transport and material settings remain shared.
             if (!value.is_string() || (value.string() != "gameplay" && value.string() != "scene")) {
                 fail("strategy must be gameplay or scene");
@@ -517,6 +524,10 @@ LevelBakeProfile load_level_bake_profile(
     apply_profile(directory.parent_path() / "cloud-profile.json", profile);
     auto& atmosphere = profile.activation.bake.atmosphere;
     CloudField::validate(cloud_parameters(atmosphere));
+
+    // Resolve semantic quality presets after all level/mod/cloud overlays so explicit values above
+    // the Ultra floor are never reduced. Baker and runtime share this exact resolved profile.
+    profile = resolve_gi_bake_quality(std::move(profile));
 
     // Scene strategy has no playable-floor graph for local reflection capture placement.
     if (profile.strategy == BakeStrategy::Scene) {
