@@ -574,7 +574,6 @@ from the copy it carries, unpacked from the APK by `OpenracSetup.kt`; Play
 starts the game's activity instead of a program, and the updater is the
 desktop's only (`capabilities/updater.json`).
 
-
 ## iOS host
 
 `launcher/ios` (`openrac-launcher-ios`) is the C ABI adapter for the signed iOS
