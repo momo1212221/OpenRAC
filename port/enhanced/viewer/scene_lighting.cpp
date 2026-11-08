@@ -324,6 +324,26 @@ void SceneLighting::bind_surface_material(
             shader.uniform("material_fallback"), response ? response->fallback_channels : 0
         );
 
+        const enhanced::ReflectionMaterialSettings base =
+            response ? response->reflection : enhanced::ReflectionMaterialSettings{};
+        const enhanced::AdvancedOpticalMaterialSettings optical =
+            response ? response->optical : enhanced::AdvancedOpticalMaterialSettings{};
+        gl::glUniform4f(
+            shader.uniform("material_optical_base"),
+            base.roughness,
+            base.reflectivity,
+            optical.clearcoat,
+            optical.clearcoat_roughness
+        );
+        gl::glUniform4f(
+            shader.uniform("material_optical_extra"),
+            optical.anisotropy,
+            optical.anisotropy_rotation,
+            optical.transmission,
+            optical.ior
+        );
+        gl::glUniform1f(shader.uniform("material_optical_thickness"), optical.thickness);
+
         // Catalog families override the legacy foliage adapter only when explicitly authored.
         if (response && response->family_override) {
             gl::glUniform1f(
