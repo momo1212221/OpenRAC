@@ -113,6 +113,7 @@ looked up by the original texture hash under a top-level `Materials/<hash>/` fol
 ```
 Materials/
   0123456789abcdef/
+    albedo.png
     normal.png
     roughness.png
     height.png
@@ -126,11 +127,17 @@ Materials/
 ```
 
 All files are optional and must have the same dimensions as each other. Missing maps receive neutral
-defaults, so older five-map packs and ordinary colour-only texture packs keep working.
+defaults, so older material packs and ordinary colour-only texture packs keep working.
+
+`albedo.png` is an optional lighting-neutralized base colour for Enhanced rendering. It is used
+only by the enhanced lighting path; classic/stock rendering continues to sample the ordinary colour
+replacement. The original diffuse texture also remains authoritative for cutout/translucent alpha.
+When albedo is missing, Enhanced rendering falls back to that ordinary colour texture. Albedo mip
+levels are filtered in linear light so distance mips do not darken the base colour.
 
 The renderer combines the maps into compact resident GPU textures: tangent-space Normal; ORMH
-(Ambient Occlusion, perceptual Roughness, Metallic, Height); Emissive; Specular; and Detail
-(Cavity, Curvature, Edge-Wear). Normal-map mip levels are renormalized, roughness is filtered in
+(Ambient Occlusion, perceptual Roughness, Metallic, Height); Emissive; Specular; Detail
+(Cavity, Curvature, Edge-Wear); and optional Albedo. Normal-map mip levels are renormalized, roughness is filtered in
 squared space, and emissive mip levels are filtered in linear light. This avoids distant normal
 collapse, over-shiny roughness mips and emissive darkening.
 

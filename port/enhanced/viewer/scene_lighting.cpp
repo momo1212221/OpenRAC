@@ -31,6 +31,7 @@ constexpr unsigned kMaterialOrmhUnit = 9;
 constexpr unsigned kMaterialEmissiveUnit = 10;
 constexpr unsigned kMaterialSpecularUnit = 11;
 constexpr unsigned kMaterialDetailUnit = 12;
+constexpr unsigned kMaterialAlbedoUnit = 13;
 
 bool same_extent(const renderer::Rgba8Image& image, int width, int height) {
     return image.width == width && image.height == height
@@ -67,6 +68,7 @@ std::optional<renderer::Rgba8Image> load_sidecar(
 }
 
 enum class MaterialMipKind {
+    Albedo,
     Normal,
     Ormh,
     Emissive,
@@ -125,7 +127,7 @@ renderer::Rgba8Image material_mip(const renderer::Rgba8Image& source, MaterialMi
                 for (int oy = 0; oy < 2; ++oy) {
                     for (int ox = 0; ox < 2; ++ox) {
                         const float value = sample(x * 2 + ox, y * 2 + oy, channel) / 255.0f;
-                        if (kind == MaterialMipKind::Emissive && channel < 3) {
+                        if ((kind == MaterialMipKind::Emissive || kind == MaterialMipKind::Albedo) && channel < 3) {
                             sum += std::pow(value, 2.2f);
                         } else if (kind == MaterialMipKind::Ormh && channel == 1) {
                             sum += value * value;
@@ -136,7 +138,7 @@ renderer::Rgba8Image material_mip(const renderer::Rgba8Image& source, MaterialMi
                     }
                 }
                 float value = sum * 0.25f;
-                if (kind == MaterialMipKind::Emissive && channel < 3) {
+                if ((kind == MaterialMipKind::Emissive || kind == MaterialMipKind::Albedo) && channel < 3) {
                     value = std::pow(std::max(0.0f, value), 1.0f / 2.2f);
                 } else if (kind == MaterialMipKind::Ormh && channel == 1) {
                     value = std::sqrt(std::max(0.0f, value));
@@ -191,7 +193,7 @@ unsigned upload_material_texture(
     return texture;
 }
 
-std::array<unsigned, 5> upload_default_sidecars() {
+std::array<unsigned, 6> upload_default_sidecars() {
     // These values are the exact neutral values used by the fragment shader when sidecars are
     // disabled: +Z normal, full AO, mid roughness/height, zero metal/emission/detail and a
     // specular alpha of zero so authored reflection settings remain authoritative.
@@ -221,10 +223,16 @@ std::array<unsigned, 5> upload_default_sidecars() {
             kMaterialDetailUnit,
             MaterialMipKind::Detail
         ),
+        // Alpha 0 is a presence sentinel: the shader falls back to the classic colour texture.
+        upload_material_texture(
+            material_default(1, 1, {255, 255, 255, 0}),
+            kMaterialAlbedoUnit,
+            MaterialMipKind::Albedo
+        ),
     };
 }
 
-std::array<unsigned, 5> upload_sidecars(std::uint64_t hash) {
+std::array<unsigned, 6> upload_sidecars(std::uint64_t hash) {
     const auto paths = renderer::texture_pack::material_maps(hash);
     if (!paths) {
         return {};
@@ -232,6 +240,7 @@ std::array<unsigned, 5> upload_sidecars(std::uint64_t hash) {
 
     std::optional<renderer::Rgba8Image> reference;
     for (const auto map : {
+             renderer::texture_pack::MaterialMap::Albedo,
              renderer::texture_pack::MaterialMap::Normal,
              renderer::texture_pack::MaterialMap::Roughness,
              renderer::texture_pack::MaterialMap::Height,
@@ -254,6 +263,9 @@ std::array<unsigned, 5> upload_sidecars(std::uint64_t hash) {
     }
 
     const int width = reference->width, height = reference->height;
+    const bool has_albedo = !paths->albedo.empty();
+    auto albedo = load_sidecar(hash, renderer::texture_pack::MaterialMap::Albedo, width, height)
+                      .value_or(material_default(width, height, {255, 255, 255, 0}));
     auto normal = load_sidecar(hash, renderer::texture_pack::MaterialMap::Normal, width, height)
                       .value_or(material_default(width, height, {128, 128, 255, 255}));
     auto roughness =
@@ -278,6 +290,12 @@ std::array<unsigned, 5> upload_sidecars(std::uint64_t hash) {
     auto edgewear = load_sidecar(hash, renderer::texture_pack::MaterialMap::EdgeWear, width, height)
                         .value_or(material_default(width, height, {0, 0, 0, 255}));
 
+    // The albedo sampler's alpha is metadata rather than material opacity. Real albedo maps use
+    // 1 so shaders may select them; a missing map keeps the neutral fallback's 0 sentinel.
+    for (std::size_t i = 3; i < albedo.pixels.size(); i += 4) {
+        albedo.pixels[i] = has_albedo ? 255 : 0;
+    }
+
     renderer::Rgba8Image ormh(width, height);
     for (std::size_t i = 0; i < ormh.pixels.size(); i += 4) {
         ormh.pixels[i] = ao.pixels[i];
@@ -300,7 +318,8 @@ std::array<unsigned, 5> upload_sidecars(std::uint64_t hash) {
         upload_material_texture(ormh, kMaterialOrmhUnit, MaterialMipKind::Ormh),
         upload_material_texture(emissive, kMaterialEmissiveUnit, MaterialMipKind::Emissive),
         upload_material_texture(specular, kMaterialSpecularUnit, MaterialMipKind::Specular),
-        upload_material_texture(detail, kMaterialDetailUnit, MaterialMipKind::Detail)
+        upload_material_texture(detail, kMaterialDetailUnit, MaterialMipKind::Detail),
+        upload_material_texture(albedo, kMaterialAlbedoUnit, MaterialMipKind::Albedo)
     };
 }
 
@@ -524,7 +543,7 @@ void SceneLighting::bind_material_sidecars(
     const bool enabled = found != m_material_sidecars.end();
     gl::glUniform1i(enabled_location, enabled ? 1 : 0);
 
-    const std::array<unsigned, 5>& textures =
+    const std::array<unsigned, 6>& textures =
         enabled ? found->second : m_material_sidecar_defaults;
     for (const auto [unit, uniform, texture] : {
              std::tuple{kMaterialNormalUnit, "material_sidecar_normal_tex", textures[0]},
@@ -532,6 +551,7 @@ void SceneLighting::bind_material_sidecars(
              std::tuple{kMaterialEmissiveUnit, "material_sidecar_emissive_tex", textures[2]},
              std::tuple{kMaterialSpecularUnit, "material_sidecar_specular_tex", textures[3]},
              std::tuple{kMaterialDetailUnit, "material_sidecar_detail_tex", textures[4]},
+             std::tuple{kMaterialAlbedoUnit, "material_sidecar_albedo_tex", textures[5]},
          }) {
         gl::glUniform1i(shader.uniform(uniform), int(unit));
         gl::glActiveTexture(gl::GL_TEXTURE0 + unit);
@@ -640,7 +660,7 @@ void SceneLighting::load_material_sidecars(const scene::LevelData& level) {
         }
 
         const auto textures = upload_sidecars(hash);
-        if (textures[0] || textures[1] || textures[2] || textures[3] || textures[4]) {
+        if (textures[0] || textures[1] || textures[2] || textures[3] || textures[4] || textures[5]) {
             m_material_sidecars.emplace(hash, textures);
         }
     }
