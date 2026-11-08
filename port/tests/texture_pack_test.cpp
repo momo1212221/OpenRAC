@@ -309,6 +309,7 @@ int main() {
     std::ofstream(pack / "notes.txt") << "not a texture";
     const auto material_dir = pack / "Materials" / name.substr(0, 16);
     fs::create_directories(material_dir);
+    std::ofstream(material_dir / "albedo.png") << "albedo";
     std::ofstream(material_dir / "normal.png") << "normal";
     std::ofstream(material_dir / "roughness.png") << "roughness";
     std::ofstream(material_dir / "height.png") << "height";
@@ -322,6 +323,7 @@ int main() {
     disk()[name] = solid(8, 8, 200);
     texture_pack::configure(pack, {}, {load, save});
     const auto maps = texture_pack::material_maps(texture_pack::image_hash(small));
+    CHECK(maps && maps->albedo.filename() == "albedo.png");
     CHECK(maps && maps->normal.filename() == "normal.png");
     CHECK(maps && maps->roughness.filename() == "roughness.png");
     CHECK(maps && maps->height.filename() == "height.png");
