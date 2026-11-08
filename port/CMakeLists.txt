@@ -172,6 +172,7 @@ openrac_add_test(settings SOURCES tests/settings_test.cpp game/common/settings.c
 # Texture packs: names by hash, replacement, the dump (renderer/texture_pack.h).
 openrac_add_test(texture_pack SOURCES tests/texture_pack_test.cpp renderer/texture_pack.cpp
                               INCLUDES . LIBS openrac_common)
+openrac_add_test(mesh_quality SOURCES tests/mesh_quality_test.cpp INCLUDES .)
 # The launcher's colours for the options drawer (game/common/ui_colors.h).
 openrac_add_test(ui_colors SOURCES tests/ui_colors_test.cpp game/common/ui_colors.cpp
                            INCLUDES . LIBS openrac_common)
