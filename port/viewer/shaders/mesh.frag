@@ -104,55 +104,7 @@ vec3 emission_texel(bool authored_tint) {
     return result;
 }
 
-vec3 material_sidecar_albedo(vec3 fallback) {
-    if (material_sidecars_enabled == 0) return fallback;
-    vec4 albedo_sample = texture(material_sidecar_albedo_tex, fract(v_uv));
-    return albedo_sample.a > .5 ? albedo_sample.rgb : fallback;
-}
-vec4 material_sidecar_normal_sample() {
-    return material_sidecars_enabled != 0
-        ? texture(material_sidecar_normal_tex, fract(v_uv))
-        : vec4(.5,.5,1.,1.);
-}
-vec4 material_sidecar_ormh_sample() {
-    return material_sidecars_enabled != 0
-        ? texture(material_sidecar_ormh_tex, fract(v_uv))
-        : vec4(1.,.5,.5,1.);
-}
-float material_sidecar_ao() { return material_sidecar_ormh_sample().r; }
-float material_sidecar_roughness(float fallback) {
-    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().g : fallback;
-}
-float material_sidecar_metallic() {
-    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().b : 0.;
-}
-float material_sidecar_height() {
-    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().a : .5;
-}
-float material_sidecar_specular(float fallback) {
-    if (material_sidecars_enabled == 0) return fallback;
-    vec4 specular_sample = texture(material_sidecar_specular_tex, fract(v_uv));
-    return specular_sample.a > .5 ? specular_sample.r : fallback;
-}
-vec3 material_sidecar_detail() {
-    return material_sidecars_enabled != 0
-        ? texture(material_sidecar_detail_tex, fract(v_uv)).rgb
-        : vec3(0.);
-}
-float material_sidecar_cavity() { return material_sidecar_detail().r; }
-float material_sidecar_curvature() { return material_sidecar_detail().g; }
-float material_sidecar_edgewear() { return material_sidecar_detail().b; }
-float material_sidecar_occlusion() {
-    return material_sidecar_ao() * mix(1., .82, material_sidecar_cavity());
-}
-vec3 material_sidecar_emission() {
-    return material_sidecars_enabled != 0
-        ? probe_linear(texture(material_sidecar_emissive_tex, fract(v_uv)).rgb)
-        : vec3(0.);
-}
-vec3 material_sidecar_normal(vec3 base_normal) {
-    if (material_sidecars_enabled == 0) return base_normal;
-    vec3 mapped = material_sidecar_normal_sample().xyz * 2. - 1.;
+mat3 material_sidecar_frame(vec3 base_normal) {
     vec3 dp1 = dFdx(v_world_position), dp2 = dFdy(v_world_position);
     vec2 duv1 = dFdx(v_uv), duv2 = dFdy(v_uv);
     vec3 dp2perp = cross(dp2, base_normal);
@@ -161,7 +113,93 @@ vec3 material_sidecar_normal(vec3 base_normal) {
     vec3 bitangent = dp2perp * duv1.y + dp1perp * duv2.y;
     float denom = max(max(dot(tangent,tangent), dot(bitangent,bitangent)), 1e-8);
     float inv = inversesqrt(denom);
-    return probe_unit(mat3(tangent*inv, bitangent*inv, base_normal) * mapped);
+    return mat3(tangent*inv, bitangent*inv, base_normal);
+}
+
+bool material_sidecar_has_albedo() {
+    return material_sidecars_enabled != 0
+        && texture(material_sidecar_albedo_tex, fract(v_uv)).a > .5;
+}
+
+// Conservative two-sample relief mapping. It is intentionally enabled only when the pack carries
+// a de-lit albedo sidecar, so every shifted PBR lookup remains aligned with the shifted base colour.
+// The offset is capped to avoid grazing-angle swimming and PS2-UV seam instability.
+vec2 material_sidecar_parallax_uv(vec3 base_normal, vec3 toward_camera) {
+    if (!material_sidecar_has_albedo()) return v_uv;
+    mat3 frame = material_sidecar_frame(base_normal);
+    vec3 view_tangent = transpose(frame) * probe_unit(toward_camera);
+    float facing = abs(view_tangent.z);
+    if (facing < .18) return v_uv;
+
+    vec2 slope = view_tangent.xy / max(facing, .35);
+    float h0 = texture(material_sidecar_ormh_tex, fract(v_uv)).a;
+    float relief0 = clamp(h0 - .5, -.35, .35);
+    vec2 first = slope * relief0 * .012;
+    float first_length = length(first);
+    if (first_length > .008) first *= .008 / first_length;
+
+    vec2 uv1 = v_uv - first;
+    float h1 = texture(material_sidecar_ormh_tex, fract(uv1)).a;
+    float relief = clamp(mix(relief0, h1 - .5, .5), -.35, .35);
+    vec2 offset = slope * relief * .012;
+    float offset_length = length(offset);
+    if (offset_length > .008) offset *= .008 / offset_length;
+
+    // Fade only the most unstable near-grazing angles. Face-on views naturally have tiny xy slope.
+    float stability = smoothstep(.18, .34, facing);
+    return v_uv - offset * stability;
+}
+
+vec3 material_sidecar_albedo(vec3 fallback, vec2 uv) {
+    if (material_sidecars_enabled == 0) return fallback;
+    vec4 albedo_sample = texture(material_sidecar_albedo_tex, fract(uv));
+    return albedo_sample.a > .5 ? albedo_sample.rgb : fallback;
+}
+vec4 material_sidecar_normal_sample(vec2 uv) {
+    return material_sidecars_enabled != 0
+        ? texture(material_sidecar_normal_tex, fract(uv))
+        : vec4(.5,.5,1.,1.);
+}
+vec4 material_sidecar_ormh_sample(vec2 uv) {
+    return material_sidecars_enabled != 0
+        ? texture(material_sidecar_ormh_tex, fract(uv))
+        : vec4(1.,.5,.5,1.);
+}
+float material_sidecar_ao(vec2 uv) { return material_sidecar_ormh_sample(uv).r; }
+float material_sidecar_roughness(float fallback, vec2 uv) {
+    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample(uv).g : fallback;
+}
+float material_sidecar_metallic(vec2 uv) {
+    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample(uv).b : 0.;
+}
+float material_sidecar_height(vec2 uv) {
+    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample(uv).a : .5;
+}
+float material_sidecar_specular(float fallback, vec2 uv) {
+    if (material_sidecars_enabled == 0) return fallback;
+    vec4 specular_sample = texture(material_sidecar_specular_tex, fract(uv));
+    return specular_sample.a > .5 ? specular_sample.r : fallback;
+}
+vec3 material_sidecar_detail(vec2 uv) {
+    return material_sidecars_enabled != 0
+        ? texture(material_sidecar_detail_tex, fract(uv)).rgb
+        : vec3(0.);
+}
+float material_sidecar_cavity(vec2 uv) { return material_sidecar_detail(uv).r; }
+float material_sidecar_curvature(vec2 uv) { return material_sidecar_detail(uv).g; }
+float material_sidecar_edgewear(vec2 uv) { return material_sidecar_detail(uv).b; }
+float material_sidecar_occlusion(vec2 uv) {
+    return material_sidecar_ao(uv) * mix(1., .82, material_sidecar_cavity(uv));
+}
+vec3 material_sidecar_emission(vec2 uv) {
+    return material_sidecars_enabled != 0
+        ? probe_linear(texture(material_sidecar_emissive_tex, fract(uv)).rgb)
+        : vec3(0.);
+}
+vec3 material_sidecar_normal(vec3 base_normal, vec2 uv) {
+    if (material_sidecars_enabled == 0) return base_normal;
+    vec3 mapped = material_sidecar_normal_sample(uv).xyz * 2. - 1.;
+    return probe_unit(material_sidecar_frame(base_normal) * mapped);
 }
 
 vec3 authored_emission() {
@@ -177,10 +215,10 @@ vec3 authored_emission() {
     return emitted;
 }
 
-vec3 surface_emission(vec4 texel) {
+vec3 surface_emission(vec4 texel, vec2 sidecar_uv) {
     // Scripted brightness follows the original encoded GS modulation, then decodes once.
     return probe_linear(clamp(texel.rgb * v_script_emission, vec3(0.0), vec3(1.0)))
-        + authored_emission() + material_sidecar_emission();
+        + authored_emission() + material_sidecar_emission(sidecar_uv);
 }
 
 uniform int probe_look_count;
@@ -315,7 +353,9 @@ vec3 probe_surface(vec4 texel, vec3 original) {
     vec3 eye_position = (view * vec4(v_world_position, 1.0)).xyz;
     vec3 eye_normal = orient_shading_normal(mat3(view) * n, mat3(view) * geometric, -eye_position);
     n = transpose(mat3(view)) * eye_normal;
-    n = material_sidecar_normal(n);
+    vec3 sidecar_view = transpose(mat3(view)) * (-eye_position);
+    vec2 sidecar_uv = material_sidecar_parallax_uv(n, sidecar_view);
+    n = material_sidecar_normal(n, sidecar_uv);
     if (probe_mode == 4) {
         // Read the same grid blend directly, even when normal shading uses cached irradiance.
         vec3 ignored;
@@ -374,14 +414,14 @@ vec3 probe_surface(vec4 texel, vec3 original) {
     if (hero_shadow_receiver == 0) {
         hero_cue = 1.0 - 0.45 * hero_shadow_air_blend * (1.0 - sun_visibility) * (1.0 - hero_visibility);
     }
-    vec3 albedo_texel = material_sidecar_albedo(texel.rgb);
+    vec3 albedo_texel = material_sidecar_albedo(texel.rgb, sidecar_uv);
     vec3 albedo = probe_linear(albedo_texel) * material_colour.rgb * v_probe_multiplier.rgb;
     if (probe_terrain_albedo > 0.0) {
         // Preserve the GS modulation as an artistic material tint, then decode once.
         vec3 tint = mix(vec3(1.0), v_colour.rgb, probe_terrain_albedo);
         albedo = probe_linear(clamp(albedo_texel * tint * material_colour.rgb, 0.0, 1.0));
     }
-    vec3 emitted = surface_emission(texel);
+    vec3 emitted = surface_emission(texel, sidecar_uv);
     vec3 fur_direct = vec3(0.);
 #ifdef OPENRAC_HERO_FUR
     if (v_hero_fur != 0 && hero_fur_lighting_enabled != 0 && probe_mode <= 3 && probe_mode != 2) {
@@ -415,7 +455,7 @@ vec3 probe_surface(vec4 texel, vec3 original) {
     }
     vec3 indirect;
     // Use the same smooth receiver normal as the depth/normal prepass and early lighting.
-    vec3 toward_camera = transpose(mat3(view)) * (-eye_position);
+    vec3 toward_camera = sidecar_view;
     vec3 surface_bias = probe_surface_bias(n, toward_camera);
 #ifdef OPENRAC_EARLY_LIGHTING
     indirect = cached_lighting.rgb;
@@ -438,7 +478,7 @@ vec3 probe_surface(vec4 texel, vec3 original) {
         return probe_display(fallback);
     }
     // Artistic GI exposure; keep the bake and direct-light energy unchanged.
-    indirect *= probe_gi_multiplier * material_sidecar_occlusion();
+    indirect *= probe_gi_multiplier * material_sidecar_occlusion(sidecar_uv);
     if (probe_retail_anchor != 0 && probe_receiver == 2 && probe_mode == 1) {
         indirect = retail_ambient_floor(indirect, v_probe_ambient);
     }
@@ -501,14 +541,14 @@ vec3 probe_surface(vec4 texel, vec3 original) {
 #endif
     // Sidecar PBR is additive to the legacy material system: ordinary colour materials can now
     // reflect their environment without having to be authored as a separate chrome pass.
-    float sidecar_metallic = material_sidecar_metallic();
-    float sidecar_f0 = material_sidecar_specular(.04);
+    float sidecar_metallic = material_sidecar_metallic(sidecar_uv);
+    float sidecar_f0 = material_sidecar_specular(.04, sidecar_uv);
     vec3 sidecar_specular = vec3(0.);
 #if !defined(OPENRAC_SOLID) && !defined(OPENRAC_STATIC_COLOUR)
     if (material_sidecars_enabled != 0 && probe_mode == 1
         && (sidecar_metallic > .01 || sidecar_f0 > .045) && dot(surface_n, toward_camera) > 0.) {
         float roughness = clamp(
-            material_sidecar_roughness(.65) * mix(1., .88, material_sidecar_edgewear()), .04, 1.
+            material_sidecar_roughness(.65, sidecar_uv) * mix(1., .88, material_sidecar_edgewear(sidecar_uv)), .04, 1.
         );
         float f0 = mix(sidecar_f0, max(sidecar_f0, .65), sidecar_metallic);
         sidecar_specular = environment_specular(
