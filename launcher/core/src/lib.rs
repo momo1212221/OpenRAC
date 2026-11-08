@@ -25,6 +25,7 @@
 //! - [`overrides`]: a game's overrides packs (replacement textures and models): list, order, on/off.
 //! - [`plugins`]: a game's native mods (docs/port/MODS.md): install, list, order, on/off, settings.
 //! - [`modset`]: mod codes, a host's mods at exact versions as a short or long code: review, apply.
+//! - [`mod_workspace`]: a mod tool page's user-selected working folder, kept as a narrow file capability.
 //! - [`profile`]: the way back from a mod code: what the mods were, kept to restore.
 //! - [`index`]: the signed mod index (openrac-mods), fetched, checked and cached; [`resolver`]: what
 //!   installing mods from it takes; [`index_apply`]: doing it; [`deeplink`]: `openrac://` links;
@@ -64,6 +65,7 @@ pub mod library;
 pub mod mod_error;
 pub mod mod_summary;
 pub mod mod_tools;
+pub mod mod_workspace;
 pub mod mod_updates;
 pub mod modset;
 pub mod multiplayer;

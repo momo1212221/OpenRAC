@@ -26,6 +26,34 @@ function backend(): ToolBackend & { asked: unknown[][] } {
     saveStart: (...a) => (asked.push(["saveStart", ...a]), Promise.resolve(7)),
     saveWrite: (token, bytes) => (asked.push(["saveWrite", token, bytes.byteLength]), Promise.resolve(null)),
     saveEnd: (...a) => (asked.push(["saveEnd", ...a]), Promise.resolve(a[1] ? "~/Pack.zip" : "")),
+    workspaceGet: (...a) => (asked.push(["workspaceGet", ...a]), Promise.resolve("OpenRAC Work")),
+    workspacePick: (...a) => (asked.push(["workspacePick", ...a]), Promise.resolve("OpenRAC Work")),
+    workspaceClear: (...a) => (asked.push(["workspaceClear", ...a]), Promise.resolve(null)),
+    workspaceList: (...a) => (
+      asked.push(["workspaceList", ...a]),
+      Promise.resolve([{ path: "outputs/texture.png", size: 3 }])
+    ),
+    workspaceRead: (...a) => (asked.push(["workspaceRead", ...a]), Promise.resolve(new Uint8Array([4, 5, 6]).buffer)),
+    workspaceWrite: (id, path, bytes) => (
+      asked.push(["workspaceWrite", id, path, bytes.byteLength]),
+      Promise.resolve(null)
+    ),
+    savesExport: (...a) => (asked.push(["savesExport", ...a]), Promise.resolve(new Uint8Array([7, 8]).buffer)),
+    savesPreview: (game, version, bytes) => (
+      asked.push(["savesPreview", game, version, bytes.byteLength]),
+      Promise.resolve({
+        serial: "SCES_509.16",
+        title: "Ratchet & Clank",
+        launcherVersion: "0.10.1",
+        created: "2026-11-08T09:00:00Z",
+        slots: [],
+        cardHasSaves: true,
+      })
+    ),
+    savesRestore: (game, version, bytes) => (
+      asked.push(["savesRestore", game, version, bytes.byteLength]),
+      Promise.resolve({ folders: ["BESCES-50916RATCHET"], files: 4, backup: null })
+    ),
   };
 }
 
@@ -212,6 +240,56 @@ describe("a mod page's messages", () => {
     expect(opened?.message.value).toBeNull();
   });
 });
+
+  it("scopes a workspace to the mod id and keeps paths relative", async () => {
+    const b = backend();
+    const call = (id: number, call: string, args: Record<string, unknown> = {}) =>
+      reply({ openrac: 1, id, call, args }, info, b).then((r) => r?.message);
+    expect((await call(20, "workspaceGet"))?.value).toBe("OpenRAC Work");
+    expect((await call(21, "workspacePick"))?.value).toBe("OpenRAC Work");
+    expect((await call(22, "workspaceList"))?.value).toEqual([{ path: "outputs/texture.png", size: 3 }]);
+    expect((await call(23, "workspaceRead", { path: "outputs/texture.png" }))?.value).toBeInstanceOf(ArrayBuffer);
+    expect(
+      (await call(24, "workspaceWrite", { path: "OpenRAC Cloud Saves/v1/card.zip", bytes: new ArrayBuffer(5) }))?.ok,
+    ).toBe(true);
+    await call(25, "workspaceClear");
+    expect(b.asked).toEqual([
+      ["workspaceGet", "nanotech-upscaler"],
+      ["workspacePick", "nanotech-upscaler"],
+      ["workspaceList", "nanotech-upscaler"],
+      ["workspaceRead", "nanotech-upscaler", "outputs/texture.png"],
+      ["workspaceWrite", "nanotech-upscaler", "OpenRAC Cloud Saves/v1/card.zip", 5],
+      ["workspaceClear", "nanotech-upscaler"],
+    ]);
+    for (const path of ["../x", "/tmp/x", "a/../x", "a\\x", "./x", ""]) {
+      expect(readRequest({ openrac: 1, id: 30, call: "workspaceRead", args: { path } })).toHaveProperty("error");
+    }
+  });
+
+  it("exports, previews and restores only the page's current game's saves", async () => {
+    const b = backend();
+    const exported = await reply({ openrac: 1, id: 40, call: "savesExport", args: { game: "rac2" } }, info, b);
+    expect(exported?.message.value).toBeInstanceOf(ArrayBuffer);
+    expect(exported?.transfer).toHaveLength(1);
+    await reply(
+      { openrac: 1, id: 41, call: "savesPreview", args: { bytes: new ArrayBuffer(8), game: "rac2" } },
+      info,
+      b,
+    );
+    await reply(
+      { openrac: 1, id: 42, call: "savesRestore", args: { bytes: new ArrayBuffer(9), version: "ntsc" } },
+      info,
+      b,
+    );
+    expect(b.asked).toEqual([
+      ["savesExport", "rac1", "pal"],
+      ["savesPreview", "rac1", "pal", 8],
+      ["savesRestore", "rac1", "pal", 9],
+    ]);
+    expect(readRequest({ openrac: 1, id: 43, call: "savesPreview", args: { bytes: new ArrayBuffer(0) } })).toHaveProperty(
+      "error",
+    );
+  });
 
 describe("a mod page's address", () => {
   it("escapes each part", () => {

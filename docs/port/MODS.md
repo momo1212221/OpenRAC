@@ -883,13 +883,30 @@ The page is the mod's own code, so it is kept apart from the launcher
 | `saveWrite` | `token`, `bytes` | the next part, in order |
 | `saveEnd` | `token`, `keep` | the saved name, or `""` when dropped. A file not ended before the page closes is deleted |
 | `open` | `extension` (`json`) | a small file the player picks (at most 1 MB), or null if they backed out |
+| `workspaceGet` | | the short name of the folder this mod was allowed to use, or null |
+| `workspacePick` | | asks the player for a folder and remembers it for this mod; its short name, or null when cancelled |
+| `workspaceClear` | | forgets that folder; nothing in it is deleted |
+| `workspaceList` | | every regular, non-hidden file below that folder as `[{path, size}]`; links are never followed |
+| `workspaceRead` | `path` | one relative file, at most 64 MB |
+| `workspaceWrite` | `path`, `bytes` | writes one relative file, at most 64 MB; missing folders below the chosen one are made |
+| `savesExport` | | all saves of the disc whose page is open, as the launcher's validated OpenRAC saves .zip bytes |
+| `savesPreview` | `bytes` | validates such an archive for this disc and describes its slots, without writing anything |
+| `savesRestore` | `bytes` | after a launcher-owned confirmation, restores the whole archive; the old card is backed up and a running game refuses it |
 | `close` | | goes back to the mod's page |
 
 A message is `{openrac: 1, id, call, args}`, posted to `window.parent`. The
 answer is `{openrac: 1, id, ok: true, value}` or
 `{openrac: 1, id, ok: false, error}`. The page never names the game: the
-launcher answers for the game it was opened for. Only the store and the files
-the player saves are written.
+launcher answers for the game it was opened for. A workspace is an explicit capability: the
+player chooses the folder in the launcher's own picker, the page sees only its short name and
+relative files, and the choice is kept per mod. Android does not offer folder workspaces because
+its system picker gives the launcher files, not persistent folder paths.
+
+Save transfer is also deliberately narrower than filesystem access. A page cannot name a memory
+card or serial: `savesExport`, `savesPreview` and `savesRestore` are bound to the disc whose
+page is open and reuse the launcher's existing save-archive validation. Restore asks in the trusted
+launcher UI, refuses while the game holds the card, and the existing import path backs up what it
+replaces. No call runs a program, shell or Python, and no call gives a page an arbitrary path.
 
 Controller buttons go to the page as `{openrac: 1, event: "pad", button, down}`
 (`up`, `down`, `left`, `right`, `accept`, `back`, `prev`, `next`, `more`), and

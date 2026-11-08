@@ -16,8 +16,17 @@
 // | saveWrite | token, bytes                           | null (the parts in order)                     |
 // | saveEnd   | token, keep                            | the name it was saved under, "" if dropped    |
 // | open      | extension ("json")                     | the bytes the player picked, null if backed out |
+// | workspaceGet |                                      | selected folder's short name, or null         |
+// | workspacePick |                                     | asks for a folder; its short name, or null    |
+// | workspaceClear |                                    | null                                          |
+// | workspaceList |                                     | files in the selected folder                  |
+// | workspaceRead | path                                | the file's bytes                              |
+// | workspaceWrite | path, bytes                        | null                                          |
+// | savesExport |                                       | current saves as an OpenRAC .zip (bytes)      |
+// | savesPreview | bytes                                | the archive's validated summary               |
+// | savesRestore | bytes                                | restored files, or null if player cancelled   |
 // | close     |                                        | (none: the launcher goes back to the mod)     |
-import { api, type ToolFile, type ToolRoot } from "./api";
+import { api, type ImportedSaves, type SaveImportPreview, type ToolFile, type ToolRoot } from "./api";
 
 export const PROTOCOL = 1;
 
@@ -42,7 +51,16 @@ export type ToolRequest =
   | { id: number; call: "saveStart"; name: string; extension: "zip" | "json" }
   | { id: number; call: "saveWrite"; token: number; bytes: ArrayBuffer }
   | { id: number; call: "saveEnd"; token: number; keep: boolean }
-  | { id: number; call: "open"; extension: "json" };
+  | { id: number; call: "open"; extension: "json" }
+  | { id: number; call: "workspaceGet" }
+  | { id: number; call: "workspacePick" }
+  | { id: number; call: "workspaceClear" }
+  | { id: number; call: "workspaceList" }
+  | { id: number; call: "workspaceRead"; path: string }
+  | { id: number; call: "workspaceWrite"; path: string; bytes: ArrayBuffer }
+  | { id: number; call: "savesExport" }
+  | { id: number; call: "savesPreview"; bytes: ArrayBuffer }
+  | { id: number; call: "savesRestore"; bytes: ArrayBuffer };
 
 const ROOTS: readonly string[] = ["levels", "dump"];
 const KEY = /^[a-z0-9_-]{1,64}$/;
@@ -70,6 +88,13 @@ function plainJson(value: unknown): unknown {
 }
 const isToken = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 const text = (v: unknown, most = 512): v is string => typeof v === "string" && v.length > 0 && v.length <= most;
+const relativePath = (v: unknown): v is string =>
+  text(v, 1024) &&
+  !v.includes("\\") &&
+  !v.includes("\0") &&
+  v.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
+const WORKSPACE_FILE_MAX = 64 << 20;
+const SAVE_ARCHIVE_MAX = 80 << 20;
 
 /** A message from the page as one of the calls, or why it is not one (null: not a message of ours). */
 export function readRequest(data: unknown): ToolRequest | { id: number; error: string } | null {
@@ -120,6 +145,28 @@ export function readRequest(data: unknown): ToolRequest | { id: number; error: s
       return { id, call: "saveEnd", token: args.token, keep: args.keep === true };
     case "open":
       return args.extension === "json" ? { id, call: "open", extension: "json" } : refuse("extension is json");
+    case "workspaceGet":
+      return { id, call: "workspaceGet" };
+    case "workspacePick":
+      return { id, call: "workspacePick" };
+    case "workspaceClear":
+      return { id, call: "workspaceClear" };
+    case "workspaceList":
+      return { id, call: "workspaceList" };
+    case "workspaceRead":
+      return relativePath(args.path) ? { id, call: "workspaceRead", path: args.path } : refuse("a bad workspace path");
+    case "workspaceWrite":
+      if (!relativePath(args.path)) return refuse("a bad workspace path");
+      if (!(args.bytes instanceof ArrayBuffer) || args.bytes.byteLength === 0) return refuse("no bytes to write");
+      if (args.bytes.byteLength > WORKSPACE_FILE_MAX) return refuse("the workspace file is larger than 64 MB");
+      return { id, call: "workspaceWrite", path: args.path, bytes: args.bytes };
+    case "savesExport":
+      return { id, call: "savesExport" };
+    case "savesPreview":
+    case "savesRestore":
+      if (!(args.bytes instanceof ArrayBuffer) || args.bytes.byteLength === 0) return refuse("no save archive");
+      if (args.bytes.byteLength > SAVE_ARCHIVE_MAX) return refuse("the save archive is larger than 80 MB");
+      return { id, call: data.call, bytes: args.bytes };
     default:
       return refuse(`no call ${JSON.stringify(data.call)}`);
   }
@@ -143,6 +190,15 @@ export interface ToolBackend {
   saveWrite(token: number, bytes: Uint8Array): Promise<unknown>;
   saveEnd(token: number, keep: boolean): Promise<string>;
   open(extension: string): Promise<ArrayBuffer>;
+  workspaceGet(id: string): Promise<string | null>;
+  workspacePick(id: string): Promise<string | null>;
+  workspaceClear(id: string): Promise<unknown>;
+  workspaceList(id: string): Promise<ToolFile[]>;
+  workspaceRead(id: string, path: string): Promise<ArrayBuffer>;
+  workspaceWrite(id: string, path: string, bytes: Uint8Array): Promise<unknown>;
+  savesExport(game: string, version: string): Promise<ArrayBuffer>;
+  savesPreview(game: string, version: string, bytes: Uint8Array): Promise<SaveImportPreview>;
+  savesRestore(game: string, version: string, bytes: Uint8Array): Promise<ImportedSaves | null>;
 }
 
 export const launcherBackend: ToolBackend = {
@@ -155,6 +211,15 @@ export const launcherBackend: ToolBackend = {
   saveWrite: api.modToolSaveWrite,
   saveEnd: api.modToolSaveEnd,
   open: api.modToolOpen,
+  workspaceGet: api.modToolWorkspaceGet,
+  workspacePick: api.modToolWorkspacePick,
+  workspaceClear: api.modToolWorkspaceClear,
+  workspaceList: api.modToolWorkspaceList,
+  workspaceRead: api.modToolWorkspaceRead,
+  workspaceWrite: api.modToolWorkspaceWrite,
+  savesExport: api.modToolSavesExport,
+  savesPreview: api.modToolSavesPreview,
+  savesRestore: api.modToolSavesRestore,
 };
 
 /** A backend that remembers the files a page has not finished saving, so that closing the page
@@ -220,6 +285,26 @@ export async function answer(request: ToolRequest, info: ToolInfo, backend: Tool
       const bytes = await backend.open(request.extension);
       return bytes.byteLength ? bytes : null;
     }
+    case "workspaceGet":
+      return backend.workspaceGet(info.mod.id);
+    case "workspacePick":
+      return backend.workspacePick(info.mod.id);
+    case "workspaceClear":
+      await backend.workspaceClear(info.mod.id);
+      return null;
+    case "workspaceList":
+      return backend.workspaceList(info.mod.id);
+    case "workspaceRead":
+      return backend.workspaceRead(info.mod.id, request.path);
+    case "workspaceWrite":
+      await backend.workspaceWrite(info.mod.id, request.path, new Uint8Array(request.bytes));
+      return null;
+    case "savesExport":
+      return backend.savesExport(game, version);
+    case "savesPreview":
+      return backend.savesPreview(game, version, new Uint8Array(request.bytes));
+    case "savesRestore":
+      return backend.savesRestore(game, version, new Uint8Array(request.bytes));
   }
 }
 

@@ -1163,7 +1163,7 @@ fn backup_saves(serial: String, note: Option<String>) -> Result<openrac_launcher
 /// Whether the game runs with a memory card (the name to show when it does), for an edit or a
 /// restore: on a desktop from the process list when asked, on Android from the game's activity,
 /// asked here before (android.rs, game_holding_card).
-async fn card_check(app: &AppHandle) -> Result<impl Fn(&Path, &str) -> Result<Option<String>, String>, String> {
+pub(crate) async fn card_check(app: &AppHandle) -> Result<impl Fn(&Path, &str) -> Result<Option<String>, String>, String> {
     #[cfg(target_os = "android")]
     let running = android::game_holding_card(app).await?;
     #[cfg(not(target_os = "android"))]
@@ -2789,6 +2789,15 @@ pub fn run() {
             mod_tool::mod_tool_save_write,
             mod_tool::mod_tool_save_end,
             mod_tool::mod_tool_open,
+            mod_tool::mod_tool_workspace_get,
+            mod_tool::mod_tool_workspace_set,
+            mod_tool::mod_tool_workspace_clear,
+            mod_tool::mod_tool_workspace_list,
+            mod_tool::mod_tool_workspace_read,
+            mod_tool::mod_tool_workspace_write,
+            mod_tool::mod_tool_saves_export,
+            mod_tool::mod_tool_saves_preview,
+            mod_tool::mod_tool_saves_restore,
             enhanced_set_setting,
             enhanced_delete_bakes,
             plugins_set_enabled,

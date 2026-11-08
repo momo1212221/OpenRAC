@@ -2766,6 +2766,28 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
       return delay(null);
     case "mod_tool_save_end":
       return delay(args.keep ? "~/Downloads/Nanotech Upscaler rac1-pal.zip" : "");
+    case "mod_tool_workspace_get":
+    case "mod_tool_workspace_set":
+      return delay("OpenRAC Work");
+    case "mod_tool_workspace_clear":
+    case "mod_tool_workspace_write":
+      return delay(null);
+    case "mod_tool_workspace_list":
+      return delay([{ path: "outputs/texture.png", size: 4096 }]);
+    case "mod_tool_workspace_read":
+    case "mod_tool_saves_export":
+      return delay(new ArrayBuffer(0));
+    case "mod_tool_saves_preview":
+      return delay({
+        serial: "SCES_509.16",
+        title: "Ratchet & Clank",
+        launcherVersion: "0.10.1",
+        created: "2026-11-08T09:00:00Z",
+        slots: [],
+        cardHasSaves: true,
+      });
+    case "mod_tool_saves_restore":
+      return delay({ folders: ["BESCES-50916RATCHET"], files: 4, backup: null });
     case "texture_packs_export":
       return delay({ saved: "~/Downloads/rac2-ntsc-texture-pack.zip", textures: mockTextures.packCount, leftOut: 3 });
     case "enhanced_view":

@@ -4,10 +4,11 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use openrac_launcher_core::mod_tools::{self, ToolFile, ToolRoot};
-use openrac_launcher_core::{launcher_log, plugins, saves, texture_packs};
+use openrac_launcher_core::{launcher_log, mod_workspace, plugins, save_transfer, saves, texture_packs};
 use tauri::http::{header, Request, Response, StatusCode};
 use tauri::{AppHandle, Manager, Runtime, State};
 
@@ -329,6 +330,186 @@ fn read_small(path: &Path) -> Result<Vec<u8>, String> {
         return Err(format!("the file is larger than {} KB", mod_tools::STORE_MAX >> 10));
     }
     std::fs::read(path).map_err(|e| e.to_string())
+}
+
+
+/// The selected workspace's short name, never its absolute path.
+fn workspace_label(path: &Path) -> String {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.is_empty())
+        .unwrap_or("Selected folder")
+        .to_string()
+}
+
+/// The folder a player previously selected for this mod, by a short label only.
+#[tauri::command]
+pub(crate) fn mod_tool_workspace_get(id: String) -> Result<Option<String>, String> {
+    Ok(mod_workspace::selected(&saves::data_home(), &id)?.as_deref().map(workspace_label))
+}
+
+/// Remembers a folder selected by the trusted launcher UI. The mod page itself never supplies a
+/// path to this command; lib/api.ts owns the system picker and hands the result here.
+#[tauri::command]
+pub(crate) fn mod_tool_workspace_set(id: String, path: String) -> Result<String, String> {
+    let selected = mod_workspace::select(&saves::data_home(), &id, Path::new(&path))?;
+    launcher_log::line(&format!("{id}: selected a tool workspace"));
+    Ok(workspace_label(&selected))
+}
+
+/// Forgets a mod's selected workspace without changing the folder.
+#[tauri::command]
+pub(crate) fn mod_tool_workspace_clear(id: String) -> Result<(), String> {
+    mod_workspace::clear(&saves::data_home(), &id)
+}
+
+fn workspace(id: &str) -> Result<PathBuf, String> {
+    mod_workspace::selected(&saves::data_home(), id)?.ok_or_else(|| "choose a workspace folder first".into())
+}
+
+/// The regular files in a mod's user-selected workspace. Links and hidden entries are left out.
+#[tauri::command]
+pub(crate) async fn mod_tool_workspace_list(id: String) -> Result<Vec<ToolFile>, String> {
+    let dir = workspace(&id)?;
+    tauri::async_runtime::spawn_blocking(move || mod_workspace::list(&dir)).await.map_err(|e| e.to_string())?
+}
+
+/// One file in a mod's selected workspace.
+#[tauri::command]
+pub(crate) async fn mod_tool_workspace_read(id: String, path: String) -> Result<tauri::ipc::Response, String> {
+    let dir = workspace(&id)?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || mod_workspace::read(&dir, &path))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Writes one file in a mod's selected workspace. The path is relative and checked again in core.
+#[tauri::command]
+pub(crate) async fn mod_tool_workspace_write(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("no bytes to write".into()) };
+    let id = header_text(&request, "x-mod")?;
+    let path = header_text(&request, "x-path")?;
+    let dir = workspace(&id)?;
+    let bytes = bytes.clone();
+    tauri::async_runtime::spawn_blocking(move || mod_workspace::write(&dir, &path, &bytes))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// The serial of the disc whose mod page is open. A page never gets to name another serial.
+fn tool_serial(state: &State<'_, AppState>, game: &str, version: &str) -> Result<String, String> {
+    let config = state.config.lock().unwrap().clone();
+    let catalog = openrac_launcher_core::catalog::load(config.root()?)?;
+    let key = format!("{game}/{version}");
+    let found = catalog.version(&key).ok_or_else(|| format!("{key} is not a version OpenRAC knows"))?;
+    if found.game != game || found.serial.is_empty() {
+        return Err(format!("{key} has no save-game serial"));
+    }
+    Ok(found.serial.clone())
+}
+
+const SAVE_ARCHIVE_MAX: usize = 80 << 20;
+static ARCHIVE_ID: AtomicU64 = AtomicU64::new(0);
+
+fn archive_path(app: &AppHandle, purpose: &str) -> Result<PathBuf, String> {
+    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("mod-tool-archives");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let id = ARCHIVE_ID.fetch_add(1, Ordering::Relaxed);
+    Ok(dir.join(format!("{purpose}-{}-{id}.zip", std::process::id())))
+}
+
+fn archive_body(request: &tauri::ipc::Request<'_>) -> Result<Vec<u8>, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("no save archive".into()) };
+    if bytes.is_empty() {
+        return Err("the save archive is empty".into());
+    }
+    if bytes.len() > SAVE_ARCHIVE_MAX {
+        return Err(format!("the save archive is larger than {} MB", SAVE_ARCHIVE_MAX >> 20));
+    }
+    Ok(bytes.clone())
+}
+
+/// The current disc's saves as the launcher's existing validated OpenRAC saves archive. The serial
+/// comes from the host context, and no filesystem path is exposed to the page.
+#[tauri::command]
+pub(crate) async fn mod_tool_saves_export(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    game: String,
+    version: String,
+) -> Result<tauri::ipc::Response, String> {
+    let serial = tool_serial(&state, &game, &version)?;
+    let launcher_version = app.package_info().version.to_string();
+    let path = archive_path(&app, "export")?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        let result = (|| {
+            save_transfer::export_saves(&serial, None, &launcher_version, &path)?;
+            std::fs::read(&path).map_err(|e| e.to_string())
+        })();
+        let _ = std::fs::remove_file(&path);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Describes a save archive supplied by a mod page, using the same parser and integrity checks as
+/// the launcher's Saves UI. The archive must belong to the page's current disc.
+#[tauri::command]
+pub(crate) async fn mod_tool_saves_preview(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<save_transfer::SaveImportPreview, String> {
+    let game = header_text(&request, "x-game")?;
+    let version = header_text(&request, "x-version")?;
+    let serial = tool_serial(&state, &game, &version)?;
+    let bytes = archive_body(&request)?;
+    let path = archive_path(&app, "preview")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = (|| {
+            std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+            save_transfer::preview_import(&serial, &path)
+        })();
+        let _ = std::fs::remove_file(&path);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Replaces the current disc's saves from a validated archive. The trusted launcher UI asks for
+/// confirmation before calling this command; the existing import path backs the card up first and
+/// the same guard as the save editor refuses a restore while the game is using it.
+#[tauri::command]
+pub(crate) async fn mod_tool_saves_restore(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<openrac_launcher_core::pcsx2_card::ImportedSaves, String> {
+    let game = header_text(&request, "x-game")?;
+    let version = header_text(&request, "x-version")?;
+    let serial = tool_serial(&state, &game, &version)?;
+    let bytes = archive_body(&request)?;
+    let path = archive_path(&app, "restore")?;
+    let in_use = crate::card_check(&app).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = (|| {
+            std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+            let card = saves::get_memcard_dir(&serial);
+            if let Some(game) = in_use(&card, &serial)? {
+                return Err(format!("{game} is running with this memory card: close it first"));
+            }
+            let choice = save_transfer::SaveImportChoice { replace_all: true, slots: Vec::new() };
+            save_transfer::import_saves(&serial, &path, &choice)
+        })();
+        let _ = std::fs::remove_file(&path);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

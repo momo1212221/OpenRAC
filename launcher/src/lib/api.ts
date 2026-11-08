@@ -476,6 +476,42 @@ export const api = {
   modToolSaveEnd: (token: number, keep: boolean) => call<string>("mod_tool_save_end", { token, keep }),
   /** A small file the player picks: its bytes, empty when they backed out. */
   modToolOpen: (extension: string) => call<ArrayBuffer>("mod_tool_open", { extension }),
+  /** The short name of this mod's user-selected working folder, never its absolute path. */
+  modToolWorkspaceGet: (id: string) => call<string | null>("mod_tool_workspace_get", { id }),
+  /** Lets the player choose a working folder; null keeps the previous choice. */
+  modToolWorkspacePick: async (id: string) => {
+    if (onAndroid) throw new Error("Folder workspaces are not available on Android.");
+    const path = await pickFolder("Choose a working folder for this mod");
+    return path ? call<string>("mod_tool_workspace_set", { id, path }) : null;
+  },
+  modToolWorkspaceClear: (id: string) => call<null>("mod_tool_workspace_clear", { id }),
+  modToolWorkspaceList: (id: string) => call<ToolFile[]>("mod_tool_workspace_list", { id }),
+  modToolWorkspaceRead: (id: string, path: string) => call<ArrayBuffer>("mod_tool_workspace_read", { id, path }),
+  modToolWorkspaceWrite: (id: string, path: string, bytes: Uint8Array) =>
+    callRaw<null>("mod_tool_workspace_write", bytes, {
+      "x-mod": encodeURIComponent(id),
+      "x-path": encodeURIComponent(path),
+    }),
+  /** The current disc's saves as a validated OpenRAC saves archive, without exposing its card path. */
+  modToolSavesExport: (game: string, version: string) =>
+    call<ArrayBuffer>("mod_tool_saves_export", { game, version }),
+  modToolSavesPreview: (game: string, version: string, bytes: Uint8Array) =>
+    callRaw<SaveImportPreview>("mod_tool_saves_preview", bytes, {
+      "x-game": encodeURIComponent(game),
+      "x-version": encodeURIComponent(version),
+    }),
+  /** Restores the whole card only after the trusted launcher UI asks the player. */
+  modToolSavesRestore: async (game: string, version: string, bytes: Uint8Array) => {
+    const restore = await ask(
+      "Replace this game's saves with the selected backup? OpenRAC will back up the current saves first.",
+      "Restore",
+    );
+    if (!restore) return null;
+    return callRaw<ImportedSaves>("mod_tool_saves_restore", bytes, {
+      "x-game": encodeURIComponent(game),
+      "x-version": encodeURIComponent(version),
+    });
+  },
   enhancedView: (game: string, version: string) => call<EnhancedView | null>("enhanced_view", { game, version }),
   enhancedSetEnabled: (game: string, version: string, enabled: boolean) =>
     call<EnhancedView | null>("enhanced_set_enabled", { game, version, enabled }),
