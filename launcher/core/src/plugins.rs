@@ -1070,6 +1070,16 @@ pub fn move_mod(dir: &Path, game: &str, version: &str, id: &str, up: bool) -> Re
 /// player never set the value, and a mod treats it as unset.
 pub const PLAYER_NAME: &str = "${player_name}";
 
+/// Whether a mod that is on in `dir` uses the launcher's Multiplayer name: one of its string
+/// settings defaults to [`PLAYER_NAME`] (the multiplayer mod's name, for one). Settings shows
+/// the name only then.
+pub fn uses_player_name(dir: &Path) -> bool {
+    read_list(dir).unwrap_or_default().iter().filter(|e| e.enabled).any(|e| {
+        read_manifest(&dir.join(&e.id))
+            .is_ok_and(|m| m.settings.iter().any(|s| s.kind == "string" && s.default == PLAYER_NAME))
+    })
+}
+
 /// Shows the placeholder default of string settings as `player_name` (the launcher's Multiplayer
 /// name), in the default and in a value that still is the placeholder. A value the player set is
 /// left as it is.
