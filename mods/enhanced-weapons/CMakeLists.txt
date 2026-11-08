@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+project(enhanced_weapons LANGUAGES C CXX)
+set(OpenRACMod_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../sdk/cmake")
+find_package(OpenRACMod 1.0 REQUIRED)
+openrac_add_mod(enhanced_weapons MANIFEST openrac-mod.json SOURCES src/mod.cpp)
