@@ -3,6 +3,7 @@
 import type { ActionView, GameView, VersionView } from "./api";
 import type { IconName } from "$components/Icon.svelte";
 import { api, onAndroid, pickFolder, pickIso } from "./api";
+import { onIOS } from "./ios";
 import {
   acceptWarning,
   app,
