@@ -61,7 +61,9 @@ uniform int material_fallback;
 uniform sampler2D gtao_visibility;
 // Layer 0: tangent-space normal. Layer 1: AO / roughness / height. Layer 2: emissive RGB.
 uniform int material_sidecars_enabled;
-uniform sampler2DArray material_sidecars;
+uniform sampler2D material_sidecar_normal_tex;
+uniform sampler2D material_sidecar_ormh_tex;
+uniform sampler2D material_sidecar_emissive_tex;
 #endif
 
 #ifdef OPENRAC_HERO_WETNESS
@@ -99,21 +101,31 @@ vec3 emission_texel(bool authored_tint) {
     return result;
 }
 
-vec4 material_sidecar(float layer) {
+vec4 material_sidecar_normal_sample() {
     return material_sidecars_enabled != 0
-        ? texture(material_sidecars, vec3(fract(v_uv), layer))
-        : vec4(layer == 0. ? vec3(.5,.5,1.) : layer == 1. ? vec3(1.,.5,.5) : vec3(0.), 1.);
+        ? texture(material_sidecar_normal_tex, fract(v_uv))
+        : vec4(.5,.5,1.,1.);
 }
-float material_sidecar_ao() { return material_sidecars_enabled != 0 ? material_sidecar(1.).r : 1.; }
+vec4 material_sidecar_ormh_sample() {
+    return material_sidecars_enabled != 0
+        ? texture(material_sidecar_ormh_tex, fract(v_uv))
+        : vec4(1.,.5,.5,1.);
+}
+float material_sidecar_ao() { return material_sidecar_ormh_sample().r; }
 float material_sidecar_roughness(float fallback) {
-    return material_sidecars_enabled != 0 ? material_sidecar(1.).g : fallback;
+    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().g : fallback;
+}
+float material_sidecar_height() {
+    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().b : .5;
 }
 vec3 material_sidecar_emission() {
-    return material_sidecars_enabled != 0 ? probe_linear(material_sidecar(2.).rgb) : vec3(0.);
+    return material_sidecars_enabled != 0
+        ? probe_linear(texture(material_sidecar_emissive_tex, fract(v_uv)).rgb)
+        : vec3(0.);
 }
 vec3 material_sidecar_normal(vec3 base_normal) {
     if (material_sidecars_enabled == 0) return base_normal;
-    vec3 mapped = material_sidecar(0.).xyz * 2. - 1.;
+    vec3 mapped = material_sidecar_normal_sample().xyz * 2. - 1.;
     vec3 dp1 = dFdx(v_world_position), dp2 = dFdy(v_world_position);
     vec2 duv1 = dFdx(v_uv), duv2 = dFdy(v_uv);
     vec3 dp2perp = cross(dp2, base_normal);

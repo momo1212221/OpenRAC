@@ -24,7 +24,9 @@
 namespace openrac::lighting {
 
 namespace {
-constexpr unsigned kMaterialSidecarUnit = 10;
+constexpr unsigned kMaterialNormalUnit = 8;
+constexpr unsigned kMaterialOrmhUnit = 9;
+constexpr unsigned kMaterialEmissiveUnit = 10;
 
 bool same_extent(const renderer::Rgba8Image& image, int width, int height) {
     return image.width == width && image.height == height
@@ -58,10 +60,38 @@ std::optional<renderer::Rgba8Image> load_sidecar(
     return image;
 }
 
-unsigned upload_sidecar_array(std::uint64_t hash) {
+unsigned upload_material_texture(const renderer::Rgba8Image& image, unsigned unit) {
+    unsigned texture = 0;
+    gl::glGenTextures(1, &texture);
+    gl::glActiveTexture(gl::GL_TEXTURE0 + unit);
+    gl::glBindTexture(gl::GL_TEXTURE_2D, texture);
+    gl::glTexImage2D(
+        gl::GL_TEXTURE_2D,
+        0,
+        gl::GL_RGBA8,
+        image.width,
+        image.height,
+        0,
+        gl::GL_RGBA,
+        gl::GL_UNSIGNED_BYTE,
+        image.pixels.data()
+    );
+    gl::glTexParameteri(
+        gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR
+    );
+    gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
+    gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_S, gl::GL_REPEAT);
+    gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_T, gl::GL_REPEAT);
+    gl::glGenerateMipmap(gl::GL_TEXTURE_2D);
+    gl::glBindTexture(gl::GL_TEXTURE_2D, 0);
+    gl::glActiveTexture(gl::GL_TEXTURE0);
+    return texture;
+}
+
+std::array<unsigned, 3> upload_sidecars(std::uint64_t hash) {
     const auto paths = renderer::texture_pack::material_maps(hash);
     if (!paths) {
-        return 0;
+        return {};
     }
 
     std::optional<renderer::Rgba8Image> reference;
@@ -79,7 +109,7 @@ unsigned upload_sidecar_array(std::uint64_t hash) {
         reference.reset();
     }
     if (!reference) {
-        return 0;
+        return {};
     }
 
     const int width = reference->width, height = reference->height;
@@ -95,44 +125,19 @@ unsigned upload_sidecar_array(std::uint64_t hash) {
     auto emissive = load_sidecar(hash, renderer::texture_pack::MaterialMap::Emissive, width, height)
                         .value_or(material_default(width, height, {0, 0, 0, 255}));
 
-    const std::size_t plane =
-        static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4;
-    std::vector<std::uint8_t> layers(plane * 3);
-    std::memcpy(layers.data(), normal.pixels.data(), plane);
-    for (std::size_t i = 0; i < plane; i += 4) {
-        layers[plane + i] = ao.pixels[i];
-        layers[plane + i + 1] = roughness.pixels[i];
-        layers[plane + i + 2] = height_map.pixels[i];
-        layers[plane + i + 3] = 255;
+    renderer::Rgba8Image ormh(width, height);
+    for (std::size_t i = 0; i < ormh.pixels.size(); i += 4) {
+        ormh.pixels[i] = ao.pixels[i];
+        ormh.pixels[i + 1] = roughness.pixels[i];
+        ormh.pixels[i + 2] = height_map.pixels[i];
+        ormh.pixels[i + 3] = 255;
     }
-    std::memcpy(layers.data() + plane * 2, emissive.pixels.data(), plane);
 
-    unsigned texture = 0;
-    gl::glGenTextures(1, &texture);
-    gl::glActiveTexture(gl::GL_TEXTURE0 + kMaterialSidecarUnit);
-    gl::glBindTexture(gl::GL_TEXTURE_2D_ARRAY, texture);
-    gl::glTexImage3D(
-        gl::GL_TEXTURE_2D_ARRAY,
-        0,
-        gl::GL_RGBA8,
-        width,
-        height,
-        3,
-        0,
-        gl::GL_RGBA,
-        gl::GL_UNSIGNED_BYTE,
-        layers.data()
-    );
-    gl::glTexParameteri(
-        gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR
-    );
-    gl::glTexParameteri(gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
-    gl::glTexParameteri(gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_WRAP_S, gl::GL_REPEAT);
-    gl::glTexParameteri(gl::GL_TEXTURE_2D_ARRAY, gl::GL_TEXTURE_WRAP_T, gl::GL_REPEAT);
-    gl::glGenerateMipmap(gl::GL_TEXTURE_2D_ARRAY);
-    gl::glBindTexture(gl::GL_TEXTURE_2D_ARRAY, 0);
-    gl::glActiveTexture(gl::GL_TEXTURE0);
-    return texture;
+    return {
+        upload_material_texture(normal, kMaterialNormalUnit),
+        upload_material_texture(ormh, kMaterialOrmhUnit),
+        upload_material_texture(emissive, kMaterialEmissiveUnit)
+    };
 }
 
 // Static world variants cannot contain the live, skinned hero; discard every fur declaration there.
@@ -352,11 +357,19 @@ void SceneLighting::bind_material_sidecars(
 
     const auto found = source.texture_pack_hash ? m_material_sidecars.find(source.texture_pack_hash)
                                                 : m_material_sidecars.end();
-    const bool enabled = found != m_material_sidecars.end() && found->second != 0;
+    const bool enabled = found != m_material_sidecars.end();
     gl::glUniform1i(enabled_location, enabled ? 1 : 0);
-    gl::glUniform1i(shader.uniform("material_sidecars"), int(kMaterialSidecarUnit));
-    gl::glActiveTexture(gl::GL_TEXTURE0 + kMaterialSidecarUnit);
-    gl::glBindTexture(gl::GL_TEXTURE_2D_ARRAY, enabled ? found->second : 0);
+
+    const std::array<unsigned, 3> textures = enabled ? found->second : std::array<unsigned, 3>{};
+    for (const auto [unit, uniform, texture] : {
+             std::tuple{kMaterialNormalUnit, "material_sidecar_normal_tex", textures[0]},
+             std::tuple{kMaterialOrmhUnit, "material_sidecar_ormh_tex", textures[1]},
+             std::tuple{kMaterialEmissiveUnit, "material_sidecar_emissive_tex", textures[2]},
+         }) {
+        gl::glUniform1i(shader.uniform(uniform), int(unit));
+        gl::glActiveTexture(gl::GL_TEXTURE0 + unit);
+        gl::glBindTexture(gl::GL_TEXTURE_2D, texture);
+    }
     gl::glActiveTexture(gl::GL_TEXTURE0);
 }
 
@@ -455,9 +468,9 @@ void SceneLighting::load_material_sidecars(const scene::LevelData& level) {
             continue;
         }
 
-        const unsigned texture = upload_sidecar_array(hash);
-        if (texture) {
-            m_material_sidecars.emplace(hash, texture);
+        const auto textures = upload_sidecars(hash);
+        if (textures[0] || textures[1] || textures[2]) {
+            m_material_sidecars.emplace(hash, textures);
         }
     }
     if (!m_material_sidecars.empty()) {
@@ -466,10 +479,12 @@ void SceneLighting::load_material_sidecars(const scene::LevelData& level) {
 }
 
 void SceneLighting::release_material_sidecars() {
-    for (const auto& [hash, texture] : m_material_sidecars) {
+    for (const auto& [hash, textures] : m_material_sidecars) {
         (void)hash;
-        if (texture) {
-            gl::glDeleteTextures(1, &texture);
+        for (const auto texture : textures) {
+            if (texture) {
+                gl::glDeleteTextures(1, &texture);
+            }
         }
     }
     m_material_sidecars.clear();
