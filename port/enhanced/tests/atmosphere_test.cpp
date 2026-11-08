@@ -54,11 +54,16 @@ int main(int argc, char** argv) {
     const auto low = renderer::volumetric_grid(renderer::VolumetricQuality::Low, 1920, 1080);
     const auto medium = renderer::volumetric_grid(renderer::VolumetricQuality::Medium, 1920, 1080);
     const auto high = renderer::volumetric_grid(renderer::VolumetricQuality::High, 1920, 1080);
+    const auto ultra = renderer::volumetric_grid(renderer::VolumetricQuality::Ultra, 1920, 1080);
     CHECK(low.width == 30 && low.height == 17 && low.slices == 24);
     CHECK(medium.width == 60 && medium.height == 34 && medium.slices == 48);
     CHECK(high.width == 120 && high.height == 68 && high.slices == 96);
+    CHECK(ultra.width == 240 && ultra.height == 135 && ultra.slices == 144);
     const auto cap = renderer::volumetric_grid(renderer::VolumetricQuality::High, 16384, 16384);
+    const auto ultra_cap =
+        renderer::volumetric_grid(renderer::VolumetricQuality::Ultra, 16384, 16384);
     CHECK(cap.width == 160 && cap.height == 90 && cap.slices == 96);
+    CHECK(ultra_cap.width == 240 && ultra_cap.height == 135 && ultra_cap.slices == 144);
     CHECK(renderer::volumetric_grid(renderer::VolumetricQuality::Off, 1920, 1080).slices == 0);
     CHECK(renderer::volumetric_grid(renderer::VolumetricQuality::High, 0, 1080).slices == 0);
     enhanced::AtmosphereSettings options;
