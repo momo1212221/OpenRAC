@@ -160,8 +160,8 @@ jobs:
           cat > notes.md <<'EOF'
           Three installable OpenRAC native mods by Moritz Wallinger:
           - Enhanced Weapons 0.3.0
-          - Enhanced Audio 0.1.0
-          - Accessibility Pack 0.1.0
+          - Enhanced Audio 0.2.0
+          - Accessibility Pack 0.2.0
 
           Built for Windows x86_64, Linux x86_64/aarch64, macOS arm64/x86_64 and Android arm64.
           This release is for direct launcher installation and is not a submission to OpenRAC/openrac-mods.
