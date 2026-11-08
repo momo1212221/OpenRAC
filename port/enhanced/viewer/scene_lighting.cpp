@@ -34,7 +34,9 @@ bool same_extent(const renderer::Rgba8Image& image, int width, int height) {
                   == static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4;
 }
 
-renderer::Rgba8Image material_default(int width, int height, std::array<std::uint8_t, 4> value) {
+renderer::Rgba8Image material_default(
+    int width, int height, std::array<std::uint8_t, 4> value
+) {
     renderer::Rgba8Image image(width, height);
     for (std::size_t i = 0; i < image.pixels.size(); i += 4) {
         std::copy(value.begin(), value.end(), image.pixels.begin() + static_cast<std::ptrdiff_t>(i));
@@ -68,7 +70,7 @@ unsigned upload_material_texture(const renderer::Rgba8Image& image, unsigned uni
     gl::glTexImage2D(
         gl::GL_TEXTURE_2D,
         0,
-        gl::GL_RGBA8,
+        static_cast<gl::GLint>(gl::GL_RGBA8),
         image.width,
         image.height,
         0,

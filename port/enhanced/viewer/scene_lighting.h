@@ -10,7 +10,6 @@
 #pragma once
 
 #include <array>
-
 #include <map>
 #include <optional>
 #include <span>
