@@ -112,7 +112,8 @@ struct MaterialMaps {
     std::filesystem::path emissive;
 
     bool empty() const {
-        return normal.empty() && roughness.empty() && height.empty() && ao.empty() && emissive.empty();
+        return normal.empty() && roughness.empty() && height.empty() && ao.empty()
+               && emissive.empty();
     }
 };
 

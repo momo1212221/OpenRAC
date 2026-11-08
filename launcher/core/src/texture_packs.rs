@@ -903,9 +903,7 @@ const MATERIAL_FILES: &[&str] =
 
 fn material_sidecar(rel: &str) -> Option<(String, PathBuf)> {
     let parts: Vec<&str> = rel.split('/').collect();
-    if parts.len() != 3 || parts[0] != "Materials" || !is_hash(parts[1])
-        || !MATERIAL_FILES.contains(&parts[2])
-    {
+    if parts.len() != 3 || parts[0] != "Materials" || !is_hash(parts[1]) || !MATERIAL_FILES.contains(&parts[2]) {
         return None;
     }
     Some((parts[1].to_ascii_lowercase(), PathBuf::from(rel)))
@@ -1051,11 +1049,7 @@ fn scan(archive: &mut zip::ZipArchive<std::fs::File>, id: &str) -> Result<Scanne
     }
     for (hash, (_, path)) in &materials {
         if !items.contains_key(hash) {
-            return Err(format!(
-                "Material sidecar {} has no colour texture {} in this pack.",
-                path.display(),
-                hash
-            ));
+            return Err(format!("Material sidecar {} has no colour texture {} in this pack.", path.display(), hash));
         }
     }
     if items.is_empty() {
@@ -1130,11 +1124,8 @@ pub fn import(
     let staging = root.join(format!(".{id}.importing"));
     let _ = std::fs::remove_dir_all(&staging);
     let unpack = |archive: &mut zip::ZipArchive<std::fs::File>| -> Result<(), String> {
-        for (i, rel) in scanned
-            .items
-            .iter()
-            .flat_map(|(_, files)| files)
-            .chain(scanned.materials.iter().map(|(_, file)| file))
+        for (i, rel) in
+            scanned.items.iter().flat_map(|(_, files)| files).chain(scanned.materials.iter().map(|(_, file)| file))
         {
             let mut entry = archive.by_index(*i).map_err(|e| e.to_string())?;
             let mut bytes = Vec::new();
@@ -1273,8 +1264,7 @@ fn item_files(pack: &Path, item: &Item) -> Vec<PathBuf> {
         frames
     };
 
-    const NAMES: &[&str] =
-        &["normal.png", "roughness.png", "height.png", "ao.png", "emissive.png", "material.json"];
+    const NAMES: &[&str] = &["normal.png", "roughness.png", "height.png", "ao.png", "emissive.png", "material.json"];
     let material = Path::new("Materials").join(&item.hash);
     for name in NAMES {
         let rel = material.join(name);
@@ -1494,13 +1484,7 @@ mod tests {
     fn material_sidecars_require_their_colour_texture() {
         let t = tempfile::tempdir().unwrap();
         let zip = t.path().join("orphan-material.zip");
-        make_zip(
-            &zip,
-            &[
-                (MANIFEST, manifest("rac2-ntsc")),
-                ("Materials/0123456789abcdef/normal.png", png(3)),
-            ],
-        );
+        make_zip(&zip, &[(MANIFEST, manifest("rac2-ntsc")), ("Materials/0123456789abcdef/normal.png", png(3))]);
         let error = preview_import(t.path(), "rac2", "ntsc", &zip).unwrap_err();
         assert!(error.contains("has no colour texture"), "{error}");
     }

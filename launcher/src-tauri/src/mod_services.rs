@@ -162,7 +162,7 @@ pub async fn mod_service(
                 .await?;
                 openrac_launcher_core::texture_packs::set_enabled(&home, &game, &version, true)?;
                 value(Ok(result))
-            },
+            }
             "ai.meshes" => value(
                 ai_mesh_bake(state, game, version, payload["mode"].as_str().ok_or("Missing mesh mode")?.into()).await,
             ),
