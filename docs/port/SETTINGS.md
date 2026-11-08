@@ -235,7 +235,7 @@ stick turns the camera.
 
 The PAL game has a "Video mode" row on this same page: 50 Hz, or 60 Hz for a
 television that can show it. In the game's code
-([games/rac1](../../games/rac1)):
+([games/rac1/decomp](../../games/rac1/decomp)):
 
 - `InitOnce` reads the disc's region and sets `D_0015EE80` (1: PAL, 50 Hz),
   then calls `sceGsResetGraph` with video mode 3 (PAL) or 2 (NTSC).
@@ -417,7 +417,7 @@ follows ReRAC's idea and says so in
 | Shadows | Jak 2: normal / extended | on / off | no | **later**: the port has no shadow renderer yet |
 | Presets | no | original / enhanced / custom | no | **later**, when there are enough graphics settings to group |
 | PS2 parity switches (particles, actor visibility, envmap, hi-res sky) | yes | no | no | **never** as such: they undo OpenGOAL's own enhancements, which the port does not have |
-| Renderer choice | parsed, unused | `WGPU_BACKEND` | no | **never**: one renderer, OpenGL 4.1 |
+| Renderer choice | parsed, unused | `WGPU_BACKEND` | the launcher's Settings, Advanced: Vulkan (the default), OpenGL 4.1, and on macOS Metal (`OPENRAC_GL_API`, [DEBUGGING.md](DEBUGGING.md)); not in the game's own menus | **had**, in the launcher |
 
 ### Input
 

@@ -38,6 +38,8 @@ on:
       - "editor/**"
       - "games/rac1/**"
       - "games/rac2/**"
+      - ".gitmodules"
+      - ".github/actions/decomp-sources/**"
       - "tools/asm_part.py"
       - "tools/bundle_standalone.py"
       - "tools/build_game.py"
@@ -203,6 +205,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/decomp-sources
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: matrix.name != 'fedora'
         with:
@@ -240,7 +243,7 @@ jobs:
             !port/build/**/*.o
             !port/build/**/*.obj
             !port/build/**/*.pdb
-          key: port-${{ matrix.name }}-h${{ hashFiles('games/rac1/src/**', 'games/rac1/include/**', 'games/rac1/config/**', 'games/rac1/ntsc/src/**', 'games/rac1/ntsc/include/**', 'games/rac1/ntsc/config/**', 'games/rac2/**', 'port/game/**', 'port/tools/hostgen/*.py', 'port/tools/hostgen/include/**', 'port/**/CMakeLists.txt', 'port/cmake/**', 'port/CMakePresets.json') }}
+          key: port-${{ matrix.name }}-h${{ hashFiles('games/rac1/decomp/src/**', 'games/rac1/decomp/include/**', 'games/rac1/decomp/config/**', 'games/rac1/ntsc-decomp/src/**', 'games/rac1/ntsc-decomp/include/**', 'games/rac1/ntsc-decomp/config/**', 'games/rac2/**', 'port/game/**', 'port/tools/hostgen/*.py', 'port/tools/hostgen/include/**', 'port/**/CMakeLists.txt', 'port/cmake/**', 'port/CMakePresets.json') }}
           restore-keys: |
             port-${{ matrix.name }}-h
 
@@ -341,12 +344,14 @@ jobs:
         run: |
           # Windows also carries Going Commando built without the disc, as the APK does: the player's
           # computer builds what is missing with the Zig it carries (the next step, tools/asm_part.py).
+          # --require-baker: a baker that cannot be built (Embree) fails here with its reason, not
+          # later as a copy without openrac-enhanced-baker.
           games="rac1-pal rac1-ntsc rac1-pal1 rac1-jp"
           if [ "$NAME" = windows ]; then games="$games rac2-ntsc rac2-pal rac2-ntsc2"; fi
-          python tools/build_port.py $games --preset standalone --probe-baker || {
+          python tools/build_port.py $games --preset standalone --require-baker || {
             echo "::warning::building again with a fresh configuration"
             rm -rf port/build/standalone/CMakeCache.txt port/build/standalone/CMakeFiles
-            python tools/build_port.py $games --preset standalone --probe-baker
+            python tools/build_port.py $games --preset standalone --require-baker
           }
 
       - name: Zig and the kit for Going Commando's part (Windows)
@@ -378,7 +383,7 @@ jobs:
         if: matrix.name != 'android'
         run: |
           file="cpython-${PYTHON_VERSION}+${PYTHON_RELEASE}-${PYTHON}-install_only_stripped.tar.gz"
-          curl -sSfL -o "$RUNNER_TEMP/python.tar.gz" \
+          curl -sSfL --retry 5 --retry-delay 5 -o "$RUNNER_TEMP/python.tar.gz" \
             "https://github.com/astral-sh/python-build-standalone/releases/download/${PYTHON_RELEASE}/${file}"
           python - "$RUNNER_TEMP/python.tar.gz" "$PYTHON_SHA256" <<'PY'
           import hashlib, sys

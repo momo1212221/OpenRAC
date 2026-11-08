@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Extract Ratchet & Clank levels from your own disc: PAL (SCES_509.16 v2.00) or NTSC-U
 (SCUS_971.99 v1.00), told apart by the executable on it (disc.VERSIONS). Going Commando
-(SCUS_972.68), Up Your Arsenal (SCUS_973.53) and Deadlocked (SCUS_974.65), NTSC-U, are read
-too, in early access (wads.VERSIONS): survey, godot, port and raw work for them, pack does not yet.
+(SCUS_972.68), Up Your Arsenal (SCUS_973.53, and its PAL disc SCES_524.56) and Deadlocked
+(SCUS_974.65), NTSC-U, are read too, in early access (wads.VERSIONS): survey, godot, port and raw work for them, pack does not yet.
 
   extract.py survey ISO                       disc layout and references, as JSON
   extract.py godot ISO OUT [--level N ...]    a Godot 4 project of editable levels
@@ -15,7 +15,7 @@ when complete. Never commit or share it: see LEGAL.md.
 """
 
 import argparse
-from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor, FIRST_COMPLETED, wait
+from concurrent.futures import Executor, ThreadPoolExecutor, FIRST_COMPLETED, wait
 import json
 import os
 from pathlib import Path
@@ -27,6 +27,9 @@ import subprocess
 import sys
 import tempfile
 import time
+
+if sys.platform != "ios":
+    from concurrent.futures import ProcessPoolExecutor
 
 sys.path.insert(1, str(next(p for p in Path(__file__).resolve().parents if (p / "tools/openrac_common").is_dir()) / "tools"))
 from openrac_common import background, files as file_ops  # noqa: E402
@@ -311,6 +314,8 @@ def default_jobs() -> int:
 def worker_pool(jobs: int) -> Executor:
     """JOBS processes for the levels. macOS and Python builds without sem_open use a fresh
     subprocess for each level instead of a shared multiprocessing pool."""
+    if sys.platform == "ios":
+        return ThreadPoolExecutor(1)
     # A fresh process per level releases its decoded assets and needs no shared semaphores.
     # This also avoids macOS resource_tracker warnings when an export worker is terminated.
     if sys.platform == "darwin":

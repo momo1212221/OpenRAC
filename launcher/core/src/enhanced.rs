@@ -60,6 +60,7 @@ pub(crate) fn spec(key: &str, name: &str, kind: &str, default: Value, descriptio
         binds: None,
         group: String::new(),
         multiplayer: None,
+        games: Vec::new(),
     }
 }
 

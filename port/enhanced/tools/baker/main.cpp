@@ -95,7 +95,7 @@ void usage() {
         << "  --batch-output DIR (prepare once, then read one JSON region plan on stdin)\n"
         << "  --prepare-interiors GAMEPLAY.bin (prepare interiors inside the batch process)\n"
         << "  --resume (with --batch-output: keep the grids a stopped bake verified)\n"
-        << "  --spacing 128 (or X,Y,Z) --resolution 6 --rays 256 --bounces 3 --seed 1\n"
+        << "  --spacing 128 (or X,Y,Z) --resolution 6 --rays 128 --bounces 2 --seed 1\n"
         << "  --tracy-wait SECONDS (wait up to 120 seconds for a Tracy capture)\n"
         << "  --threads 0 (all CPU threads; 1 for serial baking, same quality)\n"
         << "  --light-set 0 --environment 0.1 (uniform fallback radiance)\n"
@@ -215,6 +215,13 @@ void water_command(int argc, char** argv) {
 // Dispatches native enhanced-baker stages and reports failures at the command-line boundary.
 int main(int argc, char** argv) {
     try {
+        // The launcher asks this before offering another bake. It acquires and immediately releases
+        // the same OS lock as a real bake, so stale lock files do not look busy.
+        if (argc == 3 && std::string_view(argv[1]) == "--cache-status") {
+            std::cout << (bake_cache_busy(argv[2]) ? "busy" : "idle") << '\n';
+            return 0;
+        }
+
         if (argc == 4 && std::string_view(argv[1]) == "--print-emission-fingerprint") {
             std::cout << emission_texture_fingerprint(argv[2], argv[3]) << '\n';
             return 0;
@@ -302,13 +309,6 @@ int main(int argc, char** argv) {
         }
 
         const std::vector<std::string> arguments(argv + 1, argv + argc);
-
-        // The launcher asks this before offering another bake. It acquires and immediately releases
-        // the same OS lock as a real bake, so stale lock files do not look busy.
-        if (argc == 3 && std::string_view(argv[1]) == "--cache-status") {
-            std::cout << (bake_cache_busy(argv[2]) ? "busy" : "idle") << '\n';
-            return 0;
-        }
 
         // Launcher bakes own scheduling and publication directly, without a Python coordinator.
         if (std::find(arguments.begin(), arguments.end(), "--bake-all") != arguments.end()) {

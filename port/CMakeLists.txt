@@ -9,7 +9,16 @@
 # tools/hostgen; they need Clang (to read that C) and Python 3. The programs
 # that open a window need SDL3, found on the system or fetched by CMake.
 cmake_minimum_required(VERSION 3.24)
+# macOS 12 is the oldest system the port runs on. Set before project(), which reads it; a toolchain
+# file (Android's NDK) or a choice made with -D stays.
+if(CMAKE_HOST_APPLE AND NOT CMAKE_TOOLCHAIN_FILE)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET 12.0 CACHE STRING "Oldest macOS the programs run on")
+endif()
 project(openrac_port LANGUAGES C CXX)
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  set(OPENRAC_IOS ON)
+  add_compile_definitions(OPENRAC_IOS=1)
+endif()
 # macOS: the menu bar's code is Objective-C++ (platform/macos_app.mm), and an SDL3 that is built
 # here (Dependencies.cmake) is Objective-C. Enabled here, for every directory below.
 if(APPLE)
@@ -33,6 +42,13 @@ endif()
 if(MSVC AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
   message(FATAL_ERROR "Build the port with Clang (clang-cl on Windows): the guest contract "
                       "needs __int128 and GNU C extensions that MSVC's C compiler lacks.")
+endif()
+
+# macOS: Apple's libc++ before macOS 13.3 has no floating-point std::to_chars, which std::format
+# needs. Its availability markup is off and common/apple_to_chars.cpp supplies them, with the rest
+# of what that turns on and macOS 12 lacks.
+if(APPLE)
+  add_compile_definitions(_LIBCPP_DISABLE_AVAILABILITY)
 endif()
 
 # Experimental lighting (port/enhanced) is compiled in and chosen when the game starts: the
@@ -104,6 +120,9 @@ add_library(openrac_common STATIC
   "${OPENRAC_BUILD_INFO}"
 )
 add_dependencies(openrac_common openrac_build_info)
+if(APPLE)
+  target_sources(openrac_common PRIVATE common/apple_to_chars.cpp)
+endif()
 target_include_directories(openrac_common PUBLIC .)
 include(Tracy)
 if(OPENRAC_GPU_MARKERS)
@@ -214,7 +233,13 @@ endif()
 openrac_warnings(openrac_runtime)
 
 openrac_add_test(runtime SOURCES tests/runtime_test.cpp tests/guest_c.c LIBS openrac_runtime)
+openrac_add_test(ios_controller INCLUDES "${PROJECT_SOURCE_DIR}")
 openrac_add_test(expanded_memory SOURCES tests/expanded_memory_test.cpp LIBS openrac_runtime)
+if(APPLE AND NOT OPENRAC_IOS)
+  # Run the existing guest contract checks against iOS's Mach aliases as well as POSIX shared memory.
+  openrac_add_test(ios_memory SOURCES tests/runtime_test.cpp tests/guest_c.c runtime/memory.cpp
+    DEFINITIONS OPENRAC_IOS=1 LIBS openrac_runtime)
+endif()
 # The C entry point to the OPENRAC_* table (openrac/host_env.h), from C.
 openrac_add_c_test(host_env LIBS openrac_runtime)
 
@@ -384,7 +409,7 @@ openrac_add_c_test(scene_actors NO_STRICT_ALIASING WRAPV
   INCLUDES tests/rac1_host game/common/include runtime/include game/rac1-pal/host)
 
 # The shared rac1 host C's posed mobys' animation (a co-op figure, a moby the host drives).
-openrac_add_c_test(pose_anim MATH)
+openrac_add_c_test(pose_anim MATH INCLUDES game/common/include)
 
 # The shared rac1 host C's level digest, what two games sharing a level must agree on.
 openrac_add_c_test(sim_digest)
@@ -426,6 +451,9 @@ openrac_add_c_test(particle53 NO_STRICT_ALIASING NO_FP_CONTRACT MATH)
 openrac_add_c_test(planar_limit NO_STRICT_ALIASING NO_FP_CONTRACT MATH)
 openrac_add_c_test(checkpoint_restore NO_STRICT_ALIASING NO_FP_CONTRACT MATH)
 openrac_add_c_test(save_parts INCLUDES "${PROJECT_SOURCE_DIR}/../sdk/include")
+# Going Commando's saves as the play calls read them, on a save the game wrote.
+openrac_add_c_test(rac2_save INCLUDES game/rac2/host
+  DEFINITIONS "RAC2_SAVE_FIXTURE=\"${PROJECT_SOURCE_DIR}/../launcher/core/tests/fixtures/rac2/save-oozla.bin\"")
 # The card filter against the game's calls on a real folder: a party never writes a player's saves.
 openrac_add_c_test(mc_filter SOURCES tests/mc_filter_test.c game/common/lib/mc.c
                    INCLUDES game/common/include runtime/include)

@@ -3,7 +3,7 @@
   "title": "Ratchet & Clank: Going Commando (NTSC-U)",
   "game": "rac2",
   "serial": "SCUS_972.68",
-  "source": "games/rac2/ntsc",
+  "source": "games/rac2/decomp",
   "frame_rate": 60,
   "entry": "func_00131AE8",
   "ps2_float": [
@@ -59,7 +59,7 @@
     "symbol_addrs/usa/symbol_addrs.txt"
   ],
   "bare_names_in_level_0": true,
-  "formed_as": {"ref_L00_00290B48_00": "0x00355FBF", "D_001F0000": "0x001F2638"},
+  "formed_as": {"ref_L00_00290B48_00": "0x00355FBF", "D_001F0000": "0x001F2638", "D_L00_00262260": "0x00262262"},
   "global_views": true,
   "candidates_left_out": {
     "func_L03_003CA4B0": "includes common.h after its unit's own qcopy",

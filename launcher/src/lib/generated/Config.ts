@@ -80,10 +80,15 @@ discordClientId: string | null,
  */
 layout: "compact" | "classic", 
 /**
- * The launcher's theme (src/lib/palettes.json): "openrac" (default), "gruvbox", "oled", "nord"
+ * The launcher's theme (src/lib/palettes.json): "openrac" (default), "oled", "nord"
  * or "mocha". The accent is not a theme's: it is the picked game's.
  */
 theme: string, 
+/**
+ * The picked game's own bar, gold and coal (palettes.json game_colors) instead of the
+ * launcher's, in the launcher and the game's menu. Off by default: every game wears the gold.
+ */
+gameColors: boolean, 
 /**
  * The game writes a detailed log (OPENRAC_LOG=verbose): level loads, controller changes,
  * what the port is missing. Off by default, so a log stays small.
@@ -91,12 +96,14 @@ theme: string,
 detailedGameLog: boolean, 
 /**
  * What the game draws with on Windows, Linux and macOS: "vulkan" (the default), the port's
- * Vulkan renderer (OPENRAC_GL_API=vulkan; on macOS the MoltenVK its bundle carries), or
- * "opengl" (OpenGL 4.1). Where Vulkan cannot start, the game draws with OpenGL
- * (port/platform/window.cpp). Not used on Android, which keeps its own choice
+ * Vulkan renderer (OPENRAC_GL_API=vulkan; on macOS the MoltenVK its bundle carries),
+ * "opengl" (OpenGL 4.1), or, on macOS only, "metal", the port's Metal renderer
+ * (OPENRAC_GL_API=metal, port/renderer/metal). Where Vulkan or Metal cannot start, the game
+ * draws with OpenGL (port/platform/window.cpp); "metal" on any other system plays as
+ * "vulkan" (renderer_for). Not used on Android, which keeps its own choice
  * (src-tauri/src/android.rs).
  */
-renderer: "opengl" | "vulkan", 
+renderer: "opengl" | "vulkan" | "metal", 
 /**
  * HDR output (port docs/port/HDR.md): "off" (default) or "on", given to each game's start
  * (OPENRAC_HDR) over the game's own setting. On: HDR when the system has the display in HDR

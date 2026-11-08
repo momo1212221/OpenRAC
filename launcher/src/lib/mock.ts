@@ -293,6 +293,7 @@ let config: Config = {
   layout: "compact",
   theme: new URLSearchParams(typeof location === "undefined" ? "" : location.search).get("theme") ?? "openrac",
   discordClientId: null,
+  gameColors: new URLSearchParams(typeof location === "undefined" ? "" : location.search).has("gameColors"),
   detailedGameLog: false,
   // ?vulkan: the desktop's Vulkan renderer is chosen (Settings, Advanced).
   renderer: new URLSearchParams(typeof location === "undefined" ? "" : location.search).has("vulkan")
@@ -2061,7 +2062,7 @@ function start(scope: Scope, id: string, args: Record<string, unknown> = {}): St
       lines.splice(
         2 + n,
         0,
-        `[${n}/${total}] Building C object CMakeFiles/openrac-rac1-pal.dir/__w/OpenRAC/OpenRAC/games/rac1/pal/src/level_${n}/func_001E99D8_generated_long_name.c.o`,
+        `[${n}/${total}] Building C object CMakeFiles/openrac-rac1-pal.dir/__w/OpenRAC/OpenRAC/games/rac1/decomp/src/level_${n}/func_001E99D8_generated_long_name.c.o`,
       );
     }
   }
@@ -2986,6 +2987,9 @@ export async function mockCall(command: string, args: Record<string, unknown> = 
       return delay<string | null>(null);
     case "plugins_list":
       return delay<PluginView[]>(mockPlugins.map((p) => ({ ...p })));
+    case "player_name_used":
+      // A mod that uses the Multiplayer name is on, unless ?nomods.
+      return delay(!query.has("nomods"));
     case "plugins_status":
       return delay<PluginStatus | null>(mockPluginStatus());
     case "plugins_set_enabled":

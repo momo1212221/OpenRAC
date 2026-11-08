@@ -51,6 +51,8 @@ HW_RANGES = [(0x10000000, 0x12002000)]  # EE registers, VU memory, GS registers
 LEVEL_RELOCATE = (0x0015F000, 0x00400000)
 # A level function's name, with its level: rac1/pal's func_L05_..., the NTSC decomp's FUN_L05_....
 LEVEL_NAME = re.compile(r"(?:func|FUN)_L(\d\d)_")
+# A function name with a suffix after its address: a per-caller alias of that function (rac3).
+CALLER_ALIAS = re.compile(r"(func_[0-9A-Fa-f]{8})_\w+$")
 # A call_copies row with an executable target: the executable's call, else the level copy's.
 _EXE_OR_COPY = "(openrac_guest_overlay() == OPENRAC_OVERLAY_EXE ? "
 UNIT_LEVEL = re.compile(r"(?:^|/)(?:L|levels/)(\d\d)_")
@@ -1668,6 +1670,13 @@ class Unit:
         own = self.program.grouped(self.unit, sym)
         if own != sym and own in self.program.functions:
             return own  # the unit's group (a separate program) has its own
+        alias = CALLER_ALIAS.match(sym) if self.program.group_of(self.unit) else None
+        if alias:
+            # A per-caller alias of a function (rac3's `func_003AE240_003B3910`, another declaration
+            # of one function) in a group's unit: the group's function at that place, if it has one.
+            own = self.program.grouped(self.unit, alias.group(1))
+            if own in self.program.functions:
+                return own
         sym = self.program.canonical(sym)
         f = self.program.functions.get(sym)
         if f is None or (f.unit is None and sym not in self.program.host):
@@ -1971,6 +1980,12 @@ class Unit:
         # A level function's datum by its name, where the build's derived table holds the address of
         # the executable's copy (D_L00_001B043C as 0x001B00FC): the name's own place in that level.
         named = re.fullmatch(r"D_L(\d\d)_([0-9A-Fa-f]{8})(?:_\d+)?", symbol or "")
+        formed_level = getattr(self.program, "formed_as", {}).get(symbol or "") if named and not code else None
+        if formed_level is not None:
+            # A level's datum the code only forms with something added (hostgen.json "formed_as",
+            # func_L00_002D5E30's D_L00_00262260, formed as the table + 2): the sum, as that level
+            # has it, less what was added.
+            return f"(OPENRAC_LDATA({int(named.group(1))}, {hexaddr(formed_level)}) - {hexaddr(formed_level - address)})"
         if (named and not code and int(named.group(2), 16) != address
                 and (self._shared_level() is not None or UNIT_LEVEL.search(self.unit))):
             return f"OPENRAC_LDATA({int(named.group(1))}, {hexaddr(int(named.group(2), 16))})"
