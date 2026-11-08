@@ -276,9 +276,27 @@ void fragment_merging(const BakeScene& scene) {
     merge_environment_spaces(obstructed, {}, map.floors, samples, map.rooms, report);
     CHECK(map.rooms.size() == 2);  // A short graph gap cannot tunnel through visible geometry.
 }
+
+void ultra_reflection_profile() {
+    EnvironmentBakeSettings standard;
+    const auto resolved_standard = resolve_environment_bake_settings(standard);
+    CHECK(resolved_standard.resolution == 64);
+    CHECK(resolved_standard.filter_samples == 64);
+
+    auto ultra = standard;
+    ultra.quality = EnvironmentBakeQuality::Ultra;
+    ultra.resolution = 32;
+    ultra.filter_samples = 8;
+    const auto resolved_ultra = resolve_environment_bake_settings(ultra);
+    CHECK(resolved_ultra.resolution == 256);
+    CHECK(resolved_ultra.filter_samples == 2048);
+    CHECK(resolved_ultra.maximum_probes == kEnvironmentProbeLimit);
+}
+
 }  // namespace
 
 int main() {
+    ultra_reflection_profile();
     ProbeGrid grid;
     grid.origin = {-8, -8, 0};
     grid.spacing = {16, 16, 16};
