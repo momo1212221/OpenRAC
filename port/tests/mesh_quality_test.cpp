@@ -45,8 +45,8 @@ void preserves_authored_normals() {
 }
 
 void ignores_degenerate_faces() {
-    std::vector<Vertex> vertices{vertex(0, 0, 0), vertex(0,0,0), vertex(0,0,0)};
-    const std::vector<std::uint32_t> indices{0,1,2};
+    std::vector<Vertex> vertices{vertex(0, 0, 0), vertex(0, 0, 0), vertex(0, 0, 0)};
+    const std::vector<std::uint32_t> indices{0, 1, 2};
     openrac::scene::repair_missing_normals(vertices, indices, 0, 3);
     for (const auto& v : vertices) {
         CHECK(v.normal[2] == 1);
