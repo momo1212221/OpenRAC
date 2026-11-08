@@ -212,6 +212,18 @@ export function playerState(game: GameView, v: VersionView): PlayerState {
       tone: "warn",
     };
   }
+  if (onIOS && !play) {
+    return {
+      ...base,
+      kind: "unavailable",
+      label: "Not available on iOS",
+      icon: "play",
+      hint: "This iOS version does not include an engine for this game.",
+      disabled: true,
+      status: "Not available on iOS",
+      tone: "info",
+    };
+  }
   if (!setUp) {
     const planned = !play || play.state === "planned";
     const found = foundDisc(v.game);
