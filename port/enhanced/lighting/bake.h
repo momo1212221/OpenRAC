@@ -6,7 +6,6 @@
 #include <optional>
 
 #include "enhanced/lighting/probes.h"
-#include "enhanced/lighting/cloud_field.h"
 
 namespace openrac::lighting {
 // Offline worker budget borrowed by prepared bakers.
@@ -112,42 +111,7 @@ struct BakeTraversalSettings {
     float minimum_swim_depth = 1;  // Shallower water uses supported walking floors.
 };
 
-struct BakeAtmosphereSettings {
-    bool cloud_enabled = true;
-    unsigned cloud_resolution = 64;
-    std::shared_ptr<const CloudField> cloud_field;
-    // A selected cloud profile opts into participating media; ordinary transport stays in vacuum.
-    bool enabled = false;
-    float fog_density = .00022f;
-    Float3 fog_colour{.65f, .70f, .75f};
-    float fog_base = 0;
-    float fog_falloff = 0;
-    float distance = 750;
-    float cloud_coverage = .58f;
-    float cloud_density = .018f;
-    Float3 cloud_colour{.95f, .97f, 1.0f};
-    float cloud_base = 90;
-    float cloud_thickness = 50;
-    float cloud_scale = .035f;
-    std::uint32_t cloud_seed = 1;
-};
-
-inline CloudParameters cloud_parameters(const BakeAtmosphereSettings& a) {
-    return {
-        a.enabled && a.cloud_enabled,
-        a.cloud_resolution,
-        a.cloud_coverage,
-        a.cloud_density,
-        a.cloud_base,
-        a.cloud_thickness,
-        a.cloud_scale,
-        a.cloud_seed,
-        a.cloud_colour
-    };
-}
-
 struct BakeSettings {
-    BakeAtmosphereSettings atmosphere{};
     ProbeTextureFormat texture_format = ProbeTextureFormat::R11G11B10;  // Offline storage policy.
     BakeTraversalSettings traversal{};
     bool use_level_sky = true;
