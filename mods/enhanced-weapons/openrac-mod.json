@@ -1,0 +1,19 @@
+{
+  "format": 2,
+  "id": "enhanced-weapons",
+  "name": "Enhanced Weapons",
+  "version": "0.1.0",
+  "author": "Moritz Wallinger",
+  "description": "Configurable weapon ammo handling for Ratchet & Clank.",
+  "license": "MIT",
+  "api": "1.0",
+  "games": { "rac1": ["pal", "ntsc"] },
+  "multiplayer": "gameplay",
+  "hooks": ["Weapon_TakeAmmo"],
+  "settings": [
+    { "key": "infinite_ammo", "name": "Infinite ammo", "type": "bool", "default": false,
+      "description": "Weapons can fire without consuming ammo." },
+    { "key": "ammo_cost_percent", "name": "Ammo cost", "type": "int", "default": 100, "min": 25, "max": 200, "step": 25,
+      "description": "Ammo consumed per shot as a percentage of the normal cost." }
+  ]
+}
