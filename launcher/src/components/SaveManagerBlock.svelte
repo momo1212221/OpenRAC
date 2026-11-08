@@ -161,17 +161,17 @@
     {/if}
     <div class="actions">
       {#if developer && status?.exists}
-        <button class="ghost small" onclick={loadStatus} disabled={loading} title="Read the memory card again">
+        <button class="small" onclick={loadStatus} disabled={loading} title="Read the memory card again">
           {#if loading}<span class="spinner"></span>{:else}<Icon name="refresh" size={14} />{/if}Refresh
         </button>
       {/if}
       {#if used.length}
-        <button class="ghost small" onclick={() => (transfer = { mode: "export", source: null })}
+        <button class="small" onclick={() => (transfer = { mode: "export", source: null })}
           ><Icon name="upload" size={14} />Export</button
         >
       {/if}
-      <button class="ghost small" onclick={() => void startImport()}><Icon name="download" size={14} />Import</button>
-      <button class="ghost small" onclick={openFolder}><Icon name="folder" size={14} />Open folder</button>
+      <button class="small" onclick={() => void startImport()}><Icon name="download" size={14} />Import</button>
+      <button class="small" onclick={openFolder}><Icon name="folder" size={14} />Open folder</button>
     </div>
   </div>
 
@@ -350,7 +350,7 @@
   /* A narrow panel: a slot's planet and Edit on the first line, its bolts, time and mods under. */
   @container (max-width: 520px) {
     .slots li {
-      grid-template-columns: 48px minmax(0, 1fr) auto;
+      grid-template-columns: 60px minmax(0, 1fr) auto;
       grid-template-areas:
         "slot planet edit"
         ". bolts bolts"
@@ -398,7 +398,7 @@
 
   .slots li {
     display: grid;
-    grid-template-columns: 48px minmax(0, 1fr) auto minmax(0, auto) auto auto;
+    grid-template-columns: 60px minmax(0, 1fr) auto minmax(0, auto) auto auto;
     align-items: center;
     gap: 14px;
     padding: 9px 2px;
@@ -409,6 +409,8 @@
   .slot {
     font-size: 0.8125rem;
     color: var(--dim);
+    /* "Co-op 1" on one line. */
+    white-space: nowrap;
   }
 
   .planet {
@@ -426,7 +428,6 @@
     text-transform: uppercase;
     color: var(--amber);
     background: color-mix(in srgb, var(--amber) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent);
     border-radius: 6px;
     padding: 2px 7px;
     cursor: help;
@@ -456,8 +457,7 @@
   .chip {
     font-size: 0.75rem;
     color: var(--soft);
-    background: var(--panel-hi);
-    border: 1px solid var(--line-strong);
+    background: var(--control);
     border-radius: 7px;
     padding: 2px 8px;
     white-space: nowrap;
@@ -478,6 +478,7 @@
     padding: 4px 0;
     border: 0;
     background: none;
+    box-shadow: none;
     color: var(--lav);
     font-weight: 600;
   }
@@ -537,7 +538,7 @@
 
   @media (max-width: 640px) {
     .slots li {
-      grid-template-columns: 48px minmax(0, 1fr) auto;
+      grid-template-columns: 60px minmax(0, 1fr) auto;
       row-gap: 6px;
     }
 
