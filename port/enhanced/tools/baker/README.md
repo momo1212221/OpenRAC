@@ -144,3 +144,24 @@ The native launcher-flow tests use synthetic exports to cover source preparation
 cache invalidation, interruption, background scenes and publication. Codec tests compare worker
 counts, paired borders, runtime rounding and malformed input. Output-queue tests cover bounded
 ownership, ordered completion, shared one-worker execution and failure draining.
+
+
+### Reflection bake quality
+
+`environment_probes.quality` accepts `"standard"` (default) or `"ultra"`.
+
+- Standard keeps the existing per-level authored settings (normally 64x64 captures with 64 GGX
+  filter samples).
+- Ultra resolves to 256x256 source captures with 2048 GGX filter samples. It is intended for final
+  offline quality bakes on high-end systems and can take substantially longer.
+- The existing 512-probe, 16384-pixel atlas and 512 MiB storage checks remain unchanged and reject
+  unsafe output before publishing an environment asset.
+
+Example:
+
+```json
+"environment_probes": {
+  "enabled": true,
+  "quality": "ultra"
+}
+```
