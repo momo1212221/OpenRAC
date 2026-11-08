@@ -84,10 +84,14 @@ bool hdr_frame() {
 
 // Recreates the target when its dimensions, samples, depth-sampling requirement or colour
 // format changes.
-void resize_target(SceneFrame& frame, int samples, bool sampleable_depth) {
+void resize_target(SceneFrame& frame, int samples) {
     auto& target = frame.owner.frame;
     const auto& output = frame.output;
     const bool float_colour = hdr_frame();
+    // Reserve sampleable depth while the level's probe data is still loading.
+    const bool wants_sampleable_depth =
+        gl::enhanced_rendering_available() && frame.graphics.enhanced_graphics;
+    const bool sampleable_depth = samples == 1 && wants_sampleable_depth;
 
     // Minimized pictures keep their last target until a drawable size returns.
     if (output.box.width <= 0 || output.box.height <= 0) {
@@ -109,12 +113,7 @@ void resize_target(SceneFrame& frame, int samples, bool sampleable_depth) {
     if (!created && samples > 1) {
         log::warn("{}; drawing without anti-aliasing", error);
         created = target.create(
-            output.width,
-            output.height,
-            error,
-            1,
-            enhanced_graphics_available() && frame.graphics.enhanced_graphics,
-            float_colour
+            output.width, output.height, error, 1, wants_sampleable_depth, float_colour
         );
     }
 
@@ -159,9 +158,7 @@ float prepare_target(SceneFrame& frame) {
     // Temporal reconstruction supplies antialiasing; native rendering keeps the saved MSAA preference.
     const int samples =
         frame.temporal ? 1 : std::clamp(graphics.msaa, 1, renderer::FrameBuffer::max_samples());
-    const bool sampleable_depth =
-        samples == 1 && enhanced_graphics_available() && graphics.enhanced_graphics;
-    resize_target(frame, samples, sampleable_depth);
+    resize_target(frame, samples);
 
     // A wider picture preserves the central television framing.
     if (output.aspect > kTvAspect && output.box.width > 0 && output.box.height > 0) {
@@ -191,6 +188,8 @@ void set_lighting(SceneFrame& frame) {
 
     const bool enhanced = enhanced_graphics_available() && graphics.enhanced_graphics;
     input.texture_filter = enhanced ? graphics.texture_filter : renderer::TextureFilter::Normal;
+    input.local_lights = enhanced && graphics.local_lights;
+    input.authored_object_lights = enhanced && graphics.authored_object_lights;
     if (auto* lighting = owner.scene.level_lighting()) {
         lighting->set_material_overrides(enhanced);
     }
@@ -371,6 +370,8 @@ void set_camera(SceneFrame& frame) {
     set_view_opened(opened);
     if (has_camera) {
         owner.debug_camera.apply(input, frame.output.camera_debug, scene.level);
+        frame.output.freecam = frame.output.camera_debug.settings.enabled;
+        frame.output.camera_level = scene.level;
     }
     const auto& visibility_camera = input.culling_camera ? *input.culling_camera : input.camera;
     owner.scene.choose_scenery(
@@ -416,20 +417,28 @@ bool draw_world(SceneFrame& frame) {
         debug_overlay::before_render(owner.renderer.get(), frame.input.frame);
         const stats::Scope render_scope("render");
         renderer::RenderTarget target{owner.frame.id(), width, height, picture_scale};
-        target.depth_texture = owner.frame.depth_texture();
+        if (graphics.enhanced_graphics && enhanced_graphics_available()) {
+            target.depth_texture = owner.frame.depth_texture();
+        }
         target.resolve_framebuffer = owner.frame.resolve_target();
         target.resolves_itself = owner.frame.resolves_itself();
         target.wide_2d = picture_scale < 1.0f && graphics.hud == settings::Hud::Edges;
 
-        const bool grade_colour = graphics.agx_preview && graphics.enhanced_graphics
-                                  && enhanced_graphics_available() && scene.has_camera
-                                  && !input.keep_colour && (scene.draws & 0x1Fu) != 0;
+        const float bloom_strength = graphics.bloom ? graphics.bloom_strength : 0.0f;
+        const bool grade_colour = (graphics.agx_preview || bloom_strength > 0.0f)
+                                  && graphics.enhanced_graphics && enhanced_graphics_available()
+                                  && scene.has_camera && !input.keep_colour
+                                  && (scene.draws & 0x1Fu) != 0;
         std::function<void()> finish_colour;
         // Temporal resolve can compose this known colour-only operation before late world and HUD work.
         if (grade_colour) {
-            finish_colour = [&owner, exposure = graphics.adjusted_agx_exposure()] {
+            finish_colour = [&owner,
+                             exposure = graphics.adjusted_agx_exposure(),
+                             agx = graphics.agx_preview,
+                             bloom_strength,
+                             bloom_radius = graphics.bloom_radius] {
                 crash::breadcrumb("tone mapping");
-                owner.agx.apply(owner.frame, exposure);
+                owner.agx.apply(owner.frame, exposure, agx, bloom_strength, bloom_radius);
             };
         }
         bool graded_by_temporal = false;
@@ -541,7 +550,9 @@ void render_scene(
 
     output.shown = owner.frame.resolved();
     output.camera = frame.input.camera;
+    output.has_camera = frame.has_camera;
     output.tick = frame.input.frame;
+    output.enhanced_graphics = graphics.enhanced_graphics && enhanced_graphics_available();
     output.finished = std::chrono::steady_clock::now();
     output.scene_seconds = std::chrono::duration<double>(scene_done - output.started).count();
     output.record_seconds = std::chrono::duration<double>(recorded - scene_done).count();

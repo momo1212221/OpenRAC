@@ -170,12 +170,15 @@ struct FramePresentation {
     std::chrono::steady_clock::time_point
         finished{};           // Worker completion, excluding handoff idle time.
     renderer::Camera camera;  // Camera of the submitted scene, for the debug UI.
+    bool has_camera = false;  // The scene drew a world with that camera.
     CameraDebugFrame
         camera_debug;  // Window-thread inputs fixed before handing the scene to the worker.
     std::vector<scene::Instance> picker_live;
     std::vector<renderer::Mat4> picker_palette;
     int picker_level = -1;
     unsigned picker_layers = 0;
+    bool freecam = false;     // Set by the renderer when it applies freecam to this frame.
+    int camera_level = -1;    // Level that supplied the rendered camera.
     std::uint64_t tick = 0;   // Submitted window-frame number, including interpolation metadata.
 
     int window_width = 0;   // Drawable window extent, read on the window thread.
@@ -191,6 +194,7 @@ struct FramePresentation {
     Box box{};              // Picture rectangle in the window.
 
     bool first = false;         // First displayed frame for this game tick.
+    bool enhanced_graphics = false;
     bool dump_draws = false;    // Draw diagnostics captured before graphics ownership transfers.
     bool measure_cost = false;  // Enables the deliberately blocking frame-cost diagnostic.
     double scene_seconds = 0;   // Snapshot interpolation and pose upload time.
@@ -505,6 +509,7 @@ void apply_mouse_capture();
 // The directional light bank, in the executable's terms (relocated to the loaded program's copy);
 // 0 for a game without one (frontend/world.cpp).
 gaddr light_bank_address();
+gaddr occlusion_address();
 
 // Uploads level `number`'s geometry and makes the renderers that draw it. Below 0 the boot program
 // runs: the title world (level 0 where it was not extracted), or at -2 the flight between planets

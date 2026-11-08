@@ -1453,6 +1453,13 @@ static int line_prim(
 }
 
 /* The moby pass of CollLine_Fix: the grid cells under the DDA list, (x >> 2, y >> 2) without repeats. */
+/* A moby the line query also passes through, while a figure's shot is made (figure_shots.c). */
+static gaddr line_also_ignores;
+
+void rac1_coll_line_also_ignore(gaddr moby) {
+    line_also_ignores = moby;
+}
+
 static void line_mobys(
     const Ctx* x,
     uint32_t stamp,
@@ -1495,7 +1502,7 @@ static void line_mobys(
         const gaddr list = grid_cell(x, cells[ci][0], cells[ci][1], &count);
         for (int li = 0; li < count; ++li) {
             const gaddr m = moby_at(x, U16(list + 2 * (gaddr)li));
-            if (m == ignore) {
+            if (m == ignore || (line_also_ignores != 0 && m == line_also_ignores)) {
                 continue;
             }
             if ((fl & 0x9) != 0 && (U16(m + 0x34) & 0x4000) == 0) {
@@ -1569,6 +1576,27 @@ static void line_mobys(
     }
 }
 
+/* The mobys a query wrote a hit record to, told to the mods once it is done (world.c): the kernels
+ * write the records themselves, never through PostHitMessage or record_moby_hit, so a mod would
+ * not hear of a weapon's or an attack's hit otherwise. Noted only while a mod listens. */
+#define HIT_NOTES 64
+static gaddr g_hit_notes[HIT_NOTES];
+static int g_hit_note_count;
+
+static void note_hit(gaddr moby) {
+    if (openrac_game_moby_hit == NULL) {
+        return;
+    }
+    for (int i = 0; i < g_hit_note_count; ++i) {
+        if (g_hit_notes[i] == moby) {
+            return;
+        }
+    }
+    if (g_hit_note_count < HIT_NOTES) {
+        g_hit_notes[g_hit_note_count++] = moby;
+    }
+}
+
 /* A hit record for the moby a line with a template hit (moby +0xA4 indexes the record), unless the
  * record it has for it already carries more damage. The point is the hit register, w zero. */
 static void hit_record(const Ctx* x, gaddr moby, gaddr tmpl, V3 point, int32_t index) {
@@ -1587,6 +1615,7 @@ static void hit_record(const Ctx* x, gaddr moby, gaddr tmpl, V3 point, int32_t i
     memmove(G(r + 0x10), G(tmpl), 0x24);
     U32(r + 0x34) = moby;
     S32(r + 0x38) = index;
+    note_hit(moby);
 }
 
 static int coll_line(const Ctx* x, gaddr pa, gaddr pb, uint32_t fl, gaddr ignore, gaddr tmpl) {
@@ -2085,6 +2114,40 @@ static int host_line(gaddr a0, gaddr a1, int a2, int a3, int a4) {
     return r;
 }
 
+/* Whether the level's own walls and ground stand between two points (openrac_api.level_line): the
+ * line query's world pass and nothing of its moby pass, for a mod's question, not the game's. The
+ * game sees no query: no stamp, no CollOutput, no hit record, and the vector registers as they were. */
+int rac1_level_line(const float from[3], const float to[3], int* blocked) {
+    const gaddr mesh = openrac_game_loaded_overlay() >= 0 ? U32(level_ctx()->out) : 0;
+    if (mesh == 0) {
+        return 0;
+    }
+    uint32_t kept[32][4];
+    memcpy(kept, g_vf, sizeof kept);
+    const int fr = fegetround();
+    fesetround(FE_TOWARDZERO);
+    const V3 a = v3(from[0], from[1], from[2]);
+    const V3 b = v3(to[0], to[1], to[2]);
+    *blocked = 0;
+    if (in_world_lo(a, b) && in_world_hi(a, b, collision_has_extended_tree(mesh))) {
+        const V3 a1024 = vmuls(a, K1024);
+        const V3 b1024 = vmuls(b, K1024);
+        const int n = line_cell_list(a1024, b1024);
+        if (n >= 0) {
+            float best_t = 1.0f;
+            Best best;
+            best_start(&best);
+            line_world(mesh, 0, a1024, b1024, vsub(b1024, a1024), n, &best_t, &best);
+            *blocked = best.have;
+        }
+    }
+    fesetround(fr);
+    memcpy(g_vf, kept, sizeof kept);
+    return 1;
+}
+
+/* The sphere query (radius, centre, flags, ignore): the closest face within the radius, the centre
+ * pushed out to touch it (+0x30). */
 static int host_sphere(float a0, gaddr a1, int a2, gaddr a3) {
     const int fr = fegetround();
     fesetround(FE_TOWARDZERO);
@@ -2271,6 +2334,7 @@ static int host_sphere_mobys(float a0, gaddr a1, int a2, gaddr a3, gaddr a4) {
                 U32(rec + 0x34) = m;
                 S8(m + 0xA4) = (int8_t)i;
                 U32(out + 0x14) = (i + 1) & 0x3F;
+                note_hit(m);
             }
         }
         result = (int)((cursor - x->list) >> 2);
@@ -2424,7 +2488,19 @@ int rac1_coll_host(int kind, const RacCollArgs* a) {
 }
 
 static inline int coll_run(int kind, const RacCollArgs* a) {
-    return rac1_coll_checking() ? rac1_coll_check(kind, a) : rac1_coll_host(kind, a);
+    g_hit_note_count = 0;
+    const int result = rac1_coll_checking() ? rac1_coll_check(kind, a) : rac1_coll_host(kind, a);
+    /* After the query (and its check), so a hit a mod takes back is not a difference. */
+    if (g_hit_note_count > 0) {
+        gaddr notes[HIT_NOTES];
+        const int count = g_hit_note_count;
+        memcpy(notes, g_hit_notes, sizeof(gaddr) * (size_t)count);
+        g_hit_note_count = 0;
+        for (int i = 0; i < count; ++i) {
+            rac1_world_hit_recorded(notes[i]);
+        }
+    }
+    return result;
 }
 
 /* The executable's line query: its own globals, or with a level loaded (where retail runs the level's

@@ -41,6 +41,7 @@
 #include "game/common/particle_texture_cache.h"
 #include "game/common/profile.h"
 #include "mod_menu.h"
+#include "mod_overlay.h"
 #include "mod_ui.h"
 #include "openrac/game_host.h"
 #include "openrac/guest.h"
@@ -422,6 +423,7 @@ bool open(const std::string& game_id, const std::filesystem::path& levels, std::
     config.hidden = env::flag(env::Var::Hidden);
     // HDR output may be turned on later only when it was not off at start (common/hdr.h).
     config.hdr = chosen.hdr != hdr::Mode::Off;
+    config.gpu_breadcrumbs = chosen.gpu_breadcrumbs;
     g->hdr_at_start = config.hdr;
     g->window = platform::Window::open(config, error);
     if (!g->window) {
@@ -596,6 +598,7 @@ void close() {
         renderer::ui::touch_overlay::release();
         debug_menu::release();
         mod_menu::release();
+        mod_overlay::release();
         // A mod's views: it lets go of what it made with the context, while the context is there.
         release_views(*g);
         // Temporal histories reference the target and scene, so retire them before either owner.

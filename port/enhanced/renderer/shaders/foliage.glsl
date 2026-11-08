@@ -104,7 +104,7 @@ vec3 foliage_direct(vec3 position, vec3 geometric, vec4 selector, float visibili
         if (point.w <= 0. || distance >= point.w || distance <= 1e-6) continue;
         vec3 light = delta / distance;
         vec3 radiance = max(LOCAL_COLOUR(i).rgb, vec3(0.))
-            * LOCAL_ATTENUATION(distance, point.w) * LOCAL_CONE(i, light);
+            * LOCAL_ATTENUATION(distance, point.w) * LOCAL_CONE(i, light) * LOCAL_VISIBILITY(position,i);
         result += radiance * foliage_response(surface, light);
     }
     return result;

@@ -24,6 +24,8 @@
 //! - [`window`]: the window's size on a screen too small for it.
 //! - [`overrides`]: a game's overrides packs (replacement textures and models): list, order, on/off.
 //! - [`plugins`]: a game's native mods (docs/port/MODS.md): install, list, order, on/off, settings.
+//! - [`modset`]: mod codes, a host's mods at exact versions as a short or long code: review, apply.
+//! - [`profile`]: the way back from a mod code: what the mods were, kept to restore.
 //! - [`index`]: the signed mod index (openrac-mods), fetched, checked and cached; [`resolver`]: what
 //!   installing mods from it takes; [`index_apply`]: doing it; [`deeplink`]: `openrac://` links;
 //!   [`mod_error`]: their errors, with the fix the page offers.
@@ -41,6 +43,7 @@ pub mod android;
 pub mod appimage;
 pub mod catalog;
 pub mod chd;
+pub mod cloud_saves;
 pub mod config;
 pub mod controls;
 pub mod deeplink;
@@ -52,21 +55,26 @@ pub mod discord;
 pub mod discs;
 pub mod editor_state;
 pub mod enhanced;
+pub mod graphics_preparation;
 pub mod hook_ids;
 pub mod index;
 pub mod index_apply;
 pub mod install;
 pub mod jobs;
+pub mod launcher_addons;
 pub mod launcher_log;
 pub mod library;
 pub mod mod_error;
 pub mod mod_summary;
+pub mod mod_tools;
 pub mod mod_updates;
+pub mod modset;
 pub mod multiplayer;
 pub mod overrides;
 pub mod pcsx2_card;
 pub mod plugins;
 pub mod port_build;
+pub mod profile;
 pub mod progress_sync;
 pub mod rac2_flags;
 pub mod remote;
@@ -78,6 +86,7 @@ pub mod save_edit_rac2;
 pub mod save_edit_rac2_extra;
 pub mod save_transfer;
 pub mod saves;
+pub mod shortcut;
 pub mod status;
 pub mod steam;
 pub mod texture_packs;

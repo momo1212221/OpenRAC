@@ -2,7 +2,7 @@
 # does with each: the same columns and port values as port/game/rac1-pal/libraries.tsv.
 # A host row binds an entry point to the replacement of that name every game shares
 # (port/game/common/libraries.tsv), or, with a signature of its own, to this game's host C
-# (port/game/rac2-ntsc/host). Names come from the decompilation's symbol_addrs/usa/symbol_addrs.txt
+# (port/game/rac2/host, shared by the three discs). Names come from the decompilation's symbol_addrs/usa/symbol_addrs.txt
 # where it has them; the kernel's system-call wrappers are identified by the call number each
 # loads into $v1 (ps2tek's EE kernel table). Entry points not here run from their C, or from
 # their assembly (hostgen.json "asm").
@@ -161,6 +161,7 @@ func_00128A50	pad2	scePad2Read	host	same instructions as rac1-pal's
 func_00128B28	pad2	scePad2GetButtonProfile	host	same instructions as rac1-pal's
 func_00128C18	pad2	scePad2GetState	host	same instructions as rac1-pal's
 func_00128F50	vib	sceVibGetProfile	host	same instructions as rac1-pal's
+func_00128FD0	vib	sceVibSetActParam	host	the motors the pad poll (func_002B85F8) sends each read, packed by the profile sceVibGetProfile gave; played by the window (lib/pad.c)
 # sceVu0RotMatrixZ, X and Y (func_00129218, func_001292C0, func_00129368) run from the disc's own
 # instructions (hostgen.json "asm"): the shared replacement (common/lib/vu0.c) takes its sine and cosine
 # from the host's libm, whose last bit differs between macOS and glibc, and level starts built the
@@ -215,6 +216,11 @@ func_L10_00421790	hud	ShipHud10	wrap	the ship level's own HUD, a callback of fun
 func_L15_0042E1B0	hud	ShipHud15	wrap	the ship level's own HUD, a callback of func_0029B758: with "HUD: Edges" two markers have the window draw it out at the sides of a wider picture (host/hud.c)	int (void)
 func_L22_003A5018	hud	ClankHud22	wrap	Giant Clank's fight HUD, a callback of func_0029B758: with "HUD: Edges" its panels go to the sides (host/hud.c)
 func_L23_0041DA48	hud	ClankHud23	wrap	Giant Clank's fight HUD, a callback of func_0029B758: with "HUD: Edges" its panels go to the sides (host/hud.c)
+func_L04_0040AD28	hud	RaceHudStart	wrap	the hoverbike race's own HUD (Barlow and Joba), a callback of func_0029B758: with "HUD: Edges" two markers have the window draw it out at the sides of a wider picture (host/hud.c)
+func_L04_00411298	hud	RaceHud	wrap	the hoverbike race's own HUD (Barlow and Joba), a callback of func_0029B758: with "HUD: Edges" two markers have the window draw it out at the sides of a wider picture (host/hud.c)
+func_L04_00417308	hud	RaceHudEnd	wrap	the hoverbike race's own HUD (Barlow and Joba), a callback of func_0029B758: with "HUD: Edges" two markers have the window draw it out at the sides of a wider picture (host/hud.c)
+func_L03_003C7018	hud	CraneHud	wrap	the crane's own HUD on Endako, a callback of func_0029B7C0: with "HUD: Edges" two markers have the window draw it out at the sides of a wider picture (host/hud.c)
+func_002900B8	hud	MeterHud	wrap	the meter func_00290010 shows for a while (the Thermanator's), a callback of func_0029B7C0: with "HUD: Edges" two markers have the window draw it out at the sides of a wider picture (host/hud.c)
 func_0028E458	hud	UpdateHud	wrap	the level HUD's slots: with the player's "HUD: Edges" the elements anchored left or right are drawn out at the sides of a picture wider than the game's (host/hud.c)
 func_0028E868	hud	HudSprite	wrap	a HUD texture as a sprite: drawn natively (host/ui2d.c)
 func_0028ECD8	hud	HudBarSprite	wrap	a HUD texture as a sprite, a texel a pixel: drawn natively (host/ui2d.c)

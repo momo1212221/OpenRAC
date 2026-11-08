@@ -1,8 +1,5 @@
 #include "include_asm.h"
 
-INCLUDE_ASM("asm/pal/levels", func_PAL_L03_00422624);
-
-INCLUDE_ASM("asm/pal/levels", func_PAL_L03_00422F18);
 
 typedef unsigned char u8;
 typedef unsigned int u32;
@@ -80,4 +77,3 @@ void func_PAL_L03_00423128(u8 *entity) {
 
 
 
-INCLUDE_ASM("asm/pal/levels", func_PAL_L03_00423F28);

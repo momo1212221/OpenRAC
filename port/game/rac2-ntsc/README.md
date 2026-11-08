@@ -43,7 +43,7 @@ OPENRAC_HIDDEN=1 OPENRAC_PRESS=300:4000:10,500:8:10,700:4000:10,900:8:10 \
   --no-card --skip-movies --stop-on-missing
 ```
 
-From the launcher, with Developer tools on (Settings): set the game up from
+From a checkout's launcher (no Developer tools needed): set the game up from
 your disc, then Play (`launcher/actions.json`, rac2/ntsc's `play`:
 `--data {data} --window --levels {root}/assets/port/rac2/ntsc`, after a warning
 to accept). Play first reads the levels (Get the levels ready, `editor/extract.py
@@ -51,8 +51,38 @@ port`) when their stamp, `levels-<format>.json` with the format of
 `editor/port.py` `GAME_FORMATS`, is not there, so a format bump reads them again;
 the game has no `--check-levels` yet, so that stamp is all Play waits for. An
 installed launcher reads and passes `<data>/port/ntsc` instead. Its Build the game runs
-`tools/build_port.py rac2-ntsc --disc {disc}`. Play is a player's, with a warning first; Build
-the game is `"developer": true`, so a player's launcher does not show it.
+`tools/build_port.py rac2-ntsc --disc {disc}`. Play is a player's, with a warning first, and so
+are Build the game and Rebuild: Play on a fresh checkout is Build and play. An installed launcher on
+Linux or macOS carries no `openrac-rac2-ntsc` (its build needs the player's disc, which CI has not):
+its Build and play runs `tools/build_game.py`, which fetches the source and builds it with the
+player's compiler. A Windows installer carries the game built without the disc, as Android's does
+(below): the player needs no compiler.
+
+On Android the APK (`tools/build_android.py`, CI's too) carries the game built
+without the disc: the functions still in assembly are called through slots
+(`asm_interface.json`, `asmext.py`). Once the game is set up from the disc, Build
+and play first runs `tools/asm_part.py build`. The APK's Python translates those
+functions from the disc (`asmdev.py`, from the pickled program the build wrote),
+and the Clang and lld it carries (Zig's, `libopenrac-zig.so`)
+compile them into `<data>/asm-part/<tag>/libopenrac-rac2-ntsc-part.so`. The tag
+names the kit and tools it is built from, so another APK builds its own. The game
+loads it before it starts (`--asm-part`). It takes a few minutes, once for each
+APK whose game changed; nothing of the disc is in the APK.
+
+A Windows installer does the same with `tools/part-zig/zig.exe` (Zig's Windows
+release, CI's `launcher.yml`), into `libopenrac-rac2-ntsc-part.dll`. The part is
+compiled with the free headers in Zig's release and links no C library: a DLL
+imports only from the program, which on Windows exports just what
+`asm_part_exports.def` names.
+
+After a sync that changes the asm stage's view of the code, write
+`asm_interface.json` again with the disc (`hostgen.py ... --retail-image <iso>
+--asm-interface-out port/game/rac2-ntsc/asm_interface.json`); a build without the
+disc then gives the same C as one with it. Write `asm_part_exports.def` again too:
+`tools/asm_part.py kit rac2-ntsc --build <build> --out <kit> --windows-zig <zig>`,
+then `tools/asm_part.py exports rac2-ntsc --disc <iso> --kit <kit> --out <work>`
+(names only; a name the program no longer has stops its Windows link, and a name
+the part newly needs stops the part's).
 
 For Going Commando `OPENRAC_RAC2_NTSC_RETAIL_IMAGE` gives only the boot
 executable: hostgen's `retail.read_image` uses the editor's reader
@@ -88,7 +118,10 @@ What the translation reads (`hostgen.json`):
 - `from_assembly`: 15 wrappers whose C omits registers they forward
   (`arguments_filled_with_zero` in the report), translated from assembly.
 
-## The port's own code (`host/`)
+## The port's own code (`port/game/rac2/host/`)
+
+Shared by the three discs' programs ([rac2](../rac2/README.md)): this folder's `host/rac2_version.h`
+renames nothing, PAL's and v2.00's give their names and addresses.
 
 | File | Replaces |
 |---|---|
@@ -144,7 +177,7 @@ many bytes can be another field in another level: it reads what the running copy
 - Ratchet's class has no packets in a level: the game loads his mesh and textures from a pack of
   RC2.HDR (`packs[]` at +0x4F08, by armour) over the class at run time. The export reads pack 0
   (`editor/wads.py`, `hero_pack`) as `mobys/moby_0.glb`, textures `moby_1000.png` on. Packs 1 to 8, his
-  other looks, are classes 6001 to 6008 of the export, textures 16 places on for each; `profile.cpp`
+  other looks, are classes 6001 to 6008 of the export, textures 16 places on for each; `port/game/rac2/profile.cpp`
   has the window draw the one the game has (armour `0x001A7A18`, or the four flags before it), through
   `LiveMoby::model_class`, so class 0 stays the hero everywhere else. His sequences are compressed on
   the disc, so the glTF has none: the game draws him from its memory.
@@ -169,7 +202,7 @@ many bytes can be another field in another level: it reads what the running copy
   against the retail GS memory in levels 0, 1, 3 and 4. Offset 0 of the texture data, which format
   8 to 11 read, is the first terrain texture (some levels' alpha 0xFF stripes: a hard white line on
   the visor and the vendor). `Format.maps_in_textures`; format 14.
-- A moby's animation fields start at +0x40 (`profile.cpp`, `moby_anim_fields`).
+- A moby's animation fields start at +0x40 (`port/game/rac2/profile.cpp`, `moby_anim_fields`).
 - Glow: a packet's compact vertex table ends with a count of its last vertices whose lit colours
   func_00274D90 overwrites with the moby's glow word, +0x78 (`moby_glow_word`), when its mode has
   0x10 (the lift button's grey pulse and green, lamps, eyes). The export marks them light slot -2

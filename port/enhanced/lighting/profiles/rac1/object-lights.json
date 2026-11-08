@@ -1,4 +1,265 @@
 {
   "version": 1,
-  "objects": {}
+  "objects": {
+    "mobys/moby_1827.glb": [
+      {
+        "name": "Metropolis lamp bulb",
+        "type": "point",
+        "bone": "",
+        "enabled": true,
+        "position": [
+          0,
+          0,
+          21.8
+        ],
+        "direction": [
+          0,
+          0,
+          -1
+        ],
+        "colour": [
+          1.0,
+          0.88,
+          0.5
+        ],
+        "intensity": 4.0,
+        "range": 28.0,
+        "inner_angle": 0.35,
+        "outer_angle": 0.6
+      },
+      {
+        "name": "Metropolis lamp downlight",
+        "type": "spot",
+        "bone": "",
+        "enabled": true,
+        "position": [
+          0,
+          0,
+          21.2
+        ],
+        "direction": [
+          0,
+          0,
+          -1
+        ],
+        "colour": [
+          1.0,
+          0.88,
+          0.5
+        ],
+        "intensity": 8.0,
+        "range": 46.0,
+        "inner_angle": 0.48,
+        "outer_angle": 1.05
+      }
+    ],
+    "mobys/moby_823.glb": [
+      {
+        "name": "Rilgar/Umbris lamp bulb",
+        "type": "point",
+        "bone": "",
+        "enabled": true,
+        "position": [
+          0,
+          0,
+          22.25
+        ],
+        "direction": [
+          0,
+          0,
+          -1
+        ],
+        "colour": [
+          1.0,
+          0.96,
+          0.86
+        ],
+        "intensity": 2.5,
+        "range": 4.5,
+        "inner_angle": 0.35,
+        "outer_angle": 0.6
+      },
+      {
+        "name": "Rilgar/Umbris lamp downlight",
+        "type": "spot",
+        "bone": "",
+        "enabled": true,
+        "position": [
+          0,
+          0,
+          21.75
+        ],
+        "direction": [
+          0,
+          0,
+          -1
+        ],
+        "colour": [
+          1.0,
+          0.96,
+          0.86
+        ],
+        "intensity": 6.0,
+        "range": 8.0,
+        "inner_angle": 0.48,
+        "outer_angle": 1.1
+      }
+    ],
+    "mobys/moby_1511.glb": [
+      {
+        "name": "Rilgar/Oltanis lamp bulb",
+        "type": "point",
+        "bone": "",
+        "enabled": true,
+        "position": [
+          0,
+          0,
+          21.4
+        ],
+        "direction": [
+          0,
+          0,
+          -1
+        ],
+        "colour": [
+          1.0,
+          0.96,
+          0.86
+        ],
+        "intensity": 3.0,
+        "range": 22.0,
+        "inner_angle": 0.35,
+        "outer_angle": 0.6
+      },
+      {
+        "name": "Rilgar/Oltanis lamp downlight",
+        "type": "spot",
+        "bone": "",
+        "enabled": true,
+        "position": [
+          0,
+          0,
+          20.9
+        ],
+        "direction": [
+          0,
+          0,
+          -1
+        ],
+        "colour": [
+          1.0,
+          0.96,
+          0.86
+        ],
+        "intensity": 7.0,
+        "range": 38.0,
+        "inner_angle": 0.48,
+        "outer_angle": 1.05
+      }
+    ],
+    "mobys/moby_1849.glb": [
+      {
+        "name": "Gaspar lamp bulb",
+        "type": "point",
+        "bone": "",
+        "enabled": true,
+        "position": [
+          0,
+          0,
+          21.2
+        ],
+        "direction": [
+          0,
+          0,
+          -1
+        ],
+        "colour": [
+          0.45,
+          0.92,
+          1.0
+        ],
+        "intensity": 3.5,
+        "range": 18.0,
+        "inner_angle": 0.35,
+        "outer_angle": 0.6
+      },
+      {
+        "name": "Gaspar lamp downlight",
+        "type": "spot",
+        "bone": "",
+        "enabled": true,
+        "position": [
+          0,
+          0,
+          20.7
+        ],
+        "direction": [
+          0,
+          0,
+          -1
+        ],
+        "colour": [
+          0.45,
+          0.92,
+          1.0
+        ],
+        "intensity": 7.5,
+        "range": 34.0,
+        "inner_angle": 0.48,
+        "outer_angle": 1.08
+      }
+    ],
+    "mobys/moby_1862.glb": [
+      {
+        "name": "Hoven lamp bulb",
+        "type": "point",
+        "bone": "",
+        "enabled": true,
+        "position": [
+          0,
+          0,
+          22.5
+        ],
+        "direction": [
+          0,
+          0,
+          -1
+        ],
+        "colour": [
+          1.0,
+          0.86,
+          0.58
+        ],
+        "intensity": 3.0,
+        "range": 20.0,
+        "inner_angle": 0.35,
+        "outer_angle": 0.6
+      },
+      {
+        "name": "Hoven lamp downlight",
+        "type": "spot",
+        "bone": "",
+        "enabled": true,
+        "position": [
+          0,
+          0,
+          22.0
+        ],
+        "direction": [
+          0,
+          0,
+          -1
+        ],
+        "colour": [
+          1.0,
+          0.86,
+          0.58
+        ],
+        "intensity": 7.0,
+        "range": 36.0,
+        "inner_angle": 0.48,
+        "outer_angle": 1.05
+      }
+    ]
+  }
 }

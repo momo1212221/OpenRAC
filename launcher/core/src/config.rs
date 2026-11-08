@@ -68,10 +68,10 @@ pub struct Config {
     /// (src-tauri/src/android.rs).
     #[ts(type = "\"opengl\" | \"vulkan\"")]
     pub renderer: String,
-    /// HDR output (port docs/port/HDR.md): "" (default) leaves it to the game's own setting (its
-    /// drawer, the settings file's `hdr`); "off", "auto" or "on" is given to each game's start
-    /// (OPENRAC_HDR), over that. On every system; it needs the Vulkan renderer.
-    #[ts(type = "\"\" | \"off\" | \"auto\" | \"on\"")]
+    /// HDR output (port docs/port/HDR.md): "off" (default) or "on", given to each game's start
+    /// (OPENRAC_HDR) over the game's own setting. On: HDR when the system has the display in HDR
+    /// mode. On every system; it needs the Vulkan renderer. Anything else reads as "off" (load).
+    #[ts(type = "\"off\" | \"on\"")]
     pub hdr: String,
     /// Linux: the launcher's own window draws without WebKitGTK's accelerated compositing mode
     /// (webkit.rs), for a graphics driver that crashes it. Turned on by the launcher itself after
@@ -84,14 +84,23 @@ pub struct Config {
     /// For each game, the time (seconds since 1970) of the newest crash report the player has
     /// dismissed: crashes up to then are seen, and no notice, button or mark is shown for them.
     pub crashes_seen: BTreeMap<String, u64>,
-    /// For developers with more than one disc of a game in the games folder: the version each
+    /// For developers whose launcher knows more than one disc of a game: the version each
     /// game's page plays (`rac1` -> `rac1/ntsc`). Used only with developer tools on
     /// (disc_choice.rs); without one, the disc set up, as for a player.
     pub disc_choice: BTreeMap<String, String>,
+    /// For developers: the image each version was last set up from (`rac1/ntsc` -> the .iso), so
+    /// the disc switch offers that version without a games folder (disc_choice.rs). An image
+    /// moved, deleted or now another disc is not offered.
+    pub disc_images: BTreeMap<String, PathBuf>,
     /// The name online mods show the other players (multiplayer.rs): 3 to 16 letters, digits and
     /// underscores, made up at the first start and changed in Settings. Given to the game as
     /// `OPENRAC_PLAYER_NAME`.
     pub multiplayer_name: String,
+    /// This installation's key (multiplayer.rs): random, made at the first start and never shown.
+    /// What a host's ban holds on to, so a new name gets round none. Given to the game as
+    /// `OPENRAC_IDENTITY_KEY`.
+    #[serde(default)]
+    pub multiplayer_key: String,
     /// Where the launcher keeps its own copy of the figures it fetched from bytematch.dev: in
     /// the per-user folder beside its settings, which the launcher can always write (a
     /// checkout it does not own, as an installed launcher carries one, is read-only).
@@ -136,12 +145,14 @@ impl Default for Config {
             theme: "openrac".into(),
             detailed_game_log: false,
             renderer: "vulkan".into(),
-            hdr: String::new(),
+            hdr: "off".into(),
             safe_rendering: false,
             play_with_mods: false,
             crashes_seen: BTreeMap::new(),
             disc_choice: BTreeMap::new(),
+            disc_images: BTreeMap::new(),
             multiplayer_name: String::new(),
+            multiplayer_key: String::new(),
             progress_cache: None,
             mod_indexes: Vec::new(),
             prerelease_mods: None,
@@ -161,7 +172,18 @@ impl Config {
 /// Reads `path`; a missing or unreadable file gives the defaults, so a
 /// broken settings file never stops the launcher from starting.
 pub fn load(path: &Path) -> Config {
-    std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default()
+    let mut config: Config =
+        std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
+    config.hdr = hdr_mode(&config.hdr).into();
+    config
+}
+
+/// The HDR setting as "off" or "on": anything but "on" is "off", the game's default.
+pub fn hdr_mode(value: &str) -> &'static str {
+    match value {
+        "on" => "on",
+        _ => "off",
+    }
 }
 
 /// Writes `config` to `path` through a temporary file, so a crash never
@@ -249,5 +271,18 @@ mod tests {
         assert_eq!(load(&path).renderer, "vulkan");
         save(&path, &Config { renderer: "opengl".into(), ..Config::default() }).unwrap();
         assert_eq!(load(&path).renderer, "opengl");
+    }
+
+    /// HDR is Off or On: anything else reads as Off.
+    #[test]
+    fn hdr_is_off_or_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("launcher.json");
+        std::fs::write(&path, r#"{"setupComplete": true}"#).unwrap();
+        assert_eq!(load(&path).hdr, "off");
+        for (old, now) in [("off", "off"), ("on", "on"), ("bright", "off")] {
+            std::fs::write(&path, format!(r#"{{"setupComplete": true, "hdr": "{old}"}}"#)).unwrap();
+            assert_eq!(load(&path).hdr, now, "{old}");
+        }
     }
 }

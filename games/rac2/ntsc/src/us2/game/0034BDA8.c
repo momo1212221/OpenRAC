@@ -1,9 +1,5 @@
 #include "include_asm.h"
 
-INCLUDE_ASM("asm/us2/game", func_US2_0034BDA8);
-
-INCLUDE_ASM("asm/us2/game", func_US2_0034BDB0);
-
 INCLUDE_ASM("asm/us2/game", func_US2_0034C008);
 
 extern int func_00335E20(unsigned char *field);
@@ -13,6 +9,8 @@ unsigned int func_US2_0034D7A8(unsigned char *owner)
     unsigned int address = (unsigned int)func_00335E20(owner + 0x378);
     return *(unsigned int *)address & 0xff000000u;
 }
+
+INCLUDE_ASM("asm/us2/game", func_US2_0034DBD8);
 
 
 extern void func_00336920(char *, int, int);
@@ -124,13 +122,8 @@ void func_US2_0034DB68(int *self, int value)
 }
 
 
-INCLUDE_ASM("asm/us2/game", func_US2_0034DBC8);
-
-INCLUDE_ASM("asm/us2/game", func_US2_0034DBD8);
-
 INCLUDE_ASM("asm/us2/game", func_US2_0034DBE0);
 
-INCLUDE_ASM("asm/us2/game", func_US2_0034E8D8);
 
 extern void func_003363D0(void *p);
 extern void func_US2_0034BDB0(void *p);

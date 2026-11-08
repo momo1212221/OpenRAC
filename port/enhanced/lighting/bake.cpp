@@ -471,7 +471,15 @@ struct ProbeBaker::Impl {
     )
         : settings(options),
           scene(input, options.sunlight_direction, threads),
-          pool(workers) {}
+          pool(workers) {
+        if (!settings.atmosphere.cloud_field
+            || settings.atmosphere.cloud_field->parameters
+                   != cloud_parameters(settings.atmosphere)) {
+            settings.atmosphere.cloud_field = std::make_shared<CloudField>(
+                CloudField::generate(cloud_parameters(settings.atmosphere))
+            );
+        }
+    }
 
     // Rounding is part of the key so reuse cannot change a later bake's arithmetic results.
     const BakeDirections& directions(std::uint32_t resolution) {

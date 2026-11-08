@@ -107,7 +107,7 @@ void check_bones(Fixture& fixture) {
         light, scaled, fixture.palette, fixture.level.models[0].bones
     );
     CHECK(resolved && (resolved.value().position == renderer::Vec3{16, 22.5f, 30}));
-    CHECK(resolved && resolved.value().range == 5);
+    CHECK(resolved && resolved.value().range == 10);
     light.bone = "missing";
     CHECK(!enhanced::resolve_attached_light(
         light, fixture.instance, fixture.palette, fixture.level.models[0].bones

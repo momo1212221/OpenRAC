@@ -20,6 +20,7 @@ namespace wgl = renderer::world::gl;
 namespace {
 // Texture units 28/29 are independent of water's transmission and material texture units.
 constexpr unsigned kFirstUnit = 28;
+constexpr unsigned kDepthUnit = 30;
 constexpr std::size_t kAuthorLimit = 4096;
 // Counts below this avoid compute overhead; GPU fixtures measure both paths independently.
 constexpr unsigned kMinimumTiledLights = 16;
@@ -266,6 +267,10 @@ bool LocalLights::dispatch(
     unsigned depth, const renderer::Camera& camera, int width, int height, bool force_tiles
 ) {
     m_ready = false;
+    m_depth = depth;
+    m_clip = renderer::multiply(camera.projection, camera.view);
+    m_width = width;
+    m_height = height;
 
     if (!m_enabled || (m_count < kMinimumTiledLights && !force_tiles) || reference || m_failed
         || !depth || width <= 0 || height <= 0) {
@@ -279,7 +284,6 @@ bool LocalLights::dispatch(
     const auto x = unsigned((width + 15) / 16), y = unsigned((height + 15) / 16);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, m_buffers[1]);
     m_cull.use();
-    m_clip = renderer::multiply(camera.projection, camera.view);
     glUniformMatrix4fv(m_cull.uniform("world_to_clip"), 1, GL_FALSE, m_clip.data());
     glUniform2f(m_cull.uniform("scene_extent"), float(width), float(height));
     glUniform1i(m_cull.uniform("light_count"), int(m_count));
@@ -323,9 +327,10 @@ void LocalLights::bind(
     ensure_buffers();
     std::array<int, 4> viewport{};
     glGetIntegerv(GL_VIEWPORT, viewport.data());
-    const bool tiled = m_ready && !reference && camera
-                       && viewport == std::array<int, 4>{0, 0, m_width, m_height}
-                       && renderer::multiply(camera->projection, camera->view) == m_clip;
+    const bool same_view = camera && viewport == std::array<int, 4>{0, 0, m_width, m_height}
+                           && renderer::multiply(camera->projection, camera->view) == m_clip;
+    const bool tiled = m_ready && !reference && same_view;
+    const bool shadowed = m_enabled && m_depth && depth_matched && same_view;
     glUniform1i(shader.uniform("forward_count"), m_enabled ? int(m_count) : 0);
     glUniform1i(shader.uniform("forward_tiled"), tiled ? 1 : 0);
     GLint samples = 1;
@@ -339,6 +344,12 @@ void LocalLights::bind(
         float(viewport[2]),
         float(viewport[3])
     );
+    glUniform1i(shader.uniform("forward_shadowed"), shadowed ? 1 : 0);
+    glUniform2f(shader.uniform("forward_depth_extent"), float(m_width), float(m_height));
+    glUniformMatrix4fv(shader.uniform("forward_clip"), 1, GL_FALSE, m_clip.data());
+    glUniform1i(shader.uniform("forward_depth"), kDepthUnit);
+    glActiveTexture(GL_TEXTURE0 + kDepthUnit);
+    glBindTexture(GL_TEXTURE_2D, shadowed ? m_depth : 0);
 
     for (unsigned i = 0; i < 2; ++i) {
         glUniform1i(shader.uniform(i ? "forward_masks" : "forward_lights"), kFirstUnit + i);
@@ -356,6 +367,7 @@ void LocalLights::release() {
     m_buffers = {};
     m_textures = {};
     m_records.clear();
+    m_depth = 0;
     m_count = 0;
     m_mask_words = 0;
     m_ready = false;

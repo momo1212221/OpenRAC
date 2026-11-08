@@ -4,6 +4,7 @@
   // note. File names, sizes and the card's folder name are a contributor's details: a chip and
   // tooltips with developer tools on.
   import Icon from "$components/Icon.svelte";
+  import CloudSavesBlock from "$components/CloudSavesBlock.svelte";
   import { api, ask, pickSavesFile, type GameSaveStatus, type SaveBackupInfo, type VersionView } from "$lib/api";
   import { app, toast } from "$lib/app.svelte";
   import { grouped, size } from "$lib/format";
@@ -14,7 +15,7 @@
   import { tick } from "svelte";
   import { slide } from "svelte/transition";
 
-  let { version }: { version: VersionView } = $props();
+  let { version, backupsOnly = false }: { version: VersionView; backupsOnly?: boolean } = $props();
 
   const developer = $derived(app.config?.developer ?? false);
 
@@ -124,7 +125,7 @@
 
 {#if editing !== null}
   <!-- The save editor loads the first time a slot is edited. -->
-  {#await version.serial === "SCUS_972.68" ? import("$components/SaveEditorRac2.svelte") : import("$components/SaveEditor.svelte") then { default: SaveEditor }}
+  {#await version.game === "rac2" ? import("$components/SaveEditorRac2.svelte") : import("$components/SaveEditor.svelte") then { default: SaveEditor }}
     <SaveEditor
       serial={version.serial}
       slot={editing}
@@ -154,7 +155,7 @@
 
 <section class="panel saves" aria-label="Saves">
   <div class="row top">
-    <h2>Saves</h2>
+    <h2>{backupsOnly ? "Backups & Cloud Saves" : "Saves"}</h2>
     {#if developer && status?.exists}
       <span class="chip mono folder" title="The memory card's folder">{status.gameFolderName ?? version.serial}</span>
     {/if}
@@ -179,108 +180,132 @@
   {:else if status && !status.exists}
     <p class="muted">Your saves show here once you have played and saved.</p>
   {:else if status}
-    {#if used.length}
-      <ul class="slots">
-        {#each used as slot (slot.slotIndex)}
-          <li>
-            <span class="slot" title={developer ? `${slot.filename} · ${size(slot.size)}` : undefined}
-              >Slot {slot.slotIndex + 1}</span
-            >
-            <span class="planet">{slot.planetName ?? "Unknown planet"}</span>
-            <span class="bolts"><Icon name="bolt" size={14} />{grouped(slot.bolts ?? 0)}</span>
-            <span class="when" title={developer ? (slot.timestamp ?? undefined) : undefined}
-              >{saved(slot.timestamp)}</span
-            >
-            {#if slot.mods?.length}
-              <!-- Written while mods were loaded (the mark beside the save: port/game/common/lib/mc.c).
-                   The names are in the tooltip; the row stays one line. -->
-              <span class="modded" title={savedWithMods(slot.mods)}>Mods</span>
-            {:else}
-              <span></span>
-            {/if}
-            {#if slot.editable}
-              <button class="small edit" onclick={() => (editing = slot.slotIndex)}
-                ><Icon name="edit" size={14} />Edit</button
+    {#if !backupsOnly}
+      {#if used.length}
+        <ul class="slots">
+          {#each used as slot (slot.slotIndex)}
+            <li>
+              <span class="slot" title={developer ? `${slot.filename} · ${size(slot.size)}` : undefined}
+                >Slot {slot.slotIndex + 1}</span
               >
-            {:else}
+              <span class="planet">{slot.planetName ?? "Unknown planet"}</span>
+              <span class="bolts"><Icon name="bolt" size={14} />{grouped(slot.bolts ?? 0)}</span>
+              <span class="when" title={developer ? (slot.timestamp ?? undefined) : undefined}
+                >{saved(slot.timestamp)}</span
+              >
+              {#if slot.mods?.length}
+                <!-- Written while mods were loaded (the mark beside the save: port/game/common/lib/mc.c).
+                   The names are in the tooltip; the row stays one line. -->
+                <span class="modded" title={savedWithMods(slot.mods)}>Mods</span>
+              {:else}
+                <span></span>
+              {/if}
+              {#if slot.editable}
+                <button class="small edit" onclick={() => (editing = slot.slotIndex)}
+                  ><Icon name="edit" size={14} />Edit</button
+                >
+              {:else}
+                <span></span>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+        {#if empty}<p class="empty">{empty}</p>{/if}
+      {:else}
+        <p class="muted">No saves on this card yet: they show here once you have saved in the game.</p>
+      {/if}
+
+      {#if status.coopSaves.length}
+        <!-- A party's saves: never the player's own slots. They are hosted from the game's Multiplayer page. -->
+        <h4 class="coop-title">Co-op saves</h4>
+        <p class="muted">From your parties. Your own saves above are left as they are.</p>
+        <ul class="slots">
+          {#each status.coopSaves as slot (slot.slotIndex)}
+            <li>
+              <span class="slot">Co-op {slot.slotIndex + 1}</span>
+              <span class="planet">{slot.planetName ?? "Unknown planet"}</span>
+              <span class="bolts"><Icon name="bolt" size={14} />{grouped(slot.bolts ?? 0)}</span>
+              <span class="when">{saved(slot.timestamp)}</span>
+              <span class="modded" title="Whose party this was">{slot.host ?? ""}</span>
               <span></span>
-            {/if}
-          </li>
-        {/each}
-      </ul>
-      {#if empty}<p class="empty">{empty}</p>{/if}
-    {:else}
-      <p class="muted">No saves on this card yet: they show here once you have saved in the game.</p>
+            </li>
+          {/each}
+        </ul>
+      {/if}
     {/if}
 
-    <div class="backups">
-      <div class="row">
-        <button
-          class="fold grow"
-          class:open={showBackups}
-          aria-expanded={showBackups}
-          aria-controls="backups-list"
-          onclick={() => (showBackups = !showBackups)}
-        >
-          Backups ({status.backups.length})
-        </button>
-        <button class="small" disabled={creatingBackup || naming} onclick={() => void startBackup()}>
-          <Icon name="save" size={14} />Back up now
-        </button>
-      </div>
-      {#if showBackups}
-        <div id="backups-list" class="open-list" transition:slide={fold}>
-          {#if naming}
-            <div class="row take">
-              <input
-                bind:this={noteInput}
-                type="text"
-                aria-label="A name for the backup"
-                placeholder="Name it, if you like: before the last boss"
-                bind:value={backupNote}
-                disabled={creatingBackup}
-                onkeydown={(e) => {
-                  if (e.key === "Enter") void createBackup();
-                  if (e.key === "Escape") naming = false;
-                }}
-              />
-              <button class="primary small" disabled={creatingBackup} onclick={createBackup}>
-                {#if creatingBackup}<span class="spinner"></span>{/if}Back up
-              </button>
-              <button class="ghost small" disabled={creatingBackup} onclick={() => (naming = false)}>Cancel</button>
-            </div>
-          {/if}
-          {#if status.backups.length}
-            <ul class="list">
-              {#each status.backups as backup (backup.name)}
-                <li>
-                  <!-- The date under the name, so a long name does not hide it on a narrow screen. -->
-                  <span class="grow named">
-                    <strong class="clip">{backupLabel(backup)}</strong>
-                    <span class="dim clip">{when(backup.createdMillis / 1000)}</span>
-                  </span>
-                  {#if developer}
-                    <span class="chip mono" title={backup.name}>{size(backup.totalSize)}</span>
-                  {/if}
-                  <button
-                    class="ghost small restore"
-                    disabled={restoringBackupName === backup.name}
-                    onclick={() => void restoreBackup(backup)}
-                  >
-                    {#if restoringBackupName === backup.name}<span class="spinner"></span>{/if}Restore
-                  </button>
-                </li>
-              {/each}
-            </ul>
-          {:else if !naming}
-            <p class="muted small-text">
-              No backups yet. The launcher also takes one by itself before the save editor writes.
-            </p>
-          {/if}
+    {#if backupsOnly}
+      <div class="backups">
+        <div class="row">
+          <button
+            class="fold grow"
+            class:open={showBackups}
+            aria-expanded={showBackups}
+            aria-controls="backups-list"
+            onclick={() => (showBackups = !showBackups)}
+          >
+            Backups ({status.backups.length})
+          </button>
+          <button class="small" disabled={creatingBackup || naming} onclick={() => void startBackup()}>
+            <Icon name="save" size={14} />Back up now
+          </button>
         </div>
-      {/if}
-    </div>
+        {#if showBackups}
+          <div id="backups-list" class="open-list" transition:slide={fold}>
+            {#if naming}
+              <div class="row take">
+                <input
+                  bind:this={noteInput}
+                  type="text"
+                  aria-label="A name for the backup"
+                  placeholder="Name it, if you like: before the last boss"
+                  bind:value={backupNote}
+                  disabled={creatingBackup}
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") void createBackup();
+                    if (e.key === "Escape") naming = false;
+                  }}
+                />
+                <button class="primary small" disabled={creatingBackup} onclick={createBackup}>
+                  {#if creatingBackup}<span class="spinner"></span>{/if}Back up
+                </button>
+                <button class="ghost small" disabled={creatingBackup} onclick={() => (naming = false)}>Cancel</button>
+              </div>
+            {/if}
+            {#if status.backups.length}
+              <ul class="list">
+                {#each status.backups as backup (backup.name)}
+                  <li>
+                    <!-- The date under the name, so a long name does not hide it on a narrow screen. -->
+                    <span class="grow named">
+                      <strong class="clip">{backupLabel(backup)}</strong>
+                      <span class="dim clip">{when(backup.createdMillis / 1000)}</span>
+                    </span>
+                    {#if developer}
+                      <span class="chip mono" title={backup.name}>{size(backup.totalSize)}</span>
+                    {/if}
+                    <button
+                      class="ghost small restore"
+                      disabled={restoringBackupName === backup.name}
+                      onclick={() => void restoreBackup(backup)}
+                    >
+                      {#if restoringBackupName === backup.name}<span class="spinner"></span>{/if}Restore
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            {:else if !naming}
+              <p class="muted small-text">
+                No backups yet. The launcher also takes one by itself before the save editor writes.
+              </p>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
   {/if}
+
+  {#if backupsOnly}<CloudSavesBlock serial={version.serial} onrestored={loadStatus} />{/if}
 </section>
 
 <style>
@@ -366,6 +391,11 @@
   }
 
   /* One used slot per row, the columns aligned down the list. */
+  .coop-title {
+    margin: 16px 0 2px;
+    font-size: inherit;
+  }
+
   .slots li {
     display: grid;
     grid-template-columns: 48px minmax(0, 1fr) auto minmax(0, auto) auto auto;

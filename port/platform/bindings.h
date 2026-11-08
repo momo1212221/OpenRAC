@@ -35,6 +35,7 @@
 #include <SDL3/SDL.h>
 
 #include "platform/pad.h"
+#include "platform/rumble.h"
 
 namespace openrac::platform {
 
@@ -141,6 +142,8 @@ struct PadTuning {
     // The controllers count while another window has the keyboard (the game alt-tabbed or
     // minimised). Off by default: a pad used elsewhere does not play the game behind it.
     bool background = false;
+    // How the game's rumble is played on this player's controller (rumble.h).
+    RumbleTuning rumble;
 
     bool operator==(const PadTuning&) const = default;
 };
@@ -240,8 +243,8 @@ inline constexpr float kStickPress = 0.5f;
 
 // Applies a stick's tuning to one reading of it (-1..1 each way, as SDL's axes divided by 32768):
 // turned over, then the dead zone and the outer edge, then the sensitivity. The defaults leave the
-// reading exactly as it was.
-void tune_stick(float& x, float& y, const StickTuning& tuning);
+// reading exactly as it was. Returns how far past a full push the sensitivity took x (1 if not).
+float tune_stick(float& x, float& y, const StickTuning& tuning);
 
 // Swaps the face buttons of a pad labelled Nintendo's way (A east, B south), so that PadSouth is
 // the button labelled A (PadTuning::face_labels).

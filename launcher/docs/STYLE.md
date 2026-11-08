@@ -182,6 +182,8 @@ release, and a new file adds its line there when it is added.
 - Keep text readable on its background: the pills' and blockers' colours are
   only used on `--panel`, `--panel-hi` or a game's dark boxes.
 - Respect `prefers-reduced-motion` (already global in `app.css`).
+- Native macOS uses ordinary page changes instead of snapshot view transitions:
+  WKWebView can leave the snapshot layer black while the live page keeps updating.
 - Motion and spacing have tokens too: `--ease` and `--fast`, `--medium`,
   `--slow` for transitions; `--page-x`, `--page-top`, `--page-bottom` and
   `--page-gap` for every page's margins. A page's sections rise in turn as

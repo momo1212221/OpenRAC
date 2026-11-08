@@ -95,6 +95,9 @@ void EffectRenderer::draw_prepared(
         // A quad's TEST from the list (EffectQuad::registers; 0 none) and whether it writes Z.
         std::uint64_t test = 0;
         bool z_write = false;
+        // A strip sent before the mobys that writes no Z (before_mobys_writes_z: its ZBUF masks
+        // it, its TEST keeps only the colour, or its list gives no sign of a surface): colour only.
+        bool z_masked = false;
         bool operator==(const State&) const = default;
     };
 
@@ -209,6 +212,9 @@ void EffectRenderer::draw_prepared(
 
             prepare_colour_reads();
             set_fog(wanted.fogged, wanted.fog, wanted.fog_colour);
+            if (m_part == EffectPart::Liquids) {
+                glDepthMask(wanted.z_masked ? GL_FALSE : GL_TRUE);
+            }
             set = wanted;
         }
 
@@ -313,7 +319,10 @@ void EffectRenderer::draw_prepared(
              strip.uv_motion,
              strip.fogged,
              strip.fog,
-             strip.fog_colour},
+             strip.fog_colour,
+             0,
+             false,
+             strip.before_mobys && !before_mobys_writes_z(strip)},
             at,
             count,
             false);
@@ -353,6 +362,13 @@ void EffectRenderer::draw_prepared(
             upload(input.effect_uploads[static_cast<std::size_t>(q.uploads)]);
             upload(input.effect_uploads[static_cast<std::size_t>(q.uploads) + 1]);
         }
+    }
+
+    // Quads are not cut at the far plane (the GS has none): Drek's Fleet's backdrop lies ~7000
+    // units away, past it.
+    const bool clamp_quads = quads && !input.depth_clamp && gl::depth_clamp_available();
+    if (clamp_quads) {
+        glEnable(GL_DEPTH_CLAMP);
     }
 
     set.reset();
@@ -412,6 +428,9 @@ void EffectRenderer::draw_prepared(
     }
 
     flush();
+    if (clamp_quads) {
+        glDisable(GL_DEPTH_CLAMP);
+    }
     stats::gauge("effect quads alpha tested", tested_quads);
     if (quads && gl::is_vulkan()) {
         stats::gauge("effect quad texture splits", texture_splits);

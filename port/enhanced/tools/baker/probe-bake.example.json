@@ -3,20 +3,60 @@
   "sky": "level",
   "sky_intensity": 1,
   "sky_weight": 0.7,
-  "sunlight_scale": [1, 1, 1],
+  "sunlight_scale": [
+    1,
+    1,
+    1
+  ],
   "sunlight_direction": null,
   "terrain_vertex_albedo": true,
+  "terrain_vertex_albedo_strength": 0.5,
   "light_set": 0,
-  "environment": [0.1, 0.1, 0.1],
+  "environment": [
+    0.1,
+    0.1,
+    0.1
+  ],
   "rays": 256,
   "bounces": 3,
   "seed": 1,
-  "sparse_spacing": [256, 256, 256],
-  "dense_spacing": [4, 4, 4],
+  "sparse_spacing": [
+    256,
+    256,
+    256
+  ],
+  "dense_spacing": [
+    4,
+    4,
+    4
+  ],
   "resolution": 6,
   "ray_bias": 0.002,
   "distance_exponent": 32,
   "min_inside_fraction": 0.75,
   "relocation_iterations": 4,
-  "relocation_max_fraction": 0.45
+  "relocation_max_fraction": 0.45,
+  "atmosphere": {
+    "enabled": true,
+    "fog_density": 0.00022,
+    "fog_colour": [
+      0.65,
+      0.7,
+      0.75
+    ],
+    "fog_base": 0,
+    "fog_falloff": 0,
+    "distance": 750,
+    "cloud_coverage": 0.58,
+    "cloud_density": 0.018,
+    "cloud_colour": [
+      0.95,
+      0.97,
+      1.0
+    ],
+    "cloud_base": 90,
+    "cloud_thickness": 50,
+    "cloud_scale": 0.035,
+    "cloud_seed": 1
+  }
 }

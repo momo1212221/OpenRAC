@@ -28,9 +28,11 @@ namespace {
     log::error("{}", why);
     log::error(
         "usage: {} --data <install>/active/{}/data [--cards DIR] [--frames N] [--stop-on-missing] "
-        "[--level N] [--skip-movies] [--mods DIR] [--map] [--ship-map] [--destinations] "
+        "[--level N] [--skip-movies] [--unlock-all-weapons] [--unlock-all-gadgets] "
+        "[--mods DIR] [--map] [--ship-map] [--destinations] "
         "[--check-levels] [--settings FILE] [--controls DIR] "
-        "[--plugins FILE] [--probes DIR] [--no-mods] [--debug-overlay] [--debug-dump FILE]",
+        "[--plugins FILE] [--probes DIR] [--prepared-graphics 0|1] [--ultra-textures 0|1] "
+        "[--prepared-meshes DIR] [--no-mods] [--debug-overlay] [--debug-dump FILE]",
         program_name(),
         openrac_game.game
     );
@@ -201,6 +203,18 @@ Options parse(int argc, char** argv) {
             o.controls = value();
         } else if (a == "--plugins") {
             o.plugins = value();
+        } else if (a == "--prepared-meshes") {
+            o.modules.meshes = value();
+        } else if (a == "--prepared-graphics" || a == "--ultra-textures") {
+            const std::string selected = value();
+            if (selected != "0" && selected != "1") {
+                usage("expected 0 or 1 for " + a);
+            }
+            if (a == "--prepared-graphics") {
+                o.modules.enabled = selected == "1";
+            } else {
+                o.modules.ultra_textures = selected == "1";
+            }
         } else if (a == "--probes") {
             o.probes = value();
         } else if (a == "--no-mods") {
@@ -213,6 +227,10 @@ Options parse(int argc, char** argv) {
             openrac_game_start_level = std::stoi(value());
         } else if (a == "--skip-movies") {
             o.skip_movies = true;
+        } else if (a == "--unlock-all-weapons") {
+            o.unlock_all_weapons = true;
+        } else if (a == "--unlock-all-gadgets") {
+            o.unlock_all_gadgets = true;
         } else if (a == "--keep-going") {
             o.keep_going = true;
         } else if (a == "--stop-on-missing") {
@@ -225,6 +243,8 @@ Options parse(int argc, char** argv) {
             o.ship_map = true;
         } else if (a == "--destinations") {
             o.expect_destinations = true;
+        } else if (a == "--asm-part") {
+            o.asm_part = value();
         } else if (a == "--check-levels") {
             o.check_levels = true;
         } else if (a == "--help" || a == "-h") {

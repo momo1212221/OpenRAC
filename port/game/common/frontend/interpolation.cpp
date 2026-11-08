@@ -28,6 +28,7 @@
 #include <SDL3/SDL.h>
 
 #include "common/breadcrumbs.h"
+#include "common/crash.h"
 #include "common/env.h"
 #include "common/log.h"
 #include "common/precise_wait.h"
@@ -44,6 +45,7 @@
 #include "game/common/frontend/scene_frame_internal.h"
 #include "game/common/frontend/state.h"
 #include "mod_menu.h"
+#include "mod_overlay.h"
 #include "openrac/game_host.h"
 #include "platform/performance_hint.h"
 #include "platform/pump.h"
@@ -58,6 +60,7 @@
 #include "scene/level_renderer.h"
 #include "scene/screenshot.h"
 #include "settings.h"
+#include "ui_colors.h"
 
 namespace openrac::frontend {
 
@@ -316,7 +319,7 @@ void capture_frame(const FramePresentation& output) {
         const auto writing = std::chrono::steady_clock::now();
         const std::string path = shots().prefix + std::to_string(output.tick)
                                  + (first ? std::string() : "_b" + std::to_string(between_index))
-                                 + ".png";
+                                 + (output.enhanced_graphics ? "_enhanced" : "") + ".png";
         // As the screen shows it: the frame's alpha is what the GS blends wrote, not a picture's
         // coverage, and a viewer that shows it draws the sky full of the effects' blotches.
         std::vector<std::uint8_t> pixels = renderer::read_rgba(shown, width, height);
@@ -464,12 +467,16 @@ void draw_overlay(const FramePresentation& output) {
          output.picker_palette,
          output.picker_level,
          output.tick,
-         output.picker_layers}
+         output.picker_layers,
+         output.freecam,
+         output.camera_level,
+         output.enhanced_graphics}
     );
 }
 
 // Composites debug UI and presents on the window thread, after exclusive graphics ownership returns.
 void present_frame(FramePresentation& output) {
+    const crash::BreadcrumbScope breadcrumbs(output.source_frame);
     // A between-tick job keeps draw logging suppressed through its later presentation too.
     struct RestoreDrawDump {
         bool previous = renderer::g_dump_draws;
@@ -495,10 +502,13 @@ void present_frame(FramePresentation& output) {
     // The window thread's own parts of a frame, measured apart (performance captures).
     {
         const stats::Scope menus("menus");
+        mod_overlay::draw(output.camera, output.has_camera, shown, width, height, aspect);
         debug_menu::draw(shown, width, height);
         mod_menu::draw(shown, width, height);
         if (settings::get().show_fps != settings::FrameCounter::Off) {
-            renderer::ui::fps_counter::draw(shown, width, height);
+            // In the game's accent over the theme's darkest ink, as the launcher and the menu.
+            const ui_colors::Colors& colors = ui_colors::launcher();
+            renderer::ui::fps_counter::draw(shown, width, height, colors.amber, colors.ink_deep);
         }
     }
     {
@@ -561,10 +571,12 @@ bool finish_render() try {
 } catch (const std::exception& failure) {
     g->render_failed = true;
     log::error("cannot finish render: {}", failure.what());
+    crash::report(failure.what(), crash::Kind::Exception);
     return false;
 } catch (...) {
     g->render_failed = true;
     log::error("cannot finish render: unknown exception");
+    crash::report("cannot finish render: unknown exception", crash::Kind::Exception);
     return false;
 }
 
@@ -620,10 +632,12 @@ void draw_kept(bool first) try {
     g->pending_frame.reset();
     g->render_failed = true;
     log::error("cannot prepare render snapshot: {}", failure.what());
+    crash::report(failure.what(), crash::Kind::Exception);
 } catch (...) {
     g->pending_frame.reset();
     g->render_failed = true;
     log::error("cannot prepare render snapshot: unknown exception");
+    crash::report("cannot prepare render snapshot: unknown exception", crash::Kind::Exception);
 }
 
 // ---- Between ticks ----

@@ -256,6 +256,23 @@ void test_material_without_probes() {
     CHECK(render(fixture).pixels == original);
 }
 
+// The default atmosphere should add a subtle sun-aware haze whenever volumetrics are enabled.
+void test_default_sun_haze() {
+    Fixture fixture(false);
+    fixture.resize(64, 48, 1);
+    fixture.input.volumetric_quality = renderer::VolumetricQuality::Medium;
+    enhanced::set_atmosphere_settings({});
+    const auto hazed = render(fixture).pixels;
+
+    auto disabled = enhanced::atmosphere_settings();
+    CHECK(disabled.height_density > 0);
+    disabled.height_density = 0;
+    enhanced::set_atmosphere_settings(disabled);
+    const auto clear = render(fixture).pixels;
+    CHECK(hazed != clear);
+    enhanced::set_atmosphere_settings({});
+}
+
 // Current shadows, resized transport and real sky blending retain identical pixels at both sample counts.
 void test_shared_sky() {
     Fixture fixture(false);
@@ -392,8 +409,11 @@ int main() {
         if (!context.open(error) || !vkgl::active()) {
             return test::kSkip;
         }
+        // These cases exercise pass dependencies and pixels; prewarm has its own fixture.
+        opt::set(opt::Opt::PipelinePrewarm, false);
         test_sky_material_tint();
         test_material_without_probes();
+        test_default_sun_haze();
         test_shared_sky();
         test_world_consumers();
         test_missing_sky();

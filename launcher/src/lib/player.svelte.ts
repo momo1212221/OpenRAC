@@ -2,7 +2,7 @@
 // tile and the game's page, so the main button says and does the same thing in both.
 import type { ActionView, GameView, VersionView } from "./api";
 import type { IconName } from "$components/Icon.svelte";
-import { onAndroid, pickFolder, pickIso } from "./api";
+import { api, onAndroid, pickFolder, pickIso } from "./api";
 import {
   acceptWarning,
   app,
@@ -75,11 +75,16 @@ export function isPlaying(v: VersionView): boolean {
 const action = (v: VersionView, id: string): ActionView | null =>
   v.actions.find((a) => a.id === id && a.thisPlatform) ?? null;
 
-/** The image of GAME in the player's games folder, if it holds one: a developer's chosen one
- *  when the folder holds more than one of its discs. */
-export function foundDisc(game: string) {
-  const chosen = choiceFor(app.discChoices, game)?.chosen;
-  return app.discs.find((d) => d.game === game && (!chosen || d.version === chosen)) ?? null;
+/** The image of GAME to set it up from: the one in the player's games folder, if it holds one;
+ *  a developer's chosen disc when the launcher knows more than one, from the games folder or the
+ *  image it was set up from before. */
+export function foundDisc(game: string): { path: string; inFolder: boolean } | null {
+  const choice = choiceFor(app.discChoices, game);
+  const chosen = choice?.chosen;
+  const found = app.discs.find((d) => d.game === game && (!chosen || d.version === chosen));
+  if (found) return { path: found.path, inFolder: true };
+  const picked = choice ? choice.images[choice.chosen] : undefined;
+  return picked ? { path: picked, inFolder: false } : null;
 }
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
@@ -147,6 +152,13 @@ export function playerVersion(game: GameView): VersionView | null {
   });
 }
 
+/** Play waits for the game's program, which is not there, and this launcher has no step that
+ *  builds it (an installer that carries neither, such as Going Commando's in launcher 1.0.0). */
+export function missingProgram(v: VersionView): boolean {
+  const builds = [action(v, "port-rebuild"), action(v, "port-build")].filter((a) => a?.thisPlatform);
+  return !!action(v, "play")?.missingArtifact && builds.length === 0;
+}
+
 /** The game is built for this computer: its program is there (on Android, the APK's), whether or
  *  not its levels are ready yet. */
 export function isBuilt(game: GameView, v: VersionView): boolean {
@@ -155,7 +167,9 @@ export function isBuilt(game: GameView, v: VersionView): boolean {
 
 /**
  * What Rebuild runs: the build from scratch where this platform builds, else (Android, which plays
- * the game its APK carries) the levels read from the disc again and checked. Null when it cannot run.
+ * the game its APK carries) the levels read from the disc again and checked. Null when it cannot run,
+ * and when the game's program is not there with nothing to build it (missingProgram): reading the
+ * levels again would leave Play just as blocked, and Rebuild would be offered again, forever.
  */
 export function rebuildSteps(v: VersionView): ActionView[] | null {
   const builds = [action(v, "port-rebuild"), action(v, "port-build")].filter((a) => a !== null);
@@ -163,9 +177,11 @@ export function rebuildSteps(v: VersionView): ActionView[] | null {
     const build = builds.find((a) => a.runnable);
     return build ? [build] : null;
   }
+  if (missingProgram(v)) return null;
   const levels = action(v, "port-levels");
   const check = action(v, "port-levels-check");
-  return levels?.runnable ? [levels, ...(check ? [check] : [])] : null;
+  const part = action(v, "port-part");
+  return levels?.runnable ? [...(part?.runnable ? [part] : []), levels, ...(check ? [check] : [])] : null;
 }
 
 export function playerState(game: GameView, v: VersionView): PlayerState {
@@ -173,10 +189,16 @@ export function playerState(game: GameView, v: VersionView): PlayerState {
   const build = action(v, "port-build");
   const levels = action(v, "port-levels");
   const check = action(v, "port-levels-check");
+  /** Android: the game's code still in assembly, translated from the disc and compiled on the
+   *  device (tools/asm_part.py), as a desktop's Build the game does with the whole game. */
+  const part = action(v, "port-part");
   const setUp = game.install?.extracted ?? null;
   const other = setUp && setUp.version !== v.key ? (game.versions.find((o) => o.key === setUp.version) ?? null) : null;
   const installing = jobs.list.find((j) => j.actionId === `install:${v.game}` && live(j)) ?? null;
   const base = { primary: false, disabled: false, job: null as Job | null };
+  /** Android: a game whose Play the APK leaves out, as it carries no library for it. */
+  const notInApp = onAndroid && !play && v.actions.some((a) => a.id === "play" && a.state !== "planned");
+  const noBuildHint = `This app does not carry ${game.title}: an APK built with it (tools/build_android.py) builds it from your disc.`;
 
   if (installing) {
     return {
@@ -198,11 +220,13 @@ export function playerState(game: GameView, v: VersionView): PlayerState {
       kind: "set-up",
       label: found ? "Set up" : "Set up from your disc",
       icon: "disc",
-      hint: planned
-        ? "This game cannot be played yet. You can set your disc up now, ready for when it can."
-        : found
-          ? `Found in your games folder: ${fileName(found.path)}`
-          : "Choose the image (.iso or .chd) of your own disc. OpenRAC never downloads a game.",
+      hint: notInApp
+        ? `${noBuildHint} You can set your disc up now.`
+        : planned
+          ? "This game cannot be played yet. You can set your disc up now, ready for when it can."
+          : found
+            ? `${found.inFolder ? "Found in your games folder" : "Your disc image"}: ${fileName(found.path)}`
+            : "Choose the image (.iso or .chd) of your own disc. OpenRAC never downloads a game.",
       primary: !planned,
       status: planned ? "Not playable yet" : "Not set up",
       tone: planned ? "info" : "warn",
@@ -217,6 +241,18 @@ export function playerState(game: GameView, v: VersionView): PlayerState {
       hint: "Your disc is set up. This game's PC port is not ready yet.",
       disabled: true,
       status: "Not playable yet",
+      tone: "info",
+    };
+  }
+  if (notInApp) {
+    return {
+      ...base,
+      kind: "unavailable",
+      label: "Not playable here yet",
+      icon: "play",
+      hint: noBuildHint,
+      disabled: true,
+      status: "Not playable here yet",
       tone: "info",
     };
   }
@@ -259,7 +295,7 @@ export function playerState(game: GameView, v: VersionView): PlayerState {
       tone: "ok",
     };
   }
-  const building = jobOf(v, ["port-build", "port-rebuild", "port-levels", "port-levels-check"]);
+  const building = jobOf(v, ["port-build", "port-rebuild", "port-part", "port-levels", "port-levels-check"]);
   if (building) {
     return {
       ...base,
@@ -269,7 +305,10 @@ export function playerState(game: GameView, v: VersionView): PlayerState {
       hint: phaseLabel(building),
       job: building,
       status:
-        building.actionId.startsWith("port-") && building.actionId.endsWith("build") ? "Building…" : "Getting ready…",
+        building.actionId === "port-part" ||
+        (building.actionId.startsWith("port-") && building.actionId.endsWith("build"))
+          ? "Building…"
+          : "Getting ready…",
       tone: "warn",
     };
   }
@@ -284,6 +323,18 @@ export function playerState(game: GameView, v: VersionView): PlayerState {
       primary: true,
       status: "Ready to play",
       tone: "ok",
+    };
+  }
+  if (part?.runnable && !part.done) {
+    return {
+      ...base,
+      kind: "build",
+      label: "Build and play",
+      icon: "build",
+      hint: "Makes the game's code that is still in assembly from your disc and compiles it on this device (nothing is downloaded), reads its levels, then starts it. A few minutes, the first time only.",
+      primary: true,
+      status: "Needs building",
+      tone: "warn",
     };
   }
   // The levels are ready when the game itself has read every one of them (the check's stamp),
@@ -309,7 +360,7 @@ export function playerState(game: GameView, v: VersionView): PlayerState {
       kind: "build",
       label: "Build and play",
       icon: "build",
-      hint: "Makes the game for this computer from OpenRAC's code (nothing is downloaded), reads its levels from your disc, then starts it. A few minutes, the first time only.",
+      hint: "Makes the game for this computer from OpenRAC's code and your disc, reads its levels from your disc, then starts it. A few minutes, the first time only.",
       primary: true,
       status: "Needs building",
       tone: "warn",
@@ -324,6 +375,18 @@ export function playerState(game: GameView, v: VersionView): PlayerState {
       hint: "Makes the game again from the start, so it can be played. Your saves are kept.",
       primary: true,
       status: "Needs rebuilding",
+      tone: "warn",
+    };
+  }
+  if (missingProgram(v)) {
+    return {
+      ...base,
+      kind: "blocked",
+      label: "Play",
+      icon: "play",
+      hint: "This launcher has no program for this game and cannot build it. Update the launcher (Settings): a newer one builds it from your disc.",
+      disabled: true,
+      status: "Needs a newer launcher",
       tone: "warn",
     };
   }
@@ -377,6 +440,11 @@ export async function prepare(v: VersionView): Promise<boolean> {
   const build = action(v, "port-build");
   if (build?.runnable && !action(v, "play")?.done) {
     if (!(await runChain(scope, [build]))) return false;
+    await refresh();
+  }
+  const part = action(freshVersion(v), "port-part");
+  if (part?.runnable && !part.done) {
+    if (!(await runChain(scope, [part]))) return false;
     await refresh();
   }
   const now = freshVersion(v);
@@ -507,6 +575,19 @@ async function play(v: VersionView): Promise<void> {
   if (app.config?.playWithMods) {
     const { beforePlay } = await import("./modAutoUpdate.svelte");
     await beforePlay(v.key);
+  }
+  if (await api.launcherAddonEnabled("graphics-preparation", v.game, v.name)) {
+    const auto = await api.enhancedAutoConfigure(v.game, v.name);
+    if (auto.applied) {
+      const gpu = auto.graphics.gpus[0] ?? "this GPU";
+      toast(`Graphics auto-tuned for ${gpu}: ${auto.profile}.`);
+    }
+    toast("Checking pre-rendered Ultra textures…");
+    const ultra = await api.texturePacksPrepareUltra(v.game, v.name);
+    if (ultra.enabled && !ultra.cached) {
+      const mib = Math.round(ultra.bytes / (1024 * 1024));
+      toast(`Ultra textures ready: ${ultra.textures.toLocaleString()} pre-rendered (${mib.toLocaleString()} MiB).`);
+    }
   }
   showLaunch(v.game, v.title);
   const modded = app.config?.playWithMods ? action(fresh, "play-edited") : undefined;

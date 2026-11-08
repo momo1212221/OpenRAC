@@ -26,6 +26,8 @@ if(OPENRAC_PROBE_BAKER)
     enhanced/tools/baker/sources/emission_audit.cpp
     enhanced/tools/baker/sources/emission_catalog.cpp
     enhanced/tools/baker/sources/emission_prepare.cpp
+    enhanced/tools/baker/sources/emission_review.cpp
+    enhanced/tools/baker/sources/emission_textures.cpp
     enhanced/tools/baker/sources/interior_inputs.cpp
     enhanced/tools/baker/sources/interior_prepare.cpp
     enhanced/tools/baker/sources/interior_sources.cpp
@@ -87,6 +89,8 @@ if(OPENRAC_PROBE_BAKER)
       "${PROJECT_SOURCE_DIR}/enhanced/tools/baker/test_native_pipeline.py"
       "$<TARGET_FILE:openrac-enhanced-baker>")
     set_tests_properties(enhanced_baker_pipeline PROPERTIES TIMEOUT 120)
+    set_property(TEST enhanced_water_sources enhanced_baker_cli enhanced_baker_pipeline
+      APPEND PROPERTY LABELS baker)
     if(WIN32)
       set_tests_properties(enhanced_water_sources enhanced_baker_cli enhanced_baker_pipeline PROPERTIES
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:embree>")

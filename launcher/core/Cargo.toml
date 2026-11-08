@@ -8,7 +8,10 @@ publish.workspace = true
 [dependencies]
 base64 = "0.22"
 chd = { version = "=0.3.4", default-features = false, features = ["std"] }
+# Mod codes (modset.rs): a set's JSON, zlib-compressed.
+flate2 = "1"
 minisign-verify = "0.3"
+png = "0.18"
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 # Mods from a repository's release (remote.rs): the assets' SHA-256 against SHA256SUMS.

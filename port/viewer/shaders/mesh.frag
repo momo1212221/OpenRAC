@@ -12,6 +12,7 @@ in vec2 v_uv;
 in vec4 v_colour;
 in vec3 v_normal;
 in vec3 v_world_position;
+in float v_rt_sun_visibility;
 in vec4 v_probe_multiplier;
 flat in vec4 v_probe_selector;
 flat in int v_lit;
@@ -112,6 +113,21 @@ vec3 surface_emission(vec4 texel) {
     // Scripted brightness follows the original encoded GS modulation, then decodes once.
     return probe_linear(clamp(texel.rgb * v_script_emission, vec3(0.0), vec3(1.0)))
         + authored_emission();
+}
+
+uniform int probe_look_count;
+uniform vec4 probe_look[24]; // Twelve boxes: minimum/feather and maximum/diffuse gain.
+
+vec3 apply_probe_look(vec3 diffuse, vec3 emitted) {
+    float gain = 1.0;
+    for (int i = 0; i < probe_look_count; ++i) {
+        vec4 low = probe_look[i * 2];
+        vec4 high = probe_look[i * 2 + 1];
+        vec3 edge = min(v_world_position - low.xyz, high.xyz - v_world_position);
+        float weight = smoothstep(0.0, low.w, min(edge.x, min(edge.y, edge.z)));
+        gain *= mix(1.0, high.w, weight);
+    }
+    return diffuse * gain + emitted;
 }
 
 uniform int object_reflection_enabled;
@@ -231,6 +247,15 @@ vec3 probe_surface(vec4 texel, vec3 original) {
     vec3 eye_position = (view * vec4(v_world_position, 1.0)).xyz;
     vec3 eye_normal = orient_shading_normal(mat3(view) * n, mat3(view) * geometric, -eye_position);
     n = transpose(mat3(view)) * eye_normal;
+    if (probe_mode == 4) {
+        // Read the same grid blend directly, even when normal shading uses cached irradiance.
+        vec3 ignored;
+        float dense_weight;
+        vec3 bias = probe_surface_bias(n, transpose(mat3(view)) * (-eye_position));
+        bool covered = sample_probe_irradiance(v_world_position, n, bias, ignored, dense_weight);
+        return covered ? mix(vec3(0.0, 0.5, 1.0), vec3(0.0, 1.0, 0.0), dense_weight)
+                       : vec3(1.0, 0.0, 1.0);
+    }
     vec3 surface_n = n;
     float fur_grain = 1.;
 #ifdef OPENRAC_HERO_FUR
@@ -261,16 +286,16 @@ vec3 probe_surface(vec4 texel, vec3 original) {
         cached_surface = false;
         cached_coverage = sample_probe_irradiance(v_world_position, n,
             probe_surface_bias(n, transpose(mat3(view)) * (-eye_position)), cached_lighting.rgb);
-        cached_lighting.a = sun_shadow_visibility(v_world_position, n, n);
+        cached_lighting.a = min(sun_shadow_visibility(v_world_position, n, n), v_rt_sun_visibility);
         hero_visibility = hero_shadow_visibility(v_world_position, n);
     }
 #endif
     if (!hero_shadow_applies(n)) {
         hero_visibility = 1.0;
     }
-    float sun_visibility = cached_lighting.a;
+    float sun_visibility = min(cached_lighting.a, v_rt_sun_visibility);
 #else
-    float sun_visibility = sun_shadow_visibility(v_world_position, n, n);
+    float sun_visibility = min(sun_shadow_visibility(v_world_position, n, n), v_rt_sun_visibility);
     float hero_visibility = hero_shadow_visibility(v_world_position, n);
 #endif
     // Either projection casts a normal shadow in sunlight, including beyond cascade coverage.
@@ -281,9 +306,10 @@ vec3 probe_surface(vec4 texel, vec3 original) {
         hero_cue = 1.0 - 0.45 * hero_shadow_air_blend * (1.0 - sun_visibility) * (1.0 - hero_visibility);
     }
     vec3 albedo = probe_linear(texel.rgb) * material_colour.rgb * v_probe_multiplier.rgb;
-    if (probe_terrain_albedo != 0) {
+    if (probe_terrain_albedo > 0.0) {
         // Preserve the GS modulation as an artistic material tint, then decode once.
-        albedo = probe_linear(clamp(texel.rgb * v_colour.rgb * material_colour.rgb, 0.0, 1.0));
+        vec3 tint = mix(vec3(1.0), v_colour.rgb, probe_terrain_albedo);
+        albedo = probe_linear(clamp(texel.rgb * tint * material_colour.rgb, 0.0, 1.0));
     }
     vec3 emitted = surface_emission(texel);
     vec3 fur_direct = vec3(0.);
@@ -327,9 +353,6 @@ vec3 probe_surface(vec4 texel, vec3 original) {
 #else
     bool covered = sample_probe_irradiance(v_world_position, n, surface_bias, indirect);
 #endif
-    if (probe_mode == 4) {
-        return covered ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 1.0);
-    }
     // Diagnostic views must not silently substitute original lighting:
     // indirect is black without coverage, while direct is independent of GI.
     if (!covered && probe_mode == 2) {
@@ -364,7 +387,8 @@ vec3 probe_surface(vec4 texel, vec3 original) {
     if (foliage) {
         vec3 colour = foliage_surface(v_world_position, n, toward_camera, albedo, indirect,
             selector, visibility, leaf, v_uv);
-        return probe_display(colour + (probe_mode == 1 && foliage_debug == 0 ? emitted : vec3(0.)));
+        return probe_display(probe_mode == 1 && foliage_debug == 0
+                                 ? apply_probe_look(colour, emitted) : colour);
     }
 #endif
     // Fine fur changes material response; shadow tests, probe lookup bias and cached GI keep smooth normals.
@@ -378,7 +402,7 @@ vec3 probe_surface(vec4 texel, vec3 original) {
     // darken or tint it from there. The original lighting has no cast shadows, so cast shade keeps
     // about a third of the sun (0.1 + 0.9 x 0.28) instead of a tenth: the shapes stay, the level's
     // brightness stays near the original's.
-    if (probe_retail_anchor != 0 && probe_receiver == 1 && probe_terrain_albedo != 0
+    if (probe_retail_anchor != 0 && probe_receiver == 1 && probe_terrain_albedo > 0.0
         && probe_mode == 1) {
         vec3 open = probe_direct(v_world_position, surface_n, selector, 1.0)
                     + open_indirect / 3.14159265359;
@@ -406,11 +430,9 @@ vec3 probe_surface(vec4 texel, vec3 original) {
     }
 #endif
     // Emission is independent of GI exposure, AO and shadow visibility.
-    return probe_display(
-        wet_coat(albedo * illumination * material_diffuse_scale + rim, surface_n, toward_camera, visibility)
-        + fur_direct + fur_indirect
-        + (probe_mode == 1 ? emitted : vec3(0.0))
-    );
+    vec3 diffuse = wet_coat(albedo * illumination * material_diffuse_scale + rim,
+                            surface_n, toward_camera, visibility) + fur_direct + fur_indirect;
+    return probe_display(probe_mode == 1 ? apply_probe_look(diffuse, emitted) : diffuse);
 }
 
 #else

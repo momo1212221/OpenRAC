@@ -183,6 +183,22 @@ Result<LocalLight> resolve_attached_light(
     resolved.position = renderer::transform_point(frame, resolved.position);
     resolved.direction = renderer::normalize(renderer::transform_vector(frame, resolved.direction));
 
+    // Authored ranges are in model units. Instance matrices already scale attachment positions, so
+    // scale the spherical/conical reach as well. The largest axis is conservative for nonuniform
+    // instances: a world-space sphere cannot represent an ellipsoid without clipping its long axis.
+    float instance_scale = 0.0f;
+    for (const renderer::Vec3 axis : std::array<renderer::Vec3, 3>{
+             renderer::Vec3{instance.matrix[0], instance.matrix[1], instance.matrix[2]},
+             renderer::Vec3{instance.matrix[4], instance.matrix[5], instance.matrix[6]},
+             renderer::Vec3{instance.matrix[8], instance.matrix[9], instance.matrix[10]}
+         }) {
+        instance_scale = std::max(instance_scale, std::sqrt(renderer::dot(axis, axis)));
+    }
+    if (!std::isfinite(instance_scale) || instance_scale <= 0) {
+        return unexpected(Error{"light attachment has a singular instance scale"});
+    }
+    resolved.range *= instance_scale;
+
     for (unsigned c = 0; c < 3; ++c) {
         if (!std::isfinite(resolved.position[c]) || !std::isfinite(resolved.direction[c])) {
             return unexpected(Error{"light attachment transform is not finite"});

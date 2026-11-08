@@ -75,6 +75,7 @@ private:
     renderer::Shader m_cull;
     renderer::Mat4 m_clip{};
     int m_width = 0, m_height = 0;
+    unsigned m_depth = 0;
     unsigned m_count = 0;
     std::size_t m_mask_words = 0;
     bool m_ready = false, m_enabled = false, m_failed = false;
