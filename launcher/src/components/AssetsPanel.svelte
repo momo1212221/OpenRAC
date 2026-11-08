@@ -12,7 +12,8 @@
   import { hidePaths } from "$lib/paths";
   import type { Job } from "$lib/queue";
   import { toolFailure } from "$lib/toolErrors";
-  import CommandBox from "./CommandBox.svelte";\n  import SkinPanel from "./SkinPanel.svelte";
+  import CommandBox from "./CommandBox.svelte";
+  import SkinPanel from "./SkinPanel.svelte";
 
   let { version: v, onimported }: { version: VersionView; onimported?: () => void } = $props();
 
