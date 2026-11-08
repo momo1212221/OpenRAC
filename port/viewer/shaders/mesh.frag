@@ -125,8 +125,8 @@ float material_sidecar_height() {
 }
 float material_sidecar_specular(float fallback) {
     if (material_sidecars_enabled == 0) return fallback;
-    vec4 sample = texture(material_sidecar_specular_tex, fract(v_uv));
-    return sample.a > .5 ? sample.r : fallback;
+    vec4 specular_sample = texture(material_sidecar_specular_tex, fract(v_uv));
+    return specular_sample.a > .5 ? specular_sample.r : fallback;
 }
 vec3 material_sidecar_detail() {
     return material_sidecars_enabled != 0
