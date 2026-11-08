@@ -468,6 +468,48 @@ void test_menu_bar_key(const std::filesystem::path& file) {
     std::filesystem::remove(file);
 }
 
+void test_graphics_presets() {
+    using namespace openrac;
+    settings::Settings s;
+    s.display_mode = settings::DisplayMode::Borderless;
+    s.hdr = hdr::Mode::On;
+    s.hdr_peak = 1400;
+    s.frame_rate = settings::FrameRate::Capped;
+    s.frame_cap = 144;
+
+    for (const auto preset : {
+             settings::GraphicsPreset::SteamDeck,
+             settings::GraphicsPreset::AppleSilicon,
+             settings::GraphicsPreset::Balanced,
+             settings::GraphicsPreset::Rtx,
+         }) {
+        settings::apply_graphics_preset(s, preset);
+        CHECK(settings::graphics_preset(s) == preset);
+        CHECK(s.display_mode == settings::DisplayMode::Borderless);
+        CHECK(s.hdr == hdr::Mode::On && s.hdr_peak == 1400);
+        CHECK(s.frame_rate == settings::FrameRate::Capped && s.frame_cap == 144);
+    }
+
+    settings::apply_graphics_preset(s, settings::GraphicsPreset::SteamDeck);
+    CHECK(s.temporal_quality == renderer::TemporalQuality::Balanced);
+    CHECK(s.shadow_quality == renderer::ShadowQuality::Medium);
+    CHECK(s.volumetric_quality == renderer::VolumetricQuality::Low);
+    CHECK(s.original_lod && s.draw_distance == 200 && !s.ray_tracing);
+    CHECK(s.anisotropy == 4);
+
+    settings::apply_graphics_preset(s, settings::GraphicsPreset::Rtx);
+    CHECK(s.temporal_quality == renderer::TemporalQuality::NativeAA);
+    CHECK(s.gtao_settings.quality == renderer::GtaoQuality::Quality);
+    CHECK(!s.gtao_settings.half_resolution && s.gtao_settings.hi_z);
+    CHECK(s.volumetric_quality == renderer::VolumetricQuality::High);
+    CHECK(!s.original_lod && s.draw_distance == 0 && s.ray_tracing);
+    CHECK(s.anisotropy == 16);
+
+    s.gtao_settings.steps += 1;
+    CHECK(settings::graphics_preset(s) == settings::GraphicsPreset::Custom);
+    CHECK(std::string(settings::name(settings::GraphicsPreset::Custom)) == "Custom");
+}
+
 }  // namespace
 
 int main() {
@@ -497,6 +539,7 @@ int main() {
     test_lily_momentum(file);
     test_hdr_settings(file);
     test_reset_enhanced();
+    test_graphics_presets();
     test_agx_preview(file);
     test_motion_blur_tuning(file);
     test_shadow_quality(file);
