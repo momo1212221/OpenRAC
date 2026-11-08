@@ -18,5 +18,5 @@ if(NOT OpenRACMod_DIR)
   endif()
 endif()
 
-find_package(OpenRACMod 1.12 REQUIRED)
+find_package(OpenRACMod 1.14 REQUIRED)
 openrac_add_mod(enhanced_weapons MANIFEST openrac-mod.json SOURCES src/mod.cpp)
