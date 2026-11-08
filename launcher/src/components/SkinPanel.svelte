@@ -103,7 +103,10 @@
           </button>
         {:else}
           <button disabled={!exporter.runnable || busy !== null} onclick={() => void exportSkin()}>
-            {#if busy === "export"}<span class="spinner"></span>{:else}<Icon name="external" size={16} />{/if}{SKINS.export}
+            {#if busy === "export"}<span class="spinner"></span>{:else}<Icon
+                name="external"
+                size={16}
+              />{/if}{SKINS.export}
           </button>
         {/if}
       </div>
@@ -156,7 +159,9 @@
     justify-content: space-between;
   }
   .head h3,
-  .head p { margin: 0; }
+  .head p {
+    margin: 0;
+  }
   .eyebrow {
     color: var(--amber);
     font-size: 0.75rem;
@@ -177,11 +182,21 @@
     border-radius: var(--radius-sm);
     background: var(--card);
   }
-  .step .muted { min-height: 3em; }
-  .failed { color: var(--err); }
-  .done { color: var(--ok); }
+  .step .muted {
+    min-height: 3em;
+  }
+  .failed {
+    color: var(--err);
+  }
+  .done {
+    color: var(--ok);
+  }
   @media (max-width: 760px) {
-    .steps { grid-template-columns: 1fr; }
-    .head { flex-direction: column; }
+    .steps {
+      grid-template-columns: 1fr;
+    }
+    .head {
+      flex-direction: column;
+    }
   }
 </style>
