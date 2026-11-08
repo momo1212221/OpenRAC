@@ -303,3 +303,16 @@ Some rules:
 6. Start the game. The log says
    `texture pack: 5d0c7a1b2e3f4a96.png animated, 4 frame(s) of 32x32` when the
    icon is first shown, and it pulses. Pause the game and it holds still.
+
+
+### Advanced authored optics
+
+Enhanced material catalogs may add a neutral-by-default second optical layer on top of texture-pack
+PBR. `surface.clearcoat` / `surface.clearcoat_roughness` model a thin dielectric coat for painted
+weapons, varnished panels and similar surfaces. `surface.anisotropy` and
+`surface.anisotropy_rotation` orient the GGX response for brushed or directional metal.
+
+All four fields default to the legacy response. Clearcoat conserves a small amount of base-layer
+energy, and an authored anisotropic response replaces the isotropic sidecar environment lobe instead
+of stacking the same reflection twice. Transmission/IOR/thickness are accepted by the material
+runtime but are not consumed by this stage yet.

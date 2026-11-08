@@ -55,3 +55,15 @@ use the exported `model` name and zero-based `material_slot` (`-1` for implicit 
 see its source; edits preview live, Save writes a sparse overlay atomically, and Discard restores the
 last loaded/saved values. Saving refuses external file changes. Importing new image references and
 changing verified fur coverage require editing the JSON and reloading the level.
+
+
+## Advanced optical surface fields
+
+Version 1 catalogs also accept runtime-only optical controls under `surface`: `clearcoat`
+(0..1), `clearcoat_roughness` (0.04..1), signed `anisotropy` (-0.95..0.95),
+`anisotropy_rotation` (0..1 turns), `transmission` (0..1), `ior` (1..2.5) and
+`thickness` (0..8). These fields are intentionally excluded from static transport fingerprints:
+they describe the runtime BRDF/BTDF and do not alter baked diffuse/emission transport by themselves.
+
+Adding the schema does not change the appearance of existing materials; renderer consumers opt in to
+these fields explicitly. Missing fields retain the established standard-material behavior.

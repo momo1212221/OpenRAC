@@ -98,6 +98,37 @@ void test_validation() {
     );
 }
 
+
+// Advanced optical controls are runtime-only, strictly ranged and survive stable serialization.
+void test_advanced_optical_schema() {
+    const auto source = catalog(
+        R"({"version":1,"presets":{"coated":{"surface":{"clearcoat":0.8,"clearcoat_roughness":0.12,"anisotropy":-0.5,"anisotropy_rotation":0.25,"transmission":0.4,"ior":1.45,"thickness":2.0}}}})"
+    );
+    const auto& properties = source.presets.at("coated");
+    CHECK(materials::number_value(properties, "surface.clearcoat", 0) == .8f);
+    CHECK(materials::number_value(properties, "surface.clearcoat_roughness", 1) == .12f);
+    CHECK(materials::number_value(properties, "surface.anisotropy", 0) == -.5f);
+    CHECK(materials::number_value(properties, "surface.anisotropy_rotation", 0) == .25f);
+    CHECK(materials::number_value(properties, "surface.transmission", 0) == .4f);
+    CHECK(materials::number_value(properties, "surface.ior", 1) == 1.45f);
+    CHECK(materials::number_value(properties, "surface.thickness", 0) == 2.f);
+    CHECK(materials::transport_properties(properties).empty());
+    const auto text = materials::catalog_text(source);
+    CHECK(text && materials::parse_catalog(*text));
+
+    for (std::string_view invalid : {
+             R"({"version":1,"presets":{"x":{"surface":{"clearcoat":1.1}}}})",
+             R"({"version":1,"presets":{"x":{"surface":{"clearcoat_roughness":0.01}}}})",
+             R"({"version":1,"presets":{"x":{"surface":{"anisotropy":1.0}}}})",
+             R"({"version":1,"presets":{"x":{"surface":{"anisotropy_rotation":-0.1}}}})",
+             R"({"version":1,"presets":{"x":{"surface":{"transmission":1.1}}}})",
+             R"({"version":1,"presets":{"x":{"surface":{"ior":0.9}}}})",
+             R"({"version":1,"presets":{"x":{"surface":{"thickness":9.0}}}})",
+         }) {
+        CHECK(!materials::parse_catalog(invalid));
+    }
+}
+
 // Object-specific settings affect every matching instance without leaking to another layer or class.
 void test_identity_and_conflicts() {
     const auto source =
@@ -209,6 +240,7 @@ void test_round_trip_and_bake_projection() {
 int main() {
     try {
         test_validation();
+        test_advanced_optical_schema();
         test_rounding_independence();
         test_preset_field_precedence();
         test_json_reader_compatibility();
