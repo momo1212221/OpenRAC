@@ -3,7 +3,9 @@
 //
 // Process-held cache locking and background resource budgets, independent of a graphics context.
 #include <algorithm>
+#include <fstream>
 #include <stdexcept>
+#include <string>
 #include <thread>
 
 #include "enhanced/tools/baker/pipeline/pipeline_internal.h"
@@ -13,6 +15,7 @@
 #define NOMINMAX
 #include <fcntl.h>
 #include <io.h>
+#include <process.h>
 #include <share.h>
 #include <windows.h>
 
@@ -31,6 +34,39 @@
 
 namespace openrac::lighting::pipeline {
 namespace {
+std::uint64_t process_id() {
+#if defined(_WIN32)
+    return static_cast<std::uint64_t>(_getpid());
+#else
+    return static_cast<std::uint64_t>(getpid());
+#endif
+}
+
+void write_lock_owner(int file, const std::filesystem::path& directory) {
+    const std::string text =
+        "pid=" + std::to_string(process_id()) + "\ncache=" + directory.string() + "\n";
+#if defined(_WIN32)
+    if (_lseek(file, 0, SEEK_SET) >= 0 && _chsize_s(file, 0) == 0) {
+        (void)_write(file, text.data(), static_cast<unsigned>(text.size()));
+        (void)_commit(file);
+    }
+#else
+    if (lseek(file, 0, SEEK_SET) >= 0 && ftruncate(file, 0) == 0) {
+        (void)write(file, text.data(), text.size());
+        (void)fsync(file);
+    }
+#endif
+}
+
+std::string lock_owner(const std::filesystem::path& path) {
+    std::ifstream stream(path, std::ios::binary);
+    std::string owner((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+    while (!owner.empty() && (owner.back() == '\n' || owner.back() == '\r')) {
+        owner.pop_back();
+    }
+    return owner;
+}
+
 // Queries physical RAM for the scene budget; a failed query uses the conservative job fallback.
 std::uint64_t physical_memory() {
 #if defined(_WIN32)
@@ -99,6 +135,7 @@ CacheLock::CacheLock(const std::filesystem::path& directory) {
 
     // Lock the same first byte used by the Python reference flow.
     if (m_file >= 0 && _locking(m_file, _LK_NBLCK, 1) == 0) {
+        write_lock_owner(m_file, directory);
         return;
     }
 
@@ -112,6 +149,7 @@ CacheLock::CacheLock(const std::filesystem::path& directory) {
 
     // POSIX uses the same process-held lock as the Python reference flow.
     if (m_file >= 0 && flock(m_file, LOCK_EX | LOCK_NB) == 0) {
+        write_lock_owner(m_file, directory);
         return;
     }
 
@@ -121,7 +159,11 @@ CacheLock::CacheLock(const std::filesystem::path& directory) {
     }
 #endif
     m_file = -1;
-    throw std::runtime_error("bake cache is busy or cannot be locked");
+    const auto owner = lock_owner(path);
+    throw std::runtime_error(
+        "bake cache is busy or cannot be locked: " + path.string()
+        + (owner.empty() ? std::string{} : " (" + owner + ")")
+    );
 }
 
 CacheLock::~CacheLock() {
