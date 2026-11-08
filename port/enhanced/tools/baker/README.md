@@ -165,3 +165,32 @@ Example:
   "quality": "ultra"
 }
 ```
+
+
+### GI bake quality
+
+`gi_quality` accepts `"standard"` (default) or `"ultra"`.
+
+Ultra is intended for final offline lighting bakes. It raises the resolved profile to at least:
+
+- 1024 primary rays per probe;
+- 3 indirect bounces;
+- 8x8 irradiance/distance-map interior texels per probe.
+
+Any explicitly authored values above those floors remain unchanged. Probe placement density is not
+automatically increased, so Ultra improves transport/angular quality without multiplying the number
+of runtime probes. Because the resolved transport values are shared with runtime activation, the
+existing probe settings hash rejects stale Standard assets when an Ultra profile is active.
+
+Example:
+
+```json
+{
+  "version": 1,
+  "gi_quality": "ultra",
+  "environment_probes": {
+    "enabled": true,
+    "quality": "ultra"
+  }
+}
+```
