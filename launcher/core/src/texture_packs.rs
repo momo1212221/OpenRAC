@@ -1488,7 +1488,7 @@ mod tests {
         let out = t.path().join("out.zip");
         assert_eq!(export(&home, &data, "rac2", "ntsc", "1.2.3", &out).unwrap(), (1, 1));
         let mut archive = open_zip(&out).unwrap();
-        let names: Vec<String> = archive.file_names().map(str::to_string).collect();
+        let names: Vec<String> = archive.file_names().map(|n| n.unwrap().into_owned()).collect();
         assert_eq!(names, [MANIFEST.to_string(), format!("Planets/Oozla/{HASH_B}.png")]);
         let mut text = String::new();
         archive.by_name(MANIFEST).unwrap().read_to_string(&mut text).unwrap();
@@ -1640,14 +1640,14 @@ mod tests {
         let out = t.path().join("out.zip");
         assert_eq!(export(&home, &data, "rac2", "ntsc", "1", &out).unwrap(), (4, 0));
         let archive = open_zip(&out).unwrap();
-        let names: Vec<&str> = archive.file_names().collect();
+        let names: Vec<String> = archive.file_names().map(|n| n.unwrap().into_owned()).collect();
         for want in [
             "Interface/0123456789abcdef/0001.png",
             "Interface/0123456789abcdef/animation.json",
             "Shared/fedcba9876543210.gif",
             "Animated/00000000000000c0/00000000000000d0.png",
         ] {
-            assert!(names.contains(&want), "{want} in {names:?}");
+            assert!(names.iter().any(|n| n == want), "{want} in {names:?}");
         }
         // An animation folder without frames, or a GIF that is not one, is refused.
         let empty = t.path().join("empty.zip");
