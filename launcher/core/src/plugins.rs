@@ -380,6 +380,11 @@ impl Manifest {
             return Err("only a script mod (\"type\": \"script\") names scripts".into());
         }
         if let Some(tool) = &self.tool {
+            if let Some(service) = &tool.service {
+                if service != &self.id || !matches!(service.as_str(), "graphics-preparation" | "save-backup-sync") {
+                    return Err("Unknown or mismatched launcher service".into());
+                }
+            }
             if !safe_relative(&tool.page) || !tool.page.ends_with(".html") {
                 return Err(format!("its page {:?} is not an .html file inside the mod", tool.page));
             }
