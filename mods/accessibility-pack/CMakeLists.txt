@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+project(accessibility_pack LANGUAGES C CXX)
+set(OpenRACMod_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../sdk/cmake")
+find_package(OpenRACMod 1.12 REQUIRED)
+openrac_add_mod(accessibility_pack MANIFEST openrac-mod.json SOURCES src/mod.cpp)
