@@ -49,7 +49,7 @@ if(OPENRAC_ENHANCED_RENDERING)
 endif()
 
 # The general Object Viewer is ready; additive object-light authoring remains opt-in work in progress.
-option(OPENRAC_LIGHT_AUTHORING "Compile experimental object-light authoring and attached light profiles" OFF)
+option(OPENRAC_LIGHT_AUTHORING "Compile experimental object-light authoring and attached light profiles" ON)
 if(OPENRAC_LIGHT_AUTHORING)
   add_compile_definitions(OPENRAC_LIGHT_AUTHORING=1)
 endif()
@@ -90,6 +90,7 @@ add_library(openrac_common STATIC
   common/crash.cpp
   common/crash_symbols.cpp
   common/env.cpp
+  common/launch_modules.cpp
   common/json.cpp
   common/log.cpp
   common/parallel.cpp
@@ -150,6 +151,7 @@ openrac_add_test(hdr INCLUDES .)
 openrac_add_test(frame_counter INCLUDES .)
 openrac_add_test(render_worker SOURCES tests/render_worker_test.cpp
   game/common/frontend/render_worker.cpp INCLUDES . LIBS openrac_common Threads::Threads)
+openrac_add_test(cloud_field SOURCES enhanced/tests/cloud_field_test.cpp INCLUDES .)
 openrac_add_test(settings SOURCES tests/settings_test.cpp game/common/settings.cpp
                           LIBS openrac_common)
 # Texture packs: names by hash, replacement, the dump (renderer/texture_pack.h).
