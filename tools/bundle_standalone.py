@@ -305,8 +305,10 @@ def editor_file(rel: Path) -> bool:
     """Whether the copy takes editor/REL: the tools and what a level's Godot project gets
     (editor/godot.py copies rc1/ and the Collision dock's addon, plugin.cfg included), and the
     project format the editor and the launcher both read (project_format.json)."""
-    if rel.as_posix() in ("project_format.json", "AUDIO_MODDING.md"):
-        return True  # AUDIO_MODDING.md: the Audio tab's "How it works" opens it
+    if rel.as_posix() in ("project_format.json", "AUDIO_MODDING.md", "SKINS.md"):
+        return True  # Guides opened by the launcher's modding panels.
+    if rel.parts and rel.parts[0] == "skin_editor":
+        return rel.suffix in (".html", ".css", ".js")
     return not rel.name.startswith("test_") and rel.suffix in (".py", ".tsv", ".gd", ".cfg", "")
 
 
