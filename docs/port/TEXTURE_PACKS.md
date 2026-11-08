@@ -142,8 +142,12 @@ squared space, and emissive mip levels are filtered in linear light. This avoids
 collapse, over-shiny roughness mips and emissive darkening.
 
 Metallic and Specular participate in the enhanced GGX/environment response. Cavity conservatively
-strengthens local occlusion and Edge-Wear slightly lowers roughness on exposed edges. Height is
-preserved in ORMH alpha for a future parallax/POM path; it does not displace geometry today.
+strengthens local occlusion and Edge-Wear slightly lowers roughness on exposed edges.
+
+Height-driven parallax is enabled only when an `albedo.png` sidecar is present, keeping every shifted
+material lookup aligned with the shifted base colour. The current path uses two height samples with a
+strict 0.8% UV-offset cap and fades out at unstable grazing angles. It changes surface sampling only;
+geometry, depth, alpha tests and collisions remain untouched.
 
 ## A pack's .zip
 
