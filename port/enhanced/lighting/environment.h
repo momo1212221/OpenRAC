@@ -14,6 +14,11 @@ inline constexpr unsigned kEnvironmentBrdfSize = 64;
 // Omit the sharpest capture level while retaining its source resolution for GGX filtering.
 inline constexpr unsigned kEnvironmentFirstMip = 1;
 
+enum class EnvironmentBakeQuality : std::uint8_t {
+    Standard,
+    Ultra,
+};
+
 // Per-level capture safety limit, not a placement target; disabled until a level opts in.
 struct EnvironmentBakeSettings {
     bool enabled = false;
@@ -22,10 +27,23 @@ struct EnvironmentBakeSettings {
     float minimum_capture_spacing = 6;
     float minimum_space_area = 4;  // World units squared required for an independent open patch.
     bool merge_enabled = true;
+    EnvironmentBakeQuality quality = EnvironmentBakeQuality::Standard;
     float merge_overlap = .85f, merge_loss_fraction = .005f;
     unsigned merge_max_misses = 2;
     float merge_brightness_ratio = 2, merge_colour_distance = .06f;
 };
+
+constexpr EnvironmentBakeSettings resolve_environment_bake_settings(
+    EnvironmentBakeSettings settings
+) {
+    if (settings.quality == EnvironmentBakeQuality::Ultra) {
+        // Maximum supported capture resolution with enough samples to make the roughness chain
+        // visibly smoother. Atlas/storage validation remains the authoritative hard safety gate.
+        settings.resolution = 256;
+        settings.filter_samples = 2048;
+    }
+    return settings;
+}
 
 // The capture point and the geometry proxy used for box-projected reflections.
 struct EnvironmentProbe {
