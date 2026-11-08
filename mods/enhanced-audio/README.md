@@ -1,24 +1,36 @@
 # Enhanced Audio
 
-This is the native foundation for the Enhanced Audio project.
+A native OpenRAC mod that adds optional, non-gameplay audio feedback to **Ratchet & Clank**.
 
-OpenRAC already supports legal user-provided audio replacement packs through the stacked mods folder:
+## Features
 
+- Hit-confirmation cue when the player's attack connects.
+- Damage cue only when Ratchet actually loses health.
+- Dry-fire cue when a weapon cannot spend the ammo required for a shot.
+- Optional low-health heartbeat with configurable threshold.
+- Global cue volume setting and presets.
+- Uses small original procedural audio cues included with the mod; no game audio is redistributed.
+
+Enhanced Audio does not claim HRTF, reverb replacement or mixer control that OpenRAC's current mod API does not expose.
+
+## Compatibility
+
+- Ratchet & Clank PAL
+- Ratchet & Clank NTSC-U
+- OpenRAC mod interface 1.12 or newer
+- Standard OpenRAC launcher and native mod loader
+
+## Build
+
+```sh
+python3 tools/fetch_sdk.py
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure --no-tests=ignore
 ```
-audio/<sound-key>.wav
-```
 
-The current public mod API can load/play a mod's own sounds, but it cannot yet intercept every game sound or control spatialisation/HRTF/reverb for the game's mixer. Therefore v0.1 deliberately does **not** fake those features.
+## Release
 
-Implemented:
-- native mod manifest and launcher settings
-- cosmetic multiplayer classification
-- optional in-game capability/status line
-- compatibility with OpenRAC's existing audio replacement pack layer
+Tag `v0.1.0` for a standalone repository, or `enhanced-audio-v0.1.0` in a multi-mod repository.
 
-Next port/API work:
-- expose per-group mixer gain to mods
-- expose game sound play events with position/category
-- optional HRTF/spatial backend
-- reverb/room profile control
-- speech/music/effects category controls
+Author: **Moritz Wallinger**.
