@@ -64,6 +64,8 @@ uniform int material_sidecars_enabled;
 uniform sampler2D material_sidecar_normal_tex;
 uniform sampler2D material_sidecar_ormh_tex;
 uniform sampler2D material_sidecar_emissive_tex;
+uniform sampler2D material_sidecar_specular_tex;
+uniform sampler2D material_sidecar_detail_tex;
 #endif
 
 #ifdef OPENRAC_HERO_WETNESS
@@ -115,8 +117,27 @@ float material_sidecar_ao() { return material_sidecar_ormh_sample().r; }
 float material_sidecar_roughness(float fallback) {
     return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().g : fallback;
 }
+float material_sidecar_metallic() {
+    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().b : 0.;
+}
 float material_sidecar_height() {
-    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().b : .5;
+    return material_sidecars_enabled != 0 ? material_sidecar_ormh_sample().a : .5;
+}
+float material_sidecar_specular(float fallback) {
+    if (material_sidecars_enabled == 0) return fallback;
+    vec4 specular_sample = texture(material_sidecar_specular_tex, fract(v_uv));
+    return specular_sample.a > .5 ? specular_sample.r : fallback;
+}
+vec3 material_sidecar_detail() {
+    return material_sidecars_enabled != 0
+        ? texture(material_sidecar_detail_tex, fract(v_uv)).rgb
+        : vec3(0.);
+}
+float material_sidecar_cavity() { return material_sidecar_detail().r; }
+float material_sidecar_curvature() { return material_sidecar_detail().g; }
+float material_sidecar_edgewear() { return material_sidecar_detail().b; }
+float material_sidecar_occlusion() {
+    return material_sidecar_ao() * mix(1., .82, material_sidecar_cavity());
 }
 vec3 material_sidecar_emission() {
     return material_sidecars_enabled != 0
@@ -410,7 +431,7 @@ vec3 probe_surface(vec4 texel, vec3 original) {
         return probe_display(fallback);
     }
     // Artistic GI exposure; keep the bake and direct-light energy unchanged.
-    indirect *= probe_gi_multiplier * material_sidecar_ao();
+    indirect *= probe_gi_multiplier * material_sidecar_occlusion();
     if (probe_retail_anchor != 0 && probe_receiver == 2 && probe_mode == 1) {
         indirect = retail_ambient_floor(indirect, v_probe_ambient);
     }
@@ -471,9 +492,30 @@ vec3 probe_surface(vec4 texel, vec3 original) {
         rim = gameplay_rim(indirect, eye_normal, -eye_position);
     }
 #endif
+    // Sidecar PBR is additive to the legacy material system: ordinary colour materials can now
+    // reflect their environment without having to be authored as a separate chrome pass.
+    float sidecar_metallic = material_sidecar_metallic();
+    float sidecar_f0 = material_sidecar_specular(.04);
+    vec3 sidecar_specular = vec3(0.);
+#if !defined(OPENRAC_SOLID) && !defined(OPENRAC_STATIC_COLOUR)
+    if (material_sidecars_enabled != 0 && probe_mode == 1
+        && (sidecar_metallic > .01 || sidecar_f0 > .045) && dot(surface_n, toward_camera) > 0.) {
+        float roughness = clamp(
+            material_sidecar_roughness(.65) * mix(1., .88, material_sidecar_edgewear()), .04, 1.
+        );
+        float f0 = mix(sidecar_f0, max(sidecar_f0, .65), sidecar_metallic);
+        sidecar_specular = environment_specular(
+            v_world_position, surface_n, toward_camera, roughness, f0, vec3(0.)
+        ) * mix(.3, 1., sidecar_metallic);
+    }
+#endif
+    // Metals transfer energy from diffuse response into reflection; dielectrics retain the retail
+    // diffuse response and receive only their authored F0 reflection.
+    vec3 diffuse_albedo = albedo * mix(1., .16, sidecar_metallic);
     // Emission is independent of GI exposure, AO and shadow visibility.
-    vec3 diffuse = wet_coat(albedo * illumination * material_diffuse_scale + rim,
-                            surface_n, toward_camera, visibility) + fur_direct + fur_indirect;
+    vec3 diffuse = wet_coat(diffuse_albedo * illumination * material_diffuse_scale + rim,
+                            surface_n, toward_camera, visibility)
+                   + fur_direct + fur_indirect + sidecar_specular;
     return probe_display(probe_mode == 1 ? apply_probe_look(diffuse, emitted) : diffuse);
 }
 

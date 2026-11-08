@@ -8,8 +8,10 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstring>
 #include <memory>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -27,6 +29,8 @@ namespace {
 constexpr unsigned kMaterialNormalUnit = 8;
 constexpr unsigned kMaterialOrmhUnit = 9;
 constexpr unsigned kMaterialEmissiveUnit = 10;
+constexpr unsigned kMaterialSpecularUnit = 11;
+constexpr unsigned kMaterialDetailUnit = 12;
 
 bool same_extent(const renderer::Rgba8Image& image, int width, int height) {
     return image.width == width && image.height == height
@@ -62,35 +66,132 @@ std::optional<renderer::Rgba8Image> load_sidecar(
     return image;
 }
 
-unsigned upload_material_texture(const renderer::Rgba8Image& image, unsigned unit) {
+enum class MaterialMipKind {
+    Normal,
+    Ormh,
+    Emissive,
+    Specular,
+    Detail
+};
+
+std::uint8_t byte(float value) {
+    return static_cast<std::uint8_t>(std::clamp(std::lround(value), 0l, 255l));
+}
+
+renderer::Rgba8Image material_mip(const renderer::Rgba8Image& source, MaterialMipKind kind) {
+    const int width = std::max(1, source.width / 2);
+    const int height = std::max(1, source.height / 2);
+    renderer::Rgba8Image result(width, height);
+    const auto sample = [&](int x, int y, int channel) {
+        x = std::min(source.width - 1, x);
+        y = std::min(source.height - 1, y);
+        return source.pixels[(static_cast<std::size_t>(y) * source.width + x) * 4 + channel];
+    };
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const std::size_t out = (static_cast<std::size_t>(y) * width + x) * 4;
+            if (kind == MaterialMipKind::Normal) {
+                std::array<float, 3> normal{};
+                float alpha = 0;
+                for (int oy = 0; oy < 2; ++oy) {
+                    for (int ox = 0; ox < 2; ++ox) {
+                        normal[0] += sample(x * 2 + ox, y * 2 + oy, 0) / 127.5f - 1.0f;
+                        normal[1] += sample(x * 2 + ox, y * 2 + oy, 1) / 127.5f - 1.0f;
+                        normal[2] += sample(x * 2 + ox, y * 2 + oy, 2) / 127.5f - 1.0f;
+                        alpha += sample(x * 2 + ox, y * 2 + oy, 3);
+                    }
+                }
+                const float length = std::sqrt(
+                    normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]
+                );
+                if (length > 1e-6f) {
+                    for (float& component : normal) {
+                        component /= length;
+                    }
+                } else {
+                    normal = {0, 0, 1};
+                }
+                result.pixels[out] = byte((normal[0] * 0.5f + 0.5f) * 255.0f);
+                result.pixels[out + 1] = byte((normal[1] * 0.5f + 0.5f) * 255.0f);
+                result.pixels[out + 2] = byte((normal[2] * 0.5f + 0.5f) * 255.0f);
+                result.pixels[out + 3] = byte(alpha * 0.25f);
+                continue;
+            }
+
+            for (int channel = 0; channel < 4; ++channel) {
+                float sum = 0;
+                float maximum = 0;
+                for (int oy = 0; oy < 2; ++oy) {
+                    for (int ox = 0; ox < 2; ++ox) {
+                        const float value = sample(x * 2 + ox, y * 2 + oy, channel) / 255.0f;
+                        if (kind == MaterialMipKind::Emissive && channel < 3) {
+                            sum += std::pow(value, 2.2f);
+                        } else if (kind == MaterialMipKind::Ormh && channel == 1) {
+                            sum += value * value;
+                        } else {
+                            sum += value;
+                        }
+                        maximum = std::max(maximum, value);
+                    }
+                }
+                float value = sum * 0.25f;
+                if (kind == MaterialMipKind::Emissive && channel < 3) {
+                    value = std::pow(std::max(0.0f, value), 1.0f / 2.2f);
+                } else if (kind == MaterialMipKind::Ormh && channel == 1) {
+                    value = std::sqrt(std::max(0.0f, value));
+                } else if (kind == MaterialMipKind::Specular && channel == 3) {
+                    value = maximum;
+                }
+                result.pixels[out + channel] = byte(value * 255.0f);
+            }
+        }
+    }
+    return result;
+}
+
+unsigned upload_material_texture(
+    const renderer::Rgba8Image& image, unsigned unit, MaterialMipKind kind
+) {
     unsigned texture = 0;
     gl::glGenTextures(1, &texture);
     gl::glActiveTexture(gl::GL_TEXTURE0 + unit);
     gl::glBindTexture(gl::GL_TEXTURE_2D, texture);
-    gl::glTexImage2D(
-        gl::GL_TEXTURE_2D,
-        0,
-        static_cast<gl::GLint>(gl::GL_RGBA8),
-        image.width,
-        image.height,
-        0,
-        gl::GL_RGBA,
-        gl::GL_UNSIGNED_BYTE,
-        image.pixels.data()
-    );
+
+    renderer::Rgba8Image level = image;
+    int mip = 0;
+    for (;;) {
+        gl::glTexImage2D(
+            gl::GL_TEXTURE_2D,
+            mip,
+            static_cast<gl::GLint>(gl::GL_RGBA8),
+            level.width,
+            level.height,
+            0,
+            gl::GL_RGBA,
+            gl::GL_UNSIGNED_BYTE,
+            level.pixels.data()
+        );
+        if (level.width == 1 && level.height == 1) {
+            break;
+        }
+        level = material_mip(level, kind);
+        ++mip;
+    }
+
     gl::glTexParameteri(
         gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR
     );
     gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
     gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_S, gl::GL_REPEAT);
     gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_T, gl::GL_REPEAT);
-    gl::glGenerateMipmap(gl::GL_TEXTURE_2D);
+    gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAX_LEVEL, mip);
     gl::glBindTexture(gl::GL_TEXTURE_2D, 0);
     gl::glActiveTexture(gl::GL_TEXTURE0);
     return texture;
 }
 
-std::array<unsigned, 3> upload_sidecars(std::uint64_t hash) {
+std::array<unsigned, 5> upload_sidecars(std::uint64_t hash) {
     const auto paths = renderer::texture_pack::material_maps(hash);
     if (!paths) {
         return {};
@@ -103,6 +204,11 @@ std::array<unsigned, 3> upload_sidecars(std::uint64_t hash) {
              renderer::texture_pack::MaterialMap::Height,
              renderer::texture_pack::MaterialMap::Ao,
              renderer::texture_pack::MaterialMap::Emissive,
+             renderer::texture_pack::MaterialMap::Metallic,
+             renderer::texture_pack::MaterialMap::Specular,
+             renderer::texture_pack::MaterialMap::Cavity,
+             renderer::texture_pack::MaterialMap::Curvature,
+             renderer::texture_pack::MaterialMap::EdgeWear,
          }) {
         reference = renderer::texture_pack::load_material_map(hash, map);
         if (reference && reference->width > 0 && reference->height > 0) {
@@ -126,19 +232,42 @@ std::array<unsigned, 3> upload_sidecars(std::uint64_t hash) {
                   .value_or(material_default(width, height, {255, 255, 255, 255}));
     auto emissive = load_sidecar(hash, renderer::texture_pack::MaterialMap::Emissive, width, height)
                         .value_or(material_default(width, height, {0, 0, 0, 255}));
+    auto metallic = load_sidecar(hash, renderer::texture_pack::MaterialMap::Metallic, width, height)
+                        .value_or(material_default(width, height, {0, 0, 0, 255}));
+    const bool has_specular = !paths->specular.empty();
+    auto specular = load_sidecar(hash, renderer::texture_pack::MaterialMap::Specular, width, height)
+                        .value_or(material_default(width, height, {0, 0, 0, 0}));
+    auto cavity = load_sidecar(hash, renderer::texture_pack::MaterialMap::Cavity, width, height)
+                      .value_or(material_default(width, height, {0, 0, 0, 255}));
+    auto curvature =
+        load_sidecar(hash, renderer::texture_pack::MaterialMap::Curvature, width, height)
+            .value_or(material_default(width, height, {0, 0, 0, 255}));
+    auto edgewear = load_sidecar(hash, renderer::texture_pack::MaterialMap::EdgeWear, width, height)
+                        .value_or(material_default(width, height, {0, 0, 0, 255}));
 
     renderer::Rgba8Image ormh(width, height);
     for (std::size_t i = 0; i < ormh.pixels.size(); i += 4) {
         ormh.pixels[i] = ao.pixels[i];
         ormh.pixels[i + 1] = roughness.pixels[i];
-        ormh.pixels[i + 2] = height_map.pixels[i];
-        ormh.pixels[i + 3] = 255;
+        ormh.pixels[i + 2] = metallic.pixels[i];
+        ormh.pixels[i + 3] = height_map.pixels[i];
+    }
+
+    renderer::Rgba8Image detail(width, height);
+    for (std::size_t i = 0; i < detail.pixels.size(); i += 4) {
+        detail.pixels[i] = cavity.pixels[i];
+        detail.pixels[i + 1] = curvature.pixels[i];
+        detail.pixels[i + 2] = edgewear.pixels[i];
+        detail.pixels[i + 3] = 255;
+        specular.pixels[i + 3] = has_specular ? 255 : 0;
     }
 
     return {
-        upload_material_texture(normal, kMaterialNormalUnit),
-        upload_material_texture(ormh, kMaterialOrmhUnit),
-        upload_material_texture(emissive, kMaterialEmissiveUnit)
+        upload_material_texture(normal, kMaterialNormalUnit, MaterialMipKind::Normal),
+        upload_material_texture(ormh, kMaterialOrmhUnit, MaterialMipKind::Ormh),
+        upload_material_texture(emissive, kMaterialEmissiveUnit, MaterialMipKind::Emissive),
+        upload_material_texture(specular, kMaterialSpecularUnit, MaterialMipKind::Specular),
+        upload_material_texture(detail, kMaterialDetailUnit, MaterialMipKind::Detail)
     };
 }
 
@@ -362,11 +491,13 @@ void SceneLighting::bind_material_sidecars(
     const bool enabled = found != m_material_sidecars.end();
     gl::glUniform1i(enabled_location, enabled ? 1 : 0);
 
-    const std::array<unsigned, 3> textures = enabled ? found->second : std::array<unsigned, 3>{};
+    const std::array<unsigned, 5> textures = enabled ? found->second : std::array<unsigned, 5>{};
     for (const auto [unit, uniform, texture] : {
              std::tuple{kMaterialNormalUnit, "material_sidecar_normal_tex", textures[0]},
              std::tuple{kMaterialOrmhUnit, "material_sidecar_ormh_tex", textures[1]},
              std::tuple{kMaterialEmissiveUnit, "material_sidecar_emissive_tex", textures[2]},
+             std::tuple{kMaterialSpecularUnit, "material_sidecar_specular_tex", textures[3]},
+             std::tuple{kMaterialDetailUnit, "material_sidecar_detail_tex", textures[4]},
          }) {
         gl::glUniform1i(shader.uniform(uniform), int(unit));
         gl::glActiveTexture(gl::GL_TEXTURE0 + unit);
@@ -471,7 +602,7 @@ void SceneLighting::load_material_sidecars(const scene::LevelData& level) {
         }
 
         const auto textures = upload_sidecars(hash);
-        if (textures[0] || textures[1] || textures[2]) {
+        if (textures[0] || textures[1] || textures[2] || textures[3] || textures[4]) {
             m_material_sidecars.emplace(hash, textures);
         }
     }

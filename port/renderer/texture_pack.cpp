@@ -174,6 +174,11 @@ std::unordered_map<std::uint64_t, MaterialMaps> materials_under(const fs::path& 
         maps.height = file("height.png");
         maps.ao = file("ao.png");
         maps.emissive = file("emissive.png");
+        maps.specular = file("specular.png");
+        maps.metallic = file("metallic.png");
+        maps.cavity = file("cavity.png");
+        maps.curvature = file("curvature.png");
+        maps.edgewear = file("edgewear.png");
 
         if (!maps.empty()) {
             out.emplace(*hash, std::move(maps));
@@ -783,6 +788,21 @@ std::optional<Rgba8Image> load_material_map(std::uint64_t hash, MaterialMap map)
                 break;
             case MaterialMap::Emissive:
                 path = found->second.emissive;
+                break;
+            case MaterialMap::Specular:
+                path = found->second.specular;
+                break;
+            case MaterialMap::Metallic:
+                path = found->second.metallic;
+                break;
+            case MaterialMap::Cavity:
+                path = found->second.cavity;
+                break;
+            case MaterialMap::Curvature:
+                path = found->second.curvature;
+                break;
+            case MaterialMap::EdgeWear:
+                path = found->second.edgewear;
                 break;
         }
         io = s.io;

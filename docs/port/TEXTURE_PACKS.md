@@ -105,6 +105,39 @@ Textures the game makes while it runs (a fade, an animated screen) change from
 frame to frame, so each frame is a texture of its own; replacing those is not
 useful.
 
+## Enhanced material sidecars
+
+Enhanced rendering can optionally use material maps beside a replacement texture. Sidecars are
+looked up by the original texture hash under a top-level `Materials/<hash>/` folder:
+
+```
+Materials/
+  0123456789abcdef/
+    normal.png
+    roughness.png
+    height.png
+    ao.png
+    emissive.png
+    specular.png
+    metallic.png
+    cavity.png
+    curvature.png
+    edgewear.png
+```
+
+All files are optional and must have the same dimensions as each other. Missing maps receive neutral
+defaults, so older five-map packs and ordinary colour-only texture packs keep working.
+
+The renderer combines the maps into compact resident GPU textures: tangent-space Normal; ORMH
+(Ambient Occlusion, perceptual Roughness, Metallic, Height); Emissive; Specular; and Detail
+(Cavity, Curvature, Edge-Wear). Normal-map mip levels are renormalized, roughness is filtered in
+squared space, and emissive mip levels are filtered in linear light. This avoids distant normal
+collapse, over-shiny roughness mips and emissive darkening.
+
+Metallic and Specular participate in the enhanced GGX/environment response. Cavity conservatively
+strengthens local occlusion and Edge-Wear slightly lowers roughness on exposed edges. Height is
+preserved in ORMH alpha for a future parallax/POM path; it does not displace geometry today.
+
 ## A pack's .zip
 
 A shared pack is a `.zip` of the pack folder's contents, folders kept, with
