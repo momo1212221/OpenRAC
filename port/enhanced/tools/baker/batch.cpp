@@ -25,8 +25,8 @@
 #include "enhanced/tools/baker/output/environment_stage.h"
 #include "enhanced/tools/baker/output/probe_output.h"
 #include "enhanced/tools/baker/output/report.h"
-#include "enhanced/tools/baker/probe_rounding.h"
 #include "enhanced/tools/baker/pipeline/stage_file.h"
+#include "enhanced/tools/baker/probe_rounding.h"
 #include "enhanced/tools/baker/sources/probe_fingerprint.h"
 #include "enhanced/tools/baker/sources/probe_grid.h"
 
@@ -289,9 +289,10 @@ void write_quality_summary(
         valid += grid_valid;
         relocated += grid_relocated;
         grids_with_invalid += grid_invalid ? 1 : 0;
-        if (grid_total && (!worst_total
-                           || double(grid_invalid) / double(grid_total)
-                                  > double(worst_invalid) / double(worst_total))) {
+        if (grid_total
+            && (!worst_total
+                || double(grid_invalid) / double(grid_total)
+                       > double(worst_invalid) / double(worst_total))) {
             worst_invalid = grid_invalid;
             worst_total = grid_total;
             worst_grid = job.path.filename().string();
