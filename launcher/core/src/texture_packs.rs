@@ -909,7 +909,7 @@ fn scan(archive: &mut zip::ZipArchive<std::fs::File>, id: &str) -> Result<Scanne
     let mut declared: u64 = 0;
     for i in 0..archive.len() {
         let entry = archive.by_index_raw(i).map_err(|e| e.to_string())?;
-        let name = entry.name().replace('\\', "/");
+        let name = entry.name().map_err(|e| e.to_string())?.replace('\\', "/");
         let unsafe_name = name.starts_with('/')
             || name.contains(':')
             || name.split('/').any(|p| p == "..")
