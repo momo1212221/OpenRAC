@@ -81,6 +81,13 @@ const char* library_name() {
 #endif
 }
 
+// A library is replaced, not written over: macOS kills a process that loads a file it has loaded
+// before with other bytes (its code signature is cached by file).
+void copy_library(const fs::path& from, const fs::path& to) {
+    fs::remove(to);
+    fs::copy_file(from, to);
+}
+
 // Installs test-<which> into `plugins`: its library copied in, its manifest.
 void install(
     const fs::path& plugins,
@@ -93,7 +100,7 @@ void install(
 ) {
     const fs::path dir = plugins / ("test-" + which);
     fs::create_directories(dir / "lib");
-    fs::copy_file(built, dir / "lib" / library_name(), fs::copy_options::overwrite_existing);
+    copy_library(built, dir / "lib" / library_name());
     write(
         dir / "openrac-mod.json",
         R"({"format": 2, "id": "test-)" + which + R"(", "name": "Test", "version": "1.0.0",
@@ -532,7 +539,7 @@ void an_installed_launchers_layout(const fs::path& root) {
     const fs::path mod = plugins / "test-a";
     const fs::path lib = fs::path("lib") / mods::platform_key() / library_name();
     fs::create_directories(mod / lib.parent_path());
-    fs::copy_file(OPENRAC_TEST_MOD_A, mod / lib, fs::copy_options::overwrite_existing);
+    copy_library(OPENRAC_TEST_MOD_A, mod / lib);
     write(
         mod / "openrac-mod.json",
         R"({"format": 2, "id": "test-a", "name": "Test", "version": "1.0.0",
