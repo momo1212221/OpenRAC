@@ -152,15 +152,17 @@ pub async fn mod_service(
             "bake.clear" => value(enhanced_delete_bakes(state, game, version).await),
             "textures.prepare" => value(texture_packs_prepare_ultra(state, game, version).await),
             "textures.clear" => value(graphics_delete_texture_cache(state, game, version)),
-            "ai.textures" => value(
-                ai_texture_bake(
+            "ai.textures" => {
+                let result = ai_texture_bake(
                     state,
-                    game,
-                    version,
+                    game.clone(),
+                    version.clone(),
                     serde_json::from_value(payload).map_err(|e| format!("AI options: {e}"))?,
                 )
-                .await,
-            ),
+                .await?;
+                openrac_launcher_core::texture_packs::set_enabled(&home, &game, &version, true)?;
+                value(Ok(result))
+            },
             "ai.meshes" => value(
                 ai_mesh_bake(state, game, version, payload["mode"].as_str().ok_or("Missing mesh mode")?.into()).await,
             ),
