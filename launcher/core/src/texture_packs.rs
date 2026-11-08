@@ -501,7 +501,7 @@ fn source_fingerprint(port: &Path, dump: &Path, pack: &Path) -> (String, u32) {
             }
         }
     }
-    (format!("{:x}", digest.finalize()), sources.len() as u32)
+    (digest.finalize().iter().map(|b| format!("{b:02x}")).collect(), sources.len() as u32)
 }
 
 fn png_rgba(path: &Path) -> Result<(u32, u32, Vec<u8>), String> {
