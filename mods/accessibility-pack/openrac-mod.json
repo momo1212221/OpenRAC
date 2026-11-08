@@ -1,0 +1,21 @@
+{
+  "format": 2,
+  "id": "accessibility-pack",
+  "name": "Accessibility Pack",
+  "version": "0.1.0",
+  "author": "Moritz Wallinger",
+  "description": "Accessibility helpers for Ratchet & Clank with damage assists and a readable status overlay.",
+  "license": "MIT",
+  "api": "1.12",
+  "games": { "rac1": ["pal", "ntsc"] },
+  "multiplayer": "gameplay",
+  "hooks": ["Hero_TakeDamage"],
+  "settings": [
+    { "key": "invulnerable", "name": "Invulnerability", "type": "bool", "default": false,
+      "description": "Ignore normal damage handled by Hero_TakeDamage." },
+    { "key": "damage_percent", "name": "Incoming damage", "type": "int", "default": 100, "min": 0, "max": 100, "step": 10,
+      "description": "Scale normal incoming damage. Values below 100 make the game more forgiving." },
+    { "key": "status_overlay", "name": "Accessibility status overlay", "type": "bool", "default": true,
+      "description": "Show the active accessibility assists in a large high-contrast HUD line." }
+  ]
+}
