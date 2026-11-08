@@ -15,7 +15,7 @@ when complete. Never commit or share it: see LEGAL.md.
 """
 
 import argparse
-from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor, FIRST_COMPLETED, wait
+from concurrent.futures import Executor, ThreadPoolExecutor, FIRST_COMPLETED, wait
 import json
 import os
 from pathlib import Path
@@ -314,6 +314,8 @@ def default_jobs() -> int:
 def worker_pool(jobs: int) -> Executor:
     """JOBS processes for the levels. macOS and Python builds without sem_open use a fresh
     subprocess for each level instead of a shared multiprocessing pool."""
+    if sys.platform == "ios":
+        return ThreadPoolExecutor(1)
     # A fresh process per level releases its decoded assets and needs no shared semaphores.
     # This also avoids macOS resource_tracker warnings when an export worker is terminated.
     if sys.platform == "darwin":
