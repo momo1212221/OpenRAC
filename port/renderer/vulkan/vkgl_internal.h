@@ -81,7 +81,8 @@ namespace wgl = openrac::renderer::world::gl;
 // kUnits, kAttributes and kUniformBindings are the GL limits the backend reports and keeps
 // state for; kChunk is the size of one chunk of a frame's ring.
 inline constexpr int kFrames = 2;
-inline constexpr int kUnits = 32;
+// Unit 32 holds static-sun visibility, after the existing material and water bindings.
+inline constexpr int kUnits = 33;
 inline constexpr int kAttributes = 16;
 inline constexpr int kUniformBindings = 16;
 inline constexpr VkDeviceSize kChunk = 8u << 20;

@@ -31,8 +31,8 @@ inline constexpr gl::GLenum kPaletteUnit = 1;
 // The ties' lit colours: RGBA8, one texel per colour, this many a row.
 inline constexpr int kLightWidth = 1024;
 inline constexpr gl::GLenum kLightUnit = 2;
-// Static hardware-RT sunlight visibility; kept separate from the material/emission units.
-inline constexpr gl::GLenum kRtSunUnit = 13;
+// Static sunlight needs its own buffer slot; water binds an unsigned coarse-mesh buffer at unit 13.
+inline constexpr gl::GLenum kRtSunUnit = 32;
 
 inline const void* offset(std::size_t bytes) {
     return reinterpret_cast<const void*>(bytes);
