@@ -210,6 +210,10 @@ private:
     enhanced::MaterialRuntime m_materials;  // Unified typed bindings and sparse authoring state.
     // Original texture hash -> normal / ORMH / emissive / specular / detail 2D textures.
     std::unordered_map<std::uint64_t, std::array<unsigned, 5>> m_material_sidecars;
+    // Neutral, fully-defined samplers used when a draw has no material sidecars. Vulkan's frame
+    // graph reflects sampler reads even behind a disabled uniform branch, so texture 0 is not a
+    // sufficient fallback: these images must contain defined contents before the colour pass.
+    std::array<unsigned, 5> m_material_sidecar_defaults{};
     enhanced::FoliageMaterials m_foliage;   // Reviewed per-material thin-sheet response.
     enhanced::HeroFur m_fur;
     enhanced::WaterFloat m_water_float;
