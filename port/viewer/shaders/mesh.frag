@@ -492,9 +492,30 @@ vec3 probe_surface(vec4 texel, vec3 original) {
         rim = gameplay_rim(indirect, eye_normal, -eye_position);
     }
 #endif
+    // Sidecar PBR is additive to the legacy material system: ordinary colour materials can now
+    // reflect their environment without having to be authored as a separate chrome pass.
+    float sidecar_metallic = material_sidecar_metallic();
+    float sidecar_f0 = material_sidecar_specular(.04);
+    vec3 sidecar_specular = vec3(0.);
+#if !defined(OPENRAC_SOLID) && !defined(OPENRAC_STATIC_COLOUR)
+    if (material_sidecars_enabled != 0 && probe_mode == 1
+        && (sidecar_metallic > .01 || sidecar_f0 > .045) && dot(surface_n, toward_camera) > 0.) {
+        float roughness = clamp(
+            material_sidecar_roughness(.65) * mix(1., .88, material_sidecar_edgewear()), .04, 1.
+        );
+        float f0 = mix(sidecar_f0, max(sidecar_f0, .65), sidecar_metallic);
+        sidecar_specular = environment_specular(
+            v_world_position, surface_n, toward_camera, roughness, f0, vec3(0.)
+        ) * mix(.3, 1., sidecar_metallic);
+    }
+#endif
+    // Metals transfer energy from diffuse response into reflection; dielectrics retain the retail
+    // diffuse response and receive only their authored F0 reflection.
+    vec3 diffuse_albedo = albedo * mix(1., .16, sidecar_metallic);
     // Emission is independent of GI exposure, AO and shadow visibility.
-    vec3 diffuse = wet_coat(albedo * illumination * material_diffuse_scale + rim,
-                            surface_n, toward_camera, visibility) + fur_direct + fur_indirect;
+    vec3 diffuse = wet_coat(diffuse_albedo * illumination * material_diffuse_scale + rim,
+                            surface_n, toward_camera, visibility)
+                   + fur_direct + fur_indirect + sidecar_specular;
     return probe_display(probe_mode == 1 ? apply_probe_look(diffuse, emitted) : diffuse);
 }
 
