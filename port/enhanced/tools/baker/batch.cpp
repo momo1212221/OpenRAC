@@ -26,6 +26,7 @@
 #include "enhanced/tools/baker/output/probe_output.h"
 #include "enhanced/tools/baker/output/report.h"
 #include "enhanced/tools/baker/probe_rounding.h"
+#include "enhanced/tools/baker/pipeline/stage_file.h"
 #include "enhanced/tools/baker/sources/probe_fingerprint.h"
 #include "enhanced/tools/baker/sources/probe_grid.h"
 
@@ -260,6 +261,69 @@ std::optional<std::vector<std::uint8_t>> finished_bytes(const BatchJob& job) {
     return bytes;
 }
 
+// Summarises the already verified runtime payloads so automation can rank manual review.
+void write_quality_summary(
+    const std::vector<BatchJob>& jobs, const std::filesystem::path& output_directory
+) {
+    std::size_t total = 0, valid = 0, relocated = 0, grids_with_invalid = 0;
+    std::size_t worst_invalid = 0, worst_total = 0;
+    std::string worst_grid;
+
+    for (const auto& job : jobs) {
+        std::ifstream input(job.path, std::ios::binary);
+        if (!input) {
+            throw std::runtime_error("verified probe output disappeared before quality summary");
+        }
+        const std::vector<std::uint8_t> bytes(
+            (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>()
+        );
+        const auto volume = decode_probes(bytes);
+        std::size_t grid_valid = 0, grid_relocated = 0;
+        for (const auto& probe : volume.probes) {
+            grid_valid += probe.valid ? 1 : 0;
+            grid_relocated += probe.relocated ? 1 : 0;
+        }
+        const std::size_t grid_total = volume.probes.size();
+        const std::size_t grid_invalid = grid_total - grid_valid;
+        total += grid_total;
+        valid += grid_valid;
+        relocated += grid_relocated;
+        grids_with_invalid += grid_invalid ? 1 : 0;
+        if (grid_total && (!worst_total
+                           || double(grid_invalid) / double(grid_total)
+                                  > double(worst_invalid) / double(worst_total))) {
+            worst_invalid = grid_invalid;
+            worst_total = grid_total;
+            worst_grid = job.path.filename().string();
+        }
+    }
+
+    const double valid_percent = total ? 100.0 * double(valid) / double(total) : 100.0;
+    const double worst_invalid_percent =
+        worst_total ? 100.0 * double(worst_invalid) / double(worst_total) : 0.0;
+    const std::string text = std::format(
+        "{{\"version\":1,\"verified\":true,\"grids\":{},\"total_probes\":{},"
+        "\"valid_probes\":{},\"invalid_probes\":{},\"relocated_probes\":{},"
+        "\"valid_percent\":{:.6f},\"grids_with_invalid\":{},"
+        "\"worst_grid\":\"{}\",\"worst_invalid_probes\":{},"
+        "\"worst_invalid_percent\":{:.6f}}}\n",
+        jobs.size(),
+        total,
+        valid,
+        total - valid,
+        relocated,
+        valid_percent,
+        grids_with_invalid,
+        worst_grid,
+        worst_invalid,
+        worst_invalid_percent
+    );
+    const auto written = write_stage_file(output_directory / "bake-quality.json", text);
+    if (!written) {
+        throw std::runtime_error(written.error().message);
+    }
+}
+
 // Read the actual file back and verify exactly the bytes produced by this grid.
 ProbeVolume verify_batch_file(const BatchJob& job, const std::vector<std::uint8_t>& encoded) {
     auto checked = verify_probe_file(job.path, job.grid, encoded);
@@ -479,6 +543,9 @@ void run_probe_batch(
         {options.threads, &workers},
         output
     );
+
+    // All GI grids have passed runtime readback at this point; publish an inspectable aggregate.
+    write_quality_summary(jobs, options.output_directory);
 
     if (probe_input_hash(level.dir) != options.source_snapshot) {
         throw std::runtime_error(
