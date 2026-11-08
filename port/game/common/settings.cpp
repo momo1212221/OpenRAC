@@ -86,7 +86,13 @@ void apply_graphics_preset(Settings& settings, GraphicsPreset preset) {
             settings.shadow_quality = renderer::ShadowQuality::Medium;
             settings.volumetric_quality = renderer::VolumetricQuality::Low;
             settings.gtao_settings = {
-                renderer::GtaoQuality::Performance, 4, 6, true, false, 1.25f, 1.0f
+                renderer::GtaoQuality::Performance,
+                4,
+                6,
+                true,
+                false,
+                1.25f,
+                1.0f
             };
             settings.anisotropy = 4;
             settings.original_lod = true;
@@ -100,7 +106,13 @@ void apply_graphics_preset(Settings& settings, GraphicsPreset preset) {
             settings.shadow_quality = renderer::ShadowQuality::High;
             settings.volumetric_quality = renderer::VolumetricQuality::Medium;
             settings.gtao_settings = {
-                renderer::GtaoQuality::Performance, 6, 8, true, true, 1.25f, 1.0f
+                renderer::GtaoQuality::Performance,
+                6,
+                8,
+                true,
+                true,
+                1.25f,
+                1.0f
             };
             settings.anisotropy = 8;
             settings.original_lod = false;
@@ -128,7 +140,13 @@ void apply_graphics_preset(Settings& settings, GraphicsPreset preset) {
             settings.shadow_quality = renderer::ShadowQuality::High;
             settings.volumetric_quality = renderer::VolumetricQuality::High;
             settings.gtao_settings = {
-                renderer::GtaoQuality::Quality, 8, 12, false, true, 1.5f, 1.0f
+                renderer::GtaoQuality::Quality,
+                8,
+                12,
+                false,
+                true,
+                1.5f,
+                1.0f
             };
             settings.anisotropy = 16;
             settings.original_lod = false;
