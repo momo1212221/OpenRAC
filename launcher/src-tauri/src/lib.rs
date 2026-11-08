@@ -8,10 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 mod android;
-mod asset_ai;
-mod mod_services;
 mod mod_tool;
-mod texture_ai;
 
 use openrac_launcher_core::actions::{Platform, Scope};
 use openrac_launcher_core::config::{self, Config};
@@ -31,8 +28,8 @@ use openrac_launcher_core::profile;
 use openrac_launcher_core::remote;
 use openrac_launcher_core::reports::{self, ReportEntry};
 use openrac_launcher_core::reset;
-use openrac_launcher_core::{cloud_saves, deeplink, index, index_apply, resolver};
-use serde::{Deserialize, Serialize};
+use openrac_launcher_core::{deeplink, index, index_apply, resolver};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
@@ -75,37 +72,6 @@ struct AppInfo {
     /// The last start's window crashed before it drew a click, and this start turned Safe
     /// rendering on for it (Config::safe_rendering): the page says so once.
     safe_rendering_after_crash: bool,
-    /// Hardware/renderer capabilities detected on this machine. The renderer still performs its
-    /// own feature checks; this is the launcher's safe auto-tuning input.
-    graphics: GraphicsCapabilities,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GraphicsCapabilities {
-    architecture: String,
-    gpus: Vec<String>,
-    vendor: String,
-    nvidia_rtx: bool,
-    amd_gpu: bool,
-    cuda_available: bool,
-    apple_silicon: bool,
-    renderer_backend: String,
-    compute_backend: String,
-    hardware_ray_tracing: bool,
-    /// The native Mac Metal RT path is compiled and verified on Apple Silicon. Other platforms
-    /// remain false until their runtime ray-query path is wired into the renderer.
-    ray_tracing_renderer_ready: bool,
-    offline_texture_backend: String,
-    recommended_profile: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AutoGraphicsResult {
-    applied: bool,
-    profile: String,
-    graphics: GraphicsCapabilities,
 }
 
 #[derive(Serialize)]
@@ -157,170 +123,6 @@ fn switching_channel<R: tauri::Runtime>(
     source.kind() != update_source(app).kind()
 }
 
-#[cfg(target_os = "macos")]
-fn collect_gpu_name(value: &serde_json::Value, out: &mut Vec<String>) {
-    match value {
-        serde_json::Value::Object(map) => {
-            if let Some(name) = map
-                .get("sppci_model")
-                .or_else(|| map.get("spdisplays_chipset_model"))
-                .or_else(|| map.get("_name"))
-                .and_then(serde_json::Value::as_str)
-            {
-                let lower = name.to_ascii_lowercase();
-                if (lower.contains("apple")
-                    || lower.contains("nvidia")
-                    || lower.contains("amd")
-                    || lower.contains("radeon")
-                    || lower.contains("intel"))
-                    && !out.iter().any(|v| v == name)
-                {
-                    out.push(name.to_string());
-                }
-            }
-            for child in map.values() {
-                collect_gpu_name(child, out);
-            }
-        }
-        serde_json::Value::Array(values) => {
-            for child in values {
-                collect_gpu_name(child, out);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn detected_gpu_names() -> Vec<String> {
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(output) = std::process::Command::new("system_profiler").args(["SPDisplaysDataType", "-json"]).output()
-        {
-            if output.status.success() {
-                if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                    let mut names = Vec::new();
-                    collect_gpu_name(&value, &mut names);
-                    if !names.is_empty() {
-                        return names;
-                    }
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(output) = std::process::Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }",
-            ])
-            .output()
-        {
-            if output.status.success() {
-                let names: Vec<String> = String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .map(str::trim)
-                    .filter(|line| !line.is_empty())
-                    .map(str::to_string)
-                    .collect();
-                if !names.is_empty() {
-                    return names;
-                }
-            }
-        }
-    }
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(output) = std::process::Command::new("lspci").args(["-mm"]).output() {
-            if output.status.success() {
-                let names: Vec<String> = String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .filter(|line| {
-                        let lower = line.to_ascii_lowercase();
-                        lower.contains("vga") || lower.contains("3d controller") || lower.contains("display controller")
-                    })
-                    .map(str::trim)
-                    .filter(|line| !line.is_empty())
-                    .map(str::to_string)
-                    .collect();
-                if !names.is_empty() {
-                    return names;
-                }
-            }
-        }
-    }
-    Vec::new()
-}
-
-fn cuda_available() -> bool {
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    {
-        std::process::Command::new("nvidia-smi").arg("-L").output().is_ok_and(|output| output.status.success())
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-    {
-        false
-    }
-}
-
-fn graphics_capabilities() -> GraphicsCapabilities {
-    let gpus = detected_gpu_names();
-    let joined = gpus.join(" ").to_ascii_lowercase();
-    let apple_silicon = cfg!(target_os = "macos") && cfg!(target_arch = "aarch64");
-    let nvidia_rtx = joined.contains("rtx")
-        && (joined.contains("nvidia") || joined.contains("geforce") || joined.contains("quadro"));
-    let apple_rt =
-        apple_silicon && joined.contains("apple m") && !joined.contains("apple m1") && !joined.contains("apple m2");
-    let amd_gpu = joined.contains("amd") || joined.contains("radeon");
-    let cuda_available = (joined.contains("nvidia") || joined.contains("geforce") || nvidia_rtx) && cuda_available();
-    let vendor = if joined.contains("nvidia") || joined.contains("geforce") || nvidia_rtx {
-        "nvidia"
-    } else if amd_gpu {
-        "amd"
-    } else if joined.contains("intel") {
-        "intel"
-    } else if joined.contains("apple") || apple_silicon {
-        "apple"
-    } else {
-        "unknown"
-    };
-    // RX 6000/7000/9000 and Radeon Pro are treated as modern high-end Vulkan GPUs. Older or
-    // unknown AMD hardware still works, but starts from the safer balanced profile.
-    let amd_modern = amd_gpu
-        && ["rx 6", "rx 7", "rx 8", "rx 9", "radeon pro", "radeon rx 6", "radeon rx 7"]
-            .iter()
-            .any(|name| joined.contains(name));
-    let intel_arc = joined.contains("intel") && joined.contains("arc");
-    let strong = nvidia_rtx || apple_silicon || amd_modern || intel_arc;
-    let renderer_backend = if cfg!(target_os = "macos") { "vulkan-moltenvk" } else { "vulkan" };
-    let compute_backend = if cuda_available {
-        "cuda"
-    } else if amd_gpu || nvidia_rtx || intel_arc {
-        "vulkan"
-    } else if apple_silicon {
-        "metal"
-    } else {
-        "cpu"
-    };
-    GraphicsCapabilities {
-        architecture: std::env::consts::ARCH.to_string(),
-        gpus,
-        vendor: vendor.into(),
-        nvidia_rtx,
-        amd_gpu,
-        cuda_available,
-        apple_silicon,
-        renderer_backend: renderer_backend.into(),
-        compute_backend: compute_backend.into(),
-        hardware_ray_tracing: nvidia_rtx || apple_rt || amd_modern || intel_arc,
-        ray_tracing_renderer_ready: cfg!(target_os = "macos") && apple_silicon,
-        offline_texture_backend: if cfg!(target_os = "macos") { "coregraphics" } else { "portable-cpu" }.into(),
-        recommended_profile: if strong { "ultra-classic" } else { "balanced" }.into(),
-    }
-}
-
 #[tauri::command]
 fn app_info(app: AppHandle, state: State<'_, AppState>) -> AppInfo {
     use openrac_launcher_core::update::Channel;
@@ -337,7 +139,6 @@ fn app_info(app: AppHandle, state: State<'_, AppState>) -> AppInfo {
         updates,
         no_compositing: cfg!(target_os = "linux") && std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_some(),
         safe_rendering_after_crash: SAFE_AFTER_CRASH.load(Ordering::Relaxed),
-        graphics: graphics_capabilities(),
     }
 }
 
@@ -541,22 +342,6 @@ fn run_action(
 ) -> Result<Started, String> {
     let config = state.config.lock().unwrap().clone();
     let inputs = openrac_launcher_core::actions::Inputs { level, path, option };
-    if id == openrac_launcher_core::enhanced::BAKE_ACTION || library::is_play(&config, &scope, &id) {
-        if let Scope::Version(key) = &scope {
-            if openrac_launcher_core::launcher_addons::active(
-                &openrac_launcher_core::saves::data_home(),
-                openrac_launcher_core::graphics_preparation::ID,
-                key.split_once('/').unwrap_or(("", "")).0,
-                key.split_once('/').unwrap_or(("", "")).1,
-            ) {
-                openrac_launcher_core::graphics_preparation::sync_cloud_profile(
-                    &config,
-                    key,
-                    &openrac_launcher_core::saves::data_home(),
-                )?;
-            }
-        }
-    }
     let plan = library::plan(&config, &scope, &id, &inputs)?;
     let is_play = library::is_play(&config, &scope, &id);
 
@@ -641,7 +426,7 @@ fn run_action(
 /// version that has none.
 #[tauri::command]
 async fn enhanced_view(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
     game: String,
     version: String,
 ) -> Result<Option<openrac_launcher_core::enhanced::EnhancedView>, String> {
@@ -649,9 +434,10 @@ async fn enhanced_view(
     if !enhanced::supported(&game, &version) {
         return Ok(None);
     }
+    let config = state.config.lock().unwrap().clone();
     let home = openrac_launcher_core::saves::data_home();
     tauri::async_runtime::spawn_blocking(move || {
-        let bake = Default::default();
+        let bake = enhanced::version_bake_status(&config, &format!("{game}/{version}"));
         Some(enhanced::view(&home, &game, &version, bake))
     })
     .await
@@ -675,74 +461,6 @@ async fn enhanced_set_enabled(
     enhanced_view(state, game, version).await
 }
 
-// ---- Independent launcher mods ----
-#[tauri::command]
-fn graphics_delete_texture_cache(state: State<'_, AppState>, game: String, version: String) -> Result<(), String> {
-    openrac_launcher_core::texture_packs::delete_ultra(&game_data_dir(&state, &game)?, &game, &version)
-}
-
-#[tauri::command]
-fn launcher_addon_enabled(id: String, game: String, version: String) -> bool {
-    openrac_launcher_core::launcher_addons::active(&openrac_launcher_core::saves::data_home(), &id, &game, &version)
-}
-
-#[tauri::command]
-async fn launcher_addons_view(
-    state: State<'_, AppState>,
-    game: String,
-    version: String,
-) -> Result<Vec<openrac_launcher_core::enhanced::EnhancedView>, String> {
-    use openrac_launcher_core::{graphics_preparation as prep, launcher_addons as addons};
-    let config = state.config.lock().unwrap().clone();
-    let home = openrac_launcher_core::saves::data_home();
-    addons::initialize(&home, &game, &version)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut result = vec![addons::backup_view(&home, &game, &version)];
-        if openrac_launcher_core::enhanced::supported(&game, &version) {
-            let bake = prep::version_bake_status(&config, &format!("{game}/{version}"));
-            result.insert(0, prep::view(&home, &game, &version, bake));
-        }
-        result
-    })
-    .await
-    .map_err(|e| e.to_string())
-}
-#[tauri::command]
-async fn launcher_addons_set_enabled(
-    state: State<'_, AppState>,
-    game: String,
-    version: String,
-    id: String,
-    enabled: bool,
-) -> Result<Vec<openrac_launcher_core::enhanced::EnhancedView>, String> {
-    use openrac_launcher_core::{graphics_preparation as prep, launcher_addons as addons};
-    let home = openrac_launcher_core::saves::data_home();
-    if id == prep::ID && !enabled {
-        let config = state.config.lock().unwrap().clone();
-        if prep::version_bake_status(&config, &format!("{game}/{version}")).busy {
-            return Err("Stop lighting preparation before disabling its mod".into());
-        }
-    }
-    addons::set_enabled(&home, &id, &game, &version, enabled)?;
-    launcher_addons_view(state, game, version).await
-}
-#[tauri::command]
-async fn launcher_addons_set_setting(
-    state: State<'_, AppState>,
-    game: String,
-    version: String,
-    id: String,
-    key: String,
-    value: serde_json::Value,
-) -> Result<Vec<openrac_launcher_core::enhanced::EnhancedView>, String> {
-    if id != openrac_launcher_core::graphics_preparation::ID || !openrac_launcher_core::graphics_preparation::owns(&key)
-    {
-        return Err("Not a graphics preparation setting".into());
-    }
-    set_graphics_setting(state.clone(), game.clone(), version.clone(), key, value).await?;
-    launcher_addons_view(state, game, version).await
-}
-
 // ---- Texture packs (core/src/texture_packs.rs) ----
 
 /// The game's folder in the install folder (`{data}`), where its texture pack lives.
@@ -752,69 +470,6 @@ fn game_data_dir(state: &State<'_, AppState>, game: &str) -> Result<PathBuf, Str
 }
 
 /// A game version's Texture packs section.
-/// Applies only settings whose cost depends strongly on the machine. It never enables Enhanced
-/// graphics by itself. Ray tracing is enabled only when both hardware RT and a verified renderer
-/// path are present. The player can turn this off with Enhanced graphics -> Hardware auto tuning.
-#[tauri::command]
-fn enhanced_auto_configure(game: String, version: String) -> Result<AutoGraphicsResult, String> {
-    use openrac_launcher_core::{differences, enhanced};
-    let home = openrac_launcher_core::saves::data_home();
-    let file = differences::settings_file(&home, &game, &version);
-    let settings = std::fs::read_to_string(&file).unwrap_or_default();
-    let graphics = graphics_capabilities();
-    if !openrac_launcher_core::launcher_addons::active(
-        &home,
-        openrac_launcher_core::graphics_preparation::ID,
-        &game,
-        &version,
-    ) || !differences::read_switch(&settings, enhanced::SWITCH).unwrap_or(false)
-        || !differences::read_switch(&settings, "hardware_auto").unwrap_or(true)
-    {
-        return Ok(AutoGraphicsResult { applied: false, profile: "manual".into(), graphics });
-    }
-
-    let strong = graphics.recommended_profile == "ultra-classic";
-    let values: &[(&str, serde_json::Value)] = if strong {
-        &[
-            ("shadow_quality", serde_json::Value::String("high".into())),
-            ("gtao", serde_json::Value::Bool(true)),
-            ("gtao_quality", serde_json::Value::String("quality".into())),
-            ("texture_filter", serde_json::Value::String("normal".into())),
-            ("temporal_quality", serde_json::Value::String("native-aa".into())),
-            ("volumetric_quality", serde_json::Value::String("high".into())),
-            ("local_lights", serde_json::Value::Bool(true)),
-            ("authored_object_lights", serde_json::Value::Bool(false)),
-            ("bloom", serde_json::Value::Bool(false)),
-            ("agx_preview", serde_json::Value::Bool(true)),
-        ]
-    } else {
-        &[
-            ("shadow_quality", serde_json::Value::String("medium".into())),
-            ("gtao", serde_json::Value::Bool(true)),
-            ("gtao_quality", serde_json::Value::String("medium".into())),
-            ("texture_filter", serde_json::Value::String("normal".into())),
-            ("temporal_quality", serde_json::Value::String("quality".into())),
-            ("volumetric_quality", serde_json::Value::String("medium".into())),
-            ("local_lights", serde_json::Value::Bool(true)),
-            ("authored_object_lights", serde_json::Value::Bool(false)),
-            ("bloom", serde_json::Value::Bool(false)),
-            ("agx_preview", serde_json::Value::Bool(true)),
-        ]
-    };
-    for (key, value) in values {
-        enhanced::set_setting(&home, &game, &version, key, value)?;
-    }
-    let ray_tracing =
-        graphics.ray_tracing_renderer_ready && (graphics.hardware_ray_tracing || graphics.vendor == "apple");
-    enhanced::set_setting(&home, &game, &version, "ray_tracing", &serde_json::Value::Bool(ray_tracing))?;
-    let profile = if strong { "ultra-classic" } else { "balanced" };
-    launcher_log::line(&format!(
-        "{game}/{version}: hardware auto profile {profile}; GPU(s): {}",
-        if graphics.gpus.is_empty() { "unknown".into() } else { graphics.gpus.join(", ") }
-    ));
-    Ok(AutoGraphicsResult { applied: true, profile: profile.into(), graphics })
-}
-
 #[tauri::command]
 async fn texture_packs_view(
     state: State<'_, AppState>,
@@ -838,7 +493,6 @@ async fn texture_packs_set(
     version: String,
     enabled: Option<bool>,
     dumping: Option<bool>,
-    ultra: Option<bool>,
 ) -> Result<openrac_launcher_core::texture_packs::View, String> {
     use openrac_launcher_core::texture_packs;
     let home = openrac_launcher_core::saves::data_home();
@@ -849,11 +503,6 @@ async fn texture_packs_set(
     if let Some(on) = dumping {
         texture_packs::set_dumping(&home, &game, &version, on)?;
         launcher_log::line(&format!("{game}/{version}: saving textures {}", if on { "on" } else { "off" }));
-    }
-    if let Some(on) = ultra {
-        let data = game_data_dir(&state, &game)?;
-        texture_packs::set_ultra_enabled(&home, &data, &game, &version, on)?;
-        launcher_log::line(&format!("{game}/{version}: offline Ultra textures {}", if on { "on" } else { "off" }));
     }
     texture_packs_view(state, game, version).await
 }
@@ -872,133 +521,6 @@ fn texture_packs_open(
     let home = openrac_launcher_core::saves::data_home();
     let dir = openrac_launcher_core::texture_packs::folder(&home, &data, &game, &version, dump, &folder)?;
     open_path_with_system(&app, &dir.to_string_lossy())
-}
-
-/// Extracts the HUD/interface pictures that can be decoded directly from a RAC1 disc. The Python
-/// tool is part of the same OpenRAC copy as the launcher and writes only derived pictures beside
-/// the already extracted port data. Its own stamp makes this a no-op on later starts.
-#[cfg(target_os = "macos")]
-fn prepare_offline_hud(
-    config: &Config,
-    data: &Path,
-    game: &str,
-    version: &str,
-) -> Result<Option<serde_json::Value>, String> {
-    if game != "rac1" {
-        return Ok(None);
-    }
-    let iso = data.join("iso_data").join(game).join("disc.iso");
-    if !iso.is_file() {
-        return Ok(None);
-    }
-    let Some(root) = config.root.as_deref() else { return Ok(None) };
-    let Some(python) = config.python.as_deref() else { return Ok(None) };
-    let script = root.join("editor/offline_hud.py");
-    if !script.is_file() || !python.is_file() {
-        return Ok(None);
-    }
-    let out = data.join("port").join(version).join("offline-interface");
-    let result = std::process::Command::new(python)
-        .arg(&script)
-        .arg(&iso)
-        .arg(&out)
-        .arg(version)
-        .current_dir(root)
-        .output()
-        .map_err(|e| format!("cannot start offline HUD extractor: {e}"))?;
-    if !result.status.success() {
-        let error = String::from_utf8_lossy(&result.stderr).trim().to_string();
-        return Err(if error.is_empty() {
-            format!("offline HUD extractor stopped with {}", result.status)
-        } else {
-            error
-        });
-    }
-    let text = String::from_utf8_lossy(&result.stdout);
-    let line = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("{}");
-    serde_json::from_str(line).map(Some).map_err(|e| format!("offline HUD extractor returned unreadable status: {e}"))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn prepare_offline_hud(
-    _config: &Config,
-    _data: &Path,
-    _game: &str,
-    _version: &str,
-) -> Result<Option<serde_json::Value>, String> {
-    Ok(None)
-}
-
-/// Ensures Enhanced graphics has a persistent pre-rendered Ultra texture pack before Play.
-/// Cached builds return immediately. The runtime upscaler and texture dumping are disabled so the
-/// expensive work never happens while the game is rendering.
-#[tauri::command]
-async fn texture_packs_prepare_ultra(
-    state: State<'_, AppState>,
-    game: String,
-    version: String,
-) -> Result<openrac_launcher_core::texture_packs::UltraTextureBuild, String> {
-    use openrac_launcher_core::texture_packs;
-    let home = openrac_launcher_core::saves::data_home();
-    if !openrac_launcher_core::launcher_addons::active(
-        &home,
-        openrac_launcher_core::graphics_preparation::ID,
-        &game,
-        &version,
-    ) {
-        return Ok(texture_packs::UltraTextureBuild::disabled());
-    }
-    let settings = std::fs::read_to_string(openrac_launcher_core::differences::settings_file(&home, &game, &version))
-        .unwrap_or_default();
-    if !openrac_launcher_core::differences::read_switch(&settings, texture_packs::ULTRA_SWITCH).unwrap_or(true) {
-        return Ok(texture_packs::UltraTextureBuild::disabled());
-    }
-    let _preparation = openrac_launcher_core::launcher_addons::begin_preparation(
-        &openrac_launcher_core::saves::data_home(),
-        &game,
-        &version,
-    )?;
-    let data = game_data_dir(&state, &game)?;
-
-    let g = game.clone();
-    let v = version.clone();
-    let home_for_build = home.clone();
-    let data_for_build = data.clone();
-    let config_for_build = state.config.lock().unwrap().clone();
-    let (hud, result) = tauri::async_runtime::spawn_blocking(move || {
-        let hud = prepare_offline_hud(&config_for_build, &data_for_build, &g, &v)?;
-        let result = texture_packs::prepare_ultra4k(&home_for_build, &data_for_build, &g, &v)?;
-        Ok::<_, String>((hud, result))
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    if let Some(hud) = hud {
-        let count = hud.get("textures").and_then(serde_json::Value::as_u64).unwrap_or(0);
-        let cached = hud.get("cached").and_then(serde_json::Value::as_bool).unwrap_or(false);
-        launcher_log::line(&format!(
-            "{game}/{version}: offline HUD {}: {count} texture(s)",
-            if cached { "cached" } else { "extracted" }
-        ));
-    }
-    if result.enabled {
-        // Offline Ultra owns the enlargement. Keep only sampling/filtering work in the game itself.
-        openrac_launcher_core::enhanced::set_setting(
-            &home,
-            &game,
-            &version,
-            "texture_filter",
-            &serde_json::Value::from("normal"),
-        )?;
-        texture_packs::set_enabled(&home, &game, &version, true)?;
-        texture_packs::set_dumping(&home, &game, &version, false)?;
-    }
-    launcher_log::line(&format!(
-        "{game}/{version}: Ultra textures {}: {} texture(s), {:.1} MiB",
-        if result.cached { "cached" } else { "prepared" },
-        result.textures,
-        result.bytes as f64 / (1024.0 * 1024.0)
-    ));
-    Ok(result)
 }
 
 /// What a pack's .zip holds, refused for another game's or one that is not a pack.
@@ -1096,354 +618,6 @@ async fn texture_packs_export(
     Ok(Exported { saved: reports::tidy(&dest.to_string_lossy(), reports::home().as_deref()), textures, left_out })
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AiTextureBakeOptions {
-    mode: String,
-    preserve_microdetail: bool,
-    preserve_stars: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AiTextureBakeResult {
-    processed: usize,
-    model: String,
-    mode: String,
-    preserved_microdetails: usize,
-    preserved_stars: usize,
-    output: String,
-    backup: String,
-}
-
-/// Offline AI enhancement of extracted render meshes. Collision stays on the original game data;
-/// replacements are staged and backed up before they enter the ordinary --mods override tree.
-#[tauri::command]
-async fn ai_mesh_bake(
-    state: State<'_, AppState>,
-    game: String,
-    version: String,
-    mode: String,
-) -> Result<asset_ai::MeshBake, String> {
-    openrac_launcher_core::launcher_addons::require(
-        &openrac_launcher_core::saves::data_home(),
-        openrac_launcher_core::graphics_preparation::ID,
-        &game,
-        &version,
-    )?;
-    let _preparation = openrac_launcher_core::launcher_addons::begin_preparation(
-        &openrac_launcher_core::saves::data_home(),
-        &game,
-        &version,
-    )?;
-    let data = game_data_dir(&state, &game)?;
-    tauri::async_runtime::spawn_blocking(move || asset_ai::bake_meshes(&data, &version, &mode))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-/// Offline AI enhancement for a game's dumped static textures. The AI backend is deliberately
-/// external: the launcher invokes Upscayl's open-source NCNN backend, writes a complete staging
-/// pack, and swaps it in only after every batch succeeds.
-#[tauri::command]
-async fn ai_texture_bake(
-    state: State<'_, AppState>,
-    game: String,
-    version: String,
-    options: AiTextureBakeOptions,
-) -> Result<AiTextureBakeResult, String> {
-    use openrac_launcher_core::texture_packs;
-    let _preparation = openrac_launcher_core::launcher_addons::begin_preparation(
-        &openrac_launcher_core::saves::data_home(),
-        &game,
-        &version,
-    )?;
-    let data = game_data_dir(&state, &game)?;
-    let home = openrac_launcher_core::saves::data_home();
-    openrac_launcher_core::launcher_addons::require(
-        &home,
-        openrac_launcher_core::graphics_preparation::ID,
-        &game,
-        &version,
-    )?;
-    let dump = texture_packs::folder(&home, &data, &game, &version, true, "")?;
-    let pack = texture_packs::folder(&home, &data, &game, &version, false, "")?.join("PreparedAI");
-
-    fn upscayl_paths() -> (PathBuf, PathBuf) {
-        #[cfg(target_os = "macos")]
-        {
-            (
-                PathBuf::from("/Applications/Upscayl.app/Contents/Resources/bin/upscayl-bin"),
-                PathBuf::from("/Applications/Upscayl.app/Contents/Resources/models"),
-            )
-        }
-
-        #[cfg(windows)]
-        {
-            let mut roots = Vec::new();
-            if let Ok(exe) = std::env::current_exe() {
-                if let Some(dir) = exe.parent() {
-                    roots.push(dir.to_path_buf());
-                    roots.push(dir.join("resources"));
-                    roots.push(dir.join("upscayl"));
-                }
-            }
-            if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-                let local = PathBuf::from(local);
-                roots.push(local.join("Programs").join("Upscayl").join("resources"));
-                roots.push(local.join("Programs").join("upscayl").join("resources"));
-            }
-            for key in ["ProgramFiles", "ProgramFiles(x86)"] {
-                if let Some(base) = std::env::var_os(key) {
-                    let base = PathBuf::from(base);
-                    roots.push(base.join("Upscayl").join("resources"));
-                    roots.push(base.join("upscayl").join("resources"));
-                }
-            }
-            for root in roots {
-                let backend = if root.join("bin").join("upscayl-bin.exe").is_file() {
-                    root.join("bin").join("upscayl-bin.exe")
-                } else {
-                    root.join("upscayl-bin.exe")
-                };
-                let models = root.join("models");
-                if backend.is_file() && models.is_dir() {
-                    return (backend, models);
-                }
-            }
-            if let Some(paths) = std::env::var_os("PATH") {
-                for dir in std::env::split_paths(&paths) {
-                    let backend = dir.join("upscayl-bin.exe");
-                    if backend.is_file() {
-                        let models = dir.parent().map(|p| p.join("models")).unwrap_or_else(|| PathBuf::from("models"));
-                        return (backend, models);
-                    }
-                }
-            }
-            (PathBuf::from("upscayl-bin.exe"), PathBuf::from("models"))
-        }
-
-        #[cfg(all(not(target_os = "macos"), not(windows)))]
-        {
-            (PathBuf::from("upscayl-bin"), PathBuf::from("models"))
-        }
-    }
-
-    let (backend, models) = upscayl_paths();
-
-    let (model, mode) = match options.mode.as_str() {
-        "faithful" => ("high-fidelity-4x", "faithful"),
-        "balanced" => ("ultramix-balanced-4x", "balanced"),
-        "enhanced" => ("ultrasharp-4x", "enhanced"),
-        other => return Err(format!("Unknown AI texture mode: {other}")),
-    };
-    let preserve_microdetail = options.preserve_microdetail;
-    let preserve_stars = options.preserve_stars;
-    let label = format!("{game}/{version}");
-    tauri::async_runtime::spawn_blocking(move || {
-        if !backend.is_file() {
-            return Err("Upscayl AI backend is not installed. Install Upscayl, then try again.".to_string());
-        }
-        if !models.is_dir() {
-            return Err("Upscayl models folder is missing.".to_string());
-        }
-        if !models.join(format!("{model}.param")).is_file() || !models.join(format!("{model}.bin")).is_file() {
-            return Err(format!("Upscayl model {model} is not installed."));
-        }
-        if !dump.is_dir() {
-            return Err("No dumped textures yet. Save the game's textures once, then run AI pre-render.".to_string());
-        }
-
-        let parent = pack.parent().ok_or("texture pack has no parent folder")?;
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        let name = pack.file_name().and_then(|n| n.to_str()).ok_or("invalid texture pack folder")?;
-        let staging = parent.join(format!("{name}-ai-next"));
-        let _ = std::fs::remove_dir_all(&staging);
-        std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-
-        // Hashes the AI will replace. Existing extra pack assets (for example another agent's
-        // Ultra4K coverage) are preserved; only duplicate hash PNGs are omitted from the staging copy.
-        let mut ai_names = std::collections::HashSet::new();
-        let mut scan = vec![dump.clone()];
-        while let Some(dir) = scan.pop() {
-            for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
-                let entry = entry.map_err(|e| e.to_string())?;
-                let path = entry.path();
-                if path.is_dir() {
-                    scan.push(path);
-                } else if path
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .map(|x| x.eq_ignore_ascii_case("png"))
-                    .unwrap_or(false)
-                {
-                    ai_names.insert(entry.file_name());
-                }
-            }
-        }
-
-        if pack.is_dir() {
-            let mut copy = vec![(pack.clone(), staging.clone())];
-            while let Some((source, target)) = copy.pop() {
-                std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
-                for entry in std::fs::read_dir(&source).map_err(|e| e.to_string())? {
-                    let entry = entry.map_err(|e| e.to_string())?;
-                    let source_path = entry.path();
-                    let target_path = target.join(entry.file_name());
-                    if source_path.is_dir() {
-                        copy.push((source_path, target_path));
-                    } else {
-                        let replace = source_path
-                            .extension()
-                            .and_then(|x| x.to_str())
-                            .map(|x| x.eq_ignore_ascii_case("png"))
-                            .unwrap_or(false)
-                            && ai_names.contains(&entry.file_name());
-                        if !replace {
-                            std::fs::copy(&source_path, &target_path).map_err(|e| e.to_string())?;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Batch each dump directory separately so the backend stays warm for hundreds of textures.
-        // Animated frame hashes stay individual replacements, preserving the game's original timing.
-        let ai_root = staging.join("AI");
-        let mut stack = vec![dump.clone()];
-        let mut batches = Vec::new();
-        while let Some(dir) = stack.pop() {
-            let rel = dir.strip_prefix(&dump).map_err(|e| e.to_string())?.to_path_buf();
-            let mut has_png = false;
-            for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
-                let entry = entry.map_err(|e| e.to_string())?;
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .map(|x| x.eq_ignore_ascii_case("png"))
-                    .unwrap_or(false)
-                {
-                    has_png = true;
-                }
-            }
-            if has_png {
-                batches.push((dir, ai_root.join(rel)));
-            }
-        }
-        batches.sort_by(|a, b| a.0.cmp(&b.0));
-
-        let mut detail_stats = texture_ai::DetailStats::default();
-        for (input, output) in &batches {
-            std::fs::create_dir_all(output).map_err(|e| e.to_string())?;
-            let _batch_status = std::process::Command::new(&backend)
-                .arg("-i")
-                .arg(input)
-                .arg("-o")
-                .arg(output)
-                .arg("-m")
-                .arg(&models)
-                .arg("-n")
-                .arg(model)
-                .arg("-s")
-                .arg("4")
-                .arg("-f")
-                .arg("png")
-                .status()
-                .map_err(|e| format!("could not start Upscayl: {e}"))?;
-
-            // Re-inject high-frequency information from the original. This is deliberately after
-            // the neural pass: the model can invent useful material detail, but cannot delete tiny
-            // source lights/stars that the game actually contained.
-            for entry in std::fs::read_dir(input).map_err(|e| e.to_string())? {
-                let entry = entry.map_err(|e| e.to_string())?;
-                let source = entry.path();
-                if source.is_dir()
-                    || !source
-                        .extension()
-                        .and_then(|x| x.to_str())
-                        .is_some_and(|x| x.eq_ignore_ascii_case("png"))
-                {
-                    continue;
-                }
-                let enhanced = output.join(entry.file_name());
-                if !enhanced.is_file() {
-                    // A large directory batch can occasionally omit an individual image while
-                    // still returning success. Retry only that image using Upscayl's file mode.
-                    let status = std::process::Command::new(&backend)
-                        .arg("-i")
-                        .arg(&source)
-                        .arg("-o")
-                        .arg(&enhanced)
-                        .arg("-m")
-                        .arg(&models)
-                        .arg("-n")
-                        .arg(model)
-                        .arg("-s")
-                        .arg("4")
-                        .arg("-f")
-                        .arg("png")
-                        .status()
-                        .map_err(|e| format!("could not retry Upscayl for {}: {e}", source.display()))?;
-                    if !status.success() || !enhanced.is_file() {
-                        return Err(format!("Upscayl did not create {}", enhanced.display()));
-                    }
-                }
-                let stats = texture_ai::postprocess(&source, &enhanced, mode, preserve_microdetail, preserve_stars)?;
-                detail_stats.microdetails += stats.microdetails;
-                detail_stats.stars += stats.stars;
-            }
-        }
-
-        let mut processed = 0usize;
-        let mut todo = vec![ai_root.clone()];
-        while let Some(dir) = todo.pop() {
-            for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
-                let path = entry.map_err(|e| e.to_string())?.path();
-                if path.is_dir() {
-                    todo.push(path);
-                } else if path.extension().and_then(|x| x.to_str()) == Some("png") {
-                    processed += 1;
-                }
-            }
-        }
-        if processed == 0 {
-            return Err("Upscayl produced no textures; the existing pack was left untouched.".to_string());
-        }
-
-        let stamp =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs();
-        let backup = parent.join(format!("{name}.before-ai-{stamp}"));
-        if pack.exists() {
-            std::fs::rename(&pack, &backup).map_err(|e| format!("could not back up current pack: {e}"))?;
-        }
-        if let Err(e) = std::fs::rename(&staging, &pack) {
-            if backup.exists() {
-                let _ = std::fs::rename(&backup, &pack);
-            }
-            return Err(format!("could not activate AI pack: {e}"));
-        }
-
-        launcher_log::line(&format!(
-            "{label}: AI texture bake activated: {processed} texture(s), model {model}, mode {mode}, preserved {} microdetails and {} stars/tiny lights",
-            detail_stats.microdetails, detail_stats.stars
-        ));
-        Ok(AiTextureBakeResult {
-            processed,
-            model: model.to_string(),
-            mode: mode.to_string(),
-            preserved_microdetails: detail_stats.microdetails,
-            preserved_stars: detail_stats.stars,
-            output: pack.display().to_string(),
-            backup: if backup.exists() { backup.display().to_string() } else { String::new() },
-        })
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
 /// Deletes every lighting bake of a version (Enhanced graphics' "Delete the lighting"): the game
 /// keeps the original lighting until it is prepared again.
 #[tauri::command]
@@ -1462,7 +636,7 @@ async fn enhanced_delete_bakes(
     enhanced_view(state, game, version).await
 }
 
-/// Renderer controls cannot change the separately owned preparation settings.
+/// Sets one of Enhanced graphics' settings for a version, in its settings file.
 #[tauri::command]
 async fn enhanced_set_setting(
     state: State<'_, AppState>,
@@ -1471,33 +645,10 @@ async fn enhanced_set_setting(
     key: String,
     value: serde_json::Value,
 ) -> Result<Option<openrac_launcher_core::enhanced::EnhancedView>, String> {
-    if openrac_launcher_core::graphics_preparation::owns(&key) {
-        return Err("Use Graphics preparation for this setting".into());
-    }
-    set_graphics_setting(state, game, version, key, value).await
-}
-
-async fn set_graphics_setting(
-    state: State<'_, AppState>,
-    game: String,
-    version: String,
-    key: String,
-    value: serde_json::Value,
-) -> Result<Option<openrac_launcher_core::enhanced::EnhancedView>, String> {
     let home = openrac_launcher_core::saves::data_home();
     let (g, v) = (game.clone(), version.clone());
-    let config = state.config.lock().unwrap().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let version_key = format!("{g}/{v}");
-        if key.starts_with("cloud_") && openrac_launcher_core::enhanced::version_bake_status(&config, &version_key).busy
-        {
-            return Err("Wait for lighting preparation to finish before changing clouds".into());
-        }
-        openrac_launcher_core::enhanced::set_setting(&home, &g, &v, &key, &value)?;
-        if key.starts_with("cloud_") {
-            openrac_launcher_core::enhanced::sync_cloud_profile(&config, &version_key, &home)?;
-        }
-        Ok::<(), String>(())
+        openrac_launcher_core::enhanced::set_setting(&home, &g, &v, &key, &value)
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -2006,58 +1157,7 @@ fn inspect_saves(serial: String) -> openrac_launcher_core::saves::GameSaveStatus
 
 #[tauri::command]
 fn backup_saves(serial: String, note: Option<String>) -> Result<openrac_launcher_core::saves::SaveBackupInfo, String> {
-    openrac_launcher_core::launcher_addons::require(
-        &openrac_launcher_core::saves::data_home(),
-        openrac_launcher_core::launcher_addons::BACKUP_ID,
-        "",
-        "",
-    )?;
     openrac_launcher_core::saves::backup_saves(&serial, note.as_deref())
-}
-
-/// The folder-backed Cloud Saves provider selected on this device. The folder itself is the
-/// player's (OneDrive, Dropbox, iCloud Drive, Syncthing, a NAS, ...); OpenRAC hosts nothing.
-#[tauri::command]
-fn cloud_saves_config() -> cloud_saves::CloudConfigView {
-    cloud_saves::config()
-}
-
-#[tauri::command]
-fn cloud_saves_set_folder(folder: Option<String>) -> Result<cloud_saves::CloudConfigView, String> {
-    cloud_saves::set_folder(folder.as_deref())
-}
-
-#[tauri::command]
-fn cloud_saves_status(app: AppHandle, serial: String) -> Result<cloud_saves::CloudSaveStatus, String> {
-    cloud_saves::status(&serial, &launcher_version(&app))
-}
-
-/// Syncs one card. A restore is refused while a game has the card open; import_saves takes a local
-/// backup before replacing it. `auto` never resolves a conflict by itself.
-#[tauri::command]
-async fn cloud_saves_sync(
-    app: AppHandle,
-    serial: String,
-    strategy: Option<String>,
-) -> Result<cloud_saves::CloudSyncResult, String> {
-    openrac_launcher_core::launcher_addons::require(
-        &openrac_launcher_core::saves::data_home(),
-        openrac_launcher_core::launcher_addons::BACKUP_ID,
-        "",
-        "",
-    )?;
-    let in_use = card_check(&app).await?;
-    let version = launcher_version(&app);
-    let strategy = cloud_saves::Strategy::parse(strategy.as_deref())?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let card = openrac_launcher_core::saves::get_memcard_dir(&serial);
-        if let Some(game) = in_use(&card, &serial)? {
-            return Err(format!("{game} is running with this memory card: close it first"));
-        }
-        cloud_saves::sync(&serial, &version, strategy)
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Whether the game runs with a memory card (the name to show when it does), for an edit or a
@@ -2084,12 +1184,6 @@ async fn card_check(app: &AppHandle) -> Result<impl Fn(&Path, &str) -> Result<Op
 /// Restores a backup of the card; refused while the game runs with it, as an edit is.
 #[tauri::command]
 async fn restore_backup(app: AppHandle, serial: String, backup_name: String) -> Result<(), String> {
-    openrac_launcher_core::launcher_addons::require(
-        &openrac_launcher_core::saves::data_home(),
-        openrac_launcher_core::launcher_addons::BACKUP_ID,
-        "",
-        "",
-    )?;
     let in_use = card_check(&app).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let card = openrac_launcher_core::saves::get_memcard_dir(&serial);
@@ -3655,10 +2749,6 @@ pub fn run() {
             set_discord_status,
             inspect_saves,
             backup_saves,
-            cloud_saves_config,
-            cloud_saves_set_folder,
-            cloud_saves_status,
-            cloud_saves_sync,
             restore_backup,
             import_pcsx2_saves,
             pcsx2_memcards_dir,
@@ -3682,11 +2772,6 @@ pub fn run() {
             reset_apply,
             plugins_list,
             player_name_used,
-            graphics_delete_texture_cache,
-            launcher_addon_enabled,
-            launcher_addons_view,
-            launcher_addons_set_enabled,
-            launcher_addons_set_setting,
             enhanced_view,
             enhanced_set_enabled,
             texture_packs_view,
@@ -3695,13 +2780,6 @@ pub fn run() {
             texture_packs_preview,
             texture_packs_import,
             texture_packs_export,
-            enhanced_auto_configure,
-            texture_packs_prepare_ultra,
-            ai_texture_bake,
-            ai_mesh_bake,
-            mod_services::mod_service_permission,
-            mod_services::mod_service_grant,
-            mod_services::mod_service,
             mod_tool::mod_tool_list,
             mod_tool::mod_tool_read,
             mod_tool::mod_tool_store_get,
