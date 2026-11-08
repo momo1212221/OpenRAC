@@ -229,7 +229,7 @@ sizes, and the details of the checks.
 You need:
 
 - Node 20+;
-- Yarn, the version in `package.json`, through Corepack (`corepack enable`);
+- Yarn, the version in `package.json`, through Corepack (`corepack enable`; on Node 25 and later, run\n  `npm install --global corepack` first);
 - Rust stable, version 1.90 or newer. On Windows, use Rust's MSVC toolchain. If your default is GNU,
   run `rustup override set stable-x86_64-pc-windows-msvc` in this folder.
 - On Linux, Tauri's system libraries. On Debian and Ubuntu:
