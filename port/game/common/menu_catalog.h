@@ -77,6 +77,7 @@ enum class Id : std::uint8_t {
     // Enhanced
     EnhancedStatus,
     EnhancedGraphics,
+    GraphicsPreset,
     ModernShadows,
     ShadowQuality,
     RimLight,
