@@ -1,0 +1,165 @@
+name: build installable mod bundle
+
+on:
+  push:
+    branches: [mods]
+    paths:
+      - "openrac-mods.json"
+      - "mods/enhanced-weapons/**"
+      - "mods/enhanced-audio/**"
+      - "mods/accessibility-pack/**"
+      - ".github/workflows/mod-bundle-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mod-bundle-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x86_64
+            os: windows-2025
+          - name: linux-x86_64
+            os: ubuntu-22.04
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+          - name: macos-arm64
+            os: macos-15
+            configure: -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          - name: macos-x86_64
+            os: macos-15
+            configure: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          - name: android-arm64
+            os: ubuntu-24.04
+            configure: >-
+              -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake
+              -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - name: Ninja
+        run: python -m pip install ninja
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { "$($matches[1])=$($matches[2])" | Out-File -Append $env:GITHUB_ENV }
+          }
+      - name: Fetch pinned OpenRAC SDK
+        run: |
+          cd mods/enhanced-weapons
+          sdk=$(python3 tools/fetch_sdk.py)
+          sdk_abs=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$sdk")
+          echo "SDK=$sdk_abs" >> "$GITHUB_ENV"
+      - name: Build all three mods
+        env:
+          CONFIGURE: ${{ matrix.configure }}
+        run: |
+          for mod in enhanced-weapons enhanced-audio accessibility-pack; do
+            cmake -S "mods/$mod" -B "build/$mod" -G Ninja -DOPENRAC_SDK="$SDK" -DCMAKE_BUILD_TYPE=Release $CONFIGURE
+            cmake --build "build/$mod" --parallel
+          done
+      - name: Package
+        run: |
+          mkdir -p dist
+          for mod in enhanced-weapons enhanced-audio accessibility-pack; do
+            python "$SDK/tools/package_mod.py" "build/$mod/package/"* -o dist
+          done
+          ls -l dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: mods-${{ matrix.name }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  merge:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - name: Fetch pinned OpenRAC SDK
+        shell: bash
+        run: |
+          cd mods/enhanced-weapons
+          sdk=$(python3 tools/fetch_sdk.py)
+          sdk_abs=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$sdk")
+          echo "SDK=$sdk_abs" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: mods-*
+          path: dist
+          merge-multiple: true
+      - name: Merge platform archives and hash
+        shell: bash
+        run: |
+          for mod in enhanced-weapons enhanced-audio accessibility-pack; do
+            python "$SDK/tools/package_mod.py" --merge dist/"$mod"-0.1.0-*.zip -o dist/"$mod"-0.1.0.zip
+          done
+          (cd dist && sha256sum *.zip > SHA256SUMS)
+          cat dist/SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: openrac-enhancement-mods
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    needs: merge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: openrac-enhancement-mods
+          path: dist
+      - name: Publish installable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: openrac-enhancements-v0.1.0
+        shell: bash
+        run: |
+          cat > notes.md <<'EOF'
+          Three installable OpenRAC native mods by Moritz Wallinger:
+          - Enhanced Weapons 0.1.0
+          - Enhanced Audio 0.1.0
+          - Accessibility Pack 0.1.0
+
+          Built for Windows x86_64, Linux x86_64/aarch64, macOS arm64/x86_64 and Android arm64.
+          This release is for direct launcher installation and is not a submission to OpenRAC/openrac-mods.
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber dist/*
+          else
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "OpenRAC enhancement mods 0.1.0" --notes-file notes.md dist/*
+          fi
