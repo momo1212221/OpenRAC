@@ -223,7 +223,7 @@ fn file_sha256(path: &Path) -> Result<String, String> {
         }
         hash.update(&buffer[..n]);
     }
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// A stable identity for the card contents. The export's timestamp and launcher version are not
@@ -240,7 +240,7 @@ fn manifest_fingerprint(manifest: &save_transfer::SaveArchiveManifest) -> String
         hash.update(file.sha256.as_bytes());
         hash.update(b"\n");
     }
-    format!("{:x}", hash.finalize())
+    hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn working_archive(serial: &str) -> Result<PathBuf, String> {
@@ -368,7 +368,7 @@ fn snapshot_id(serial: &str, content: &str, parents: &[String], device: &str) ->
     hash.update(b"\0");
     let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     hash.update(nonce.to_le_bytes());
-    format!("{:x}", hash.finalize())
+    hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 type LocalSnapshot = (PathBuf, save_transfer::SaveArchiveManifest, String);
