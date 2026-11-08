@@ -13,11 +13,11 @@ crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
 serde_json.workspace = true
-png = "0.18.1"
 tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
 openrac-launcher-core = { path = "../core" }
+png = "0.18.1"
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.12.5", features = [] }
