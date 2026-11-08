@@ -208,8 +208,8 @@ private:
     enhanced::HeroWetness m_wetness;
     bool m_material_overrides = true;       // The viewer enables appearance by default.
     enhanced::MaterialRuntime m_materials;  // Unified typed bindings and sparse authoring state.
-    // Original texture hash -> normal / ORMH / emissive 2D textures.
-    std::unordered_map<std::uint64_t, std::array<unsigned, 3>> m_material_sidecars;
+    // Original texture hash -> normal / ORMH / emissive / specular / detail 2D textures.
+    std::unordered_map<std::uint64_t, std::array<unsigned, 5>> m_material_sidecars;
     enhanced::FoliageMaterials m_foliage;   // Reviewed per-material thin-sheet response.
     enhanced::HeroFur m_fur;
     enhanced::WaterFloat m_water_float;
