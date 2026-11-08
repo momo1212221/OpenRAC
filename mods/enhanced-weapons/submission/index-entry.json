@@ -2,14 +2,15 @@
   "id": "enhanced-weapons",
   "repo": "https://github.com/momo1212221/OpenRAC",
   "path": "mods/enhanced-weapons",
-  "description": "Cosmetic weapon feedback with configurable hit markers and heat distortion around player projectiles.",
+  "description": "Weapon XP with V1-V5/Omega progression, tier damage upgrades, hit markers and projectile effects.",
   "tags": [
-    "cosmetic",
-    "qol"
+    "gameplay",
+    "qol",
+    "weapons",
+    "progression"
   ],
   "impact": [
-    "cosmetic",
-    "speedrun-safe"
+    "gameplay"
   ],
   "aiAssisted": true
 }
