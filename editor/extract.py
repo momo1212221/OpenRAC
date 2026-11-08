@@ -28,6 +28,9 @@ import sys
 import tempfile
 import time
 
+if sys.platform != "ios":
+    from concurrent.futures import ProcessPoolExecutor
+
 sys.path.insert(1, str(next(p for p in Path(__file__).resolve().parents if (p / "tools/openrac_common").is_dir()) / "tools"))
 from openrac_common import background, files as file_ops  # noqa: E402
 
