@@ -2,7 +2,7 @@
 #include "openrac/games/rac1.h"
 
 #include <algorithm>
-#include <cstdint>\n#include <string>
+#include <cstdint>\n#include <limits>\n#include <string>
 
 namespace {
 const openrac_api* g_api = nullptr;
@@ -15,7 +15,7 @@ int32_t take_ammo(int32_t item, int32_t amount) {
     if (g_infinite) return 1;
     if (amount <= 0) return g_take_ammo(item, amount);
     const int64_t scaled = (static_cast<int64_t>(amount) * g_cost_percent + 99) / 100;
-    const int32_t adjusted = static_cast<int32_t>(std::clamp<int64_t>(scaled, 1, INT32_MAX));
+    const int32_t adjusted = static_cast<int32_t>(std::clamp<int64_t>(scaled, 1, std::numeric_limits<int32_t>::max()));
     return g_take_ammo(item, adjusted);
 }
 }
