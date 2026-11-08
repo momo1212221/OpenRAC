@@ -54,7 +54,6 @@ jobs:
                   z.writestr(info, path.read_bytes())
           for platform in platforms:
               shutil.copyfile(base, dist / f"custom-skins-0.1.0-{platform}.zip")
-          base.unlink()
 
           sums = []
           for path in sorted(dist.glob("*.zip")):
