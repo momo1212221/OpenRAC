@@ -5,8 +5,8 @@
 #include <memory>
 #include <optional>
 
-#include "enhanced/lighting/probes.h"
 #include "enhanced/lighting/cloud_field.h"
+#include "enhanced/lighting/probes.h"
 
 namespace openrac::lighting {
 // Offline worker budget borrowed by prepared bakers.
