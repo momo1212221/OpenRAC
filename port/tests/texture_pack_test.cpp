@@ -314,6 +314,11 @@ int main() {
     std::ofstream(material_dir / "height.png") << "height";
     std::ofstream(material_dir / "ao.png") << "ao";
     std::ofstream(material_dir / "emissive.png") << "emissive";
+    std::ofstream(material_dir / "specular.png") << "specular";
+    std::ofstream(material_dir / "metallic.png") << "metallic";
+    std::ofstream(material_dir / "cavity.png") << "cavity";
+    std::ofstream(material_dir / "curvature.png") << "curvature";
+    std::ofstream(material_dir / "edgewear.png") << "edgewear";
     disk()[name] = solid(8, 8, 200);
     texture_pack::configure(pack, {}, {load, save});
     const auto maps = texture_pack::material_maps(texture_pack::image_hash(small));
@@ -322,6 +327,11 @@ int main() {
     CHECK(maps && maps->height.filename() == "height.png");
     CHECK(maps && maps->ao.filename() == "ao.png");
     CHECK(maps && maps->emissive.filename() == "emissive.png");
+    CHECK(maps && maps->specular.filename() == "specular.png");
+    CHECK(maps && maps->metallic.filename() == "metallic.png");
+    CHECK(maps && maps->cavity.filename() == "cavity.png");
+    CHECK(maps && maps->curvature.filename() == "curvature.png");
+    CHECK(maps && maps->edgewear.filename() == "edgewear.png");
     CHECK(!texture_pack::material_maps(texture_pack::image_hash(solid(2, 2, 77))));
     auto image = small;
     CHECK(texture_pack::replace(image) && image.width == 8 && image.pixels[0] == 200);
