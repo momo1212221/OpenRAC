@@ -1,17 +1,39 @@
 # Accessibility Pack
 
-Native OpenRAC accessibility mod for RAC1.
+A native accessibility and assist mod for **Ratchet & Clank** in OpenRAC.
 
-Implemented in v0.1:
-- optional invulnerability for normal hits
-- incoming-damage scaling from 0-100%
-- large high-contrast status overlay using the OpenRAC 1.12 HUD API
+## Features
 
-This first version does not claim to provide full subtitle, colour-blind or flash-reduction support. Those require renderer/UI/audio hooks that are not currently exposed as mod API controls.
+- Deterministic normal-hit reduction from 0-100%.
+- Optional lethal-hit protection at one health with a three-second cooldown.
+- Optional normal-hit invulnerability.
+- Large high-contrast health display.
+- Prominent low-health warning.
+- Visual-only, Assist and Relaxed presets.
 
-Build:
+Only normal hits routed through the game's damage function are changed. Falls, crushers and other instant-kill hazards retain the game's original behaviour.
+
+## Multiplayer
+
+The mod is classified as gameplay because damage assists affect play. HUD-only settings are marked as each player's own.
+
+## Compatibility
+
+- Ratchet & Clank PAL
+- Ratchet & Clank NTSC-U
+- OpenRAC mod interface 1.12 or newer
+
+## Build
 
 ```sh
-cmake -S mods/accessibility-pack -B build/accessibility-pack
-cmake --build build/accessibility-pack
+python3 tools/fetch_sdk.py
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure --no-tests=ignore
 ```
+
+## Release
+
+Tag `v0.1.0` for a standalone repository, or `accessibility-pack-v0.1.0` in a multi-mod repository.
+
+Author: **Moritz Wallinger**.
