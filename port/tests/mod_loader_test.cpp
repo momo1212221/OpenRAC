@@ -34,21 +34,25 @@ namespace {
 
 // The hook point, as hooks.c writes one.
 void* g_slot_add = nullptr;
+
 int add_game(int x) {
     return x + 1;
 }
+
 int add(int x) {
     if (g_slot_add != nullptr) {
         return reinterpret_cast<int (*)(int)>(g_slot_add)(x);
     }
     return add_game(x);
 }
+
 const mods::HookPoint kHooks[] = {
     {"Test_Add", "func_00100000", "i32(i32)", &g_slot_add, reinterpret_cast<void*>(add_game)},
 };
 
 // The function the mods find by name (api->function): what they report.
 std::vector<int> g_records;
+
 extern "C" void test_record(int v) {
     g_records.push_back(v);
 }
@@ -284,10 +288,18 @@ const openrac_game_play kPlay = {
             + std::to_string(static_cast<int>(position[2])) + " " + std::to_string(moby)
         );
     },
-    [](gaddr victim, gaddr attacker, std::uint32_t mask, float damage, const float*, const float*) {
+    [](gaddr victim,
+       gaddr attacker,
+       std::uint32_t mask,
+       float damage,
+       const float*,
+       const float*,
+       std::int32_t source_oclass,
+       const float*) {
         g_played.push_back(
             "post_hit " + std::to_string(slot_at(victim)) + " " + std::to_string(slot_at(attacker))
             + " " + std::to_string(mask) + " " + std::to_string(static_cast<int>(damage))
+            + " source " + std::to_string(source_oclass)
         );
     },
     [](const float*, int count) { g_played.push_back("eyes " + std::to_string(count)); },
@@ -428,7 +440,9 @@ void two_mods_chain_in_load_order(const fs::path& plugins) {
     CHECK(add(0) == 112);
     CHECK(status_of(plugins, "test-a").first == "loaded");
     CHECK(status_of(plugins, "test-b").first == "loaded");
-    CHECK(read(plugins / "status.json").find("\"hook_points\": [\"Test_Add\"]") != std::string::npos);
+    CHECK(
+        read(plugins / "status.json").find("\"hook_points\": [\"Test_Add\"]") != std::string::npos
+    );
     // Frame callbacks in load order; a hook taken in one (after load) is refused (1000 + 3).
     CHECK(mods::g_frame_callbacks);
     mods::frame();
@@ -439,14 +453,20 @@ void two_mods_chain_in_load_order(const fs::path& plugins) {
     g_pad_hook(0, report, 18);
     CHECK(report[0] == 13);
     mods::reset();
-    CHECK(g_slot_add == nullptr && add(0) == 1 && g_pad_hook == nullptr && !mods::g_frame_callbacks);
+    CHECK(
+        g_slot_add == nullptr && add(0) == 1 && g_pad_hook == nullptr && !mods::g_frame_callbacks
+    );
 }
 
 void a_mod_that_fails_is_taken_back(const fs::path& plugins) {
     for (const char* behaviour : {"fail", "unknown_hook", "bad_signature"}) {
-        write(plugins / "plugins.json", std::string(R"({"format": 1, "mods": [
+        write(
+            plugins / "plugins.json",
+            std::string(R"({"format": 1, "mods": [
             {"id": "test-a", "settings": {"tag": 1}},
-            {"id": "test-b", "settings": {"tag": 2, "behaviour": ")") + behaviour + R"("}}]})");
+            {"id": "test-b", "settings": {"tag": 2, "behaviour": ")")
+                + behaviour + R"("}}]})"
+        );
         g_records.clear();
         const std::string line = mods::load(host(plugins));
         CHECK(line == "test-a 1.0.0 (1 not loaded: plugins/status.json)");
@@ -493,10 +513,17 @@ void purist_and_no_list(const fs::path& plugins) {
 
 // The library's id must be its manifest's.
 void a_library_of_another_id(const fs::path& plugins) {
-    copy_library(OPENRAC_TEST_MOD_A, plugins / "test-b" / "lib" / library_name());
+    fs::copy_file(
+        OPENRAC_TEST_MOD_A,
+        plugins / "test-b" / "lib" / library_name(),
+        fs::copy_options::overwrite_existing
+    );
     write(plugins / "plugins.json", R"({"format": 1, "mods": [{"id": "test-b"}]})");
     CHECK(mods::load(host(plugins)) == "none (1 not loaded: plugins/status.json)");
-    CHECK(status_of(plugins, "test-b").second.find("its library is mod \"test-a\"") != std::string::npos);
+    CHECK(
+        status_of(plugins, "test-b").second.find("its library is mod \"test-a\"")
+        != std::string::npos
+    );
     mods::reset();
     install(plugins, "b", OPENRAC_TEST_MOD_B);
 }
@@ -521,7 +548,10 @@ void an_installed_launchers_layout(const fs::path& root) {
             + std::string(mods::platform_key()) + R"(": ")" + lib.generic_string() + R"("},
         "settings": [{"key": "tag", "name": "Tag", "type": "int", "default": 0}]})"
     );
-    write(plugins / "plugins.json", R"({"format": 1, "mods": [{"id": "test-a", "enabled": true, "settings": {"tag": 4}}]})");
+    write(
+        plugins / "plugins.json",
+        R"({"format": 1, "mods": [{"id": "test-a", "enabled": true, "settings": {"tag": 4}}]})"
+    );
     const fs::path elsewhere = root / "somewhere-else";
     fs::create_directories(elsewhere);
     const fs::path before = fs::current_path();
@@ -551,8 +581,12 @@ void input_reaches_the_mod(const fs::path& plugins) {
     g_input.size = sizeof g_input;
     g_taken = 0;
     g_captures = 0;
-    h.input = [] { return static_cast<const openrac_input*>(&g_input); };
-    h.take_input = [](std::uint32_t devices) { g_taken |= devices; };
+    h.input = [] {
+        return static_cast<const openrac_input*>(&g_input);
+    };
+    h.take_input = [](std::uint32_t devices) {
+        g_taken |= devices;
+    };
     h.capture_mouse = [](bool capture) {
         ++g_captures;
         g_captured = capture;
@@ -993,7 +1027,7 @@ void the_world_reaches_the_game(const fs::path& plugins, const fs::path& dir) {
              "scene_start 3",
              "scene_start -1",
              "moby_hide 1 1",
-             "post_hit 1 0 4 3",
+             "post_hit 1 0 4 3 source 0",
          })
     );
     // The game's gate: a driven moby (slot 1, 3) is skipped without asking the mod; others ask it,
@@ -1012,8 +1046,8 @@ void the_world_reaches_the_game(const fs::path& plugins, const fs::path& dir) {
     // The game's hit: the watcher is told and decides (more than 5 damage: taken back).
     const float at[3] = {0, 0, 0};
     g_records.clear();
-    CHECK(openrac_game_moby_hit(1, -1, 4, 3.0f, at, at) == 0);
-    CHECK(openrac_game_moby_hit(1, 0, 4, 9.0f, at, at) == 1);
+    CHECK(openrac_game_moby_hit(1, -1, 4, 3.0f, at, at, 0, at) == 0);
+    CHECK(openrac_game_moby_hit(1, 0, 4, 9.0f, at, at, 71, at) == 1);
     CHECK((g_records == std::vector<int>{8810, 8811}));
     // The level loaded again: the drives are gone with it (and the fake level is whole again).
     g_loads = 2;
@@ -1154,7 +1188,7 @@ void game_ui_pages_reach_the_front_end(const fs::path& plugins) {
     );
     CHECK(mods::ui_main_item(1) == nullptr && mods::ui_page(2) == nullptr);
     // The pause menu's Options items (interface 1.9), in the order added.
-    CHECK(mods::ui_pause_item_count() == 2);
+    CHECK(mods::ui_pause_item_count() == OPENRAC_UI_PAUSE_ITEMS_MAX);
     CHECK(
         mods::ui_pause_item(0) != nullptr && mods::ui_pause_item(0)->label == "Multiplayer"
         && mods::ui_pause_item(0)->page == 0
@@ -1163,7 +1197,15 @@ void game_ui_pages_reach_the_front_end(const fs::path& plugins) {
         mods::ui_pause_item(1) != nullptr && mods::ui_pause_item(1)->label == "Party"
         && mods::ui_pause_item(1)->page == 1
     );
-    CHECK(mods::ui_pause_item(2) == nullptr && mods::ui_pause_item(-1) == nullptr);
+    CHECK(
+        mods::ui_pause_item(2) != nullptr && mods::ui_pause_item(2)->label == "Third"
+        && mods::ui_pause_item(2)->page == 0
+    );
+    CHECK(
+        mods::ui_pause_item(3) != nullptr && mods::ui_pause_item(3)->label == "Fourth"
+        && mods::ui_pause_item(3)->page == 1
+    );
+    CHECK(mods::ui_pause_item(4) == nullptr && mods::ui_pause_item(-1) == nullptr);
     const mods::UiPage* home = mods::ui_page(0);
     CHECK(home != nullptr && home->title == "Multiplayer" && home->items.size() == 4);
     CHECK(
@@ -1358,7 +1400,11 @@ void views_reach_the_host(const fs::path& plugins) {
 // permanent id, test.add. The mod still asks for Test_Add, and binds; status.json names the id.
 void an_old_name_still_binds(const fs::path& plugins) {
     static const mods::HookPoint renamed[] = {
-        {"Test_Add_Renamed", "func_00100000", "i32(i32)", &g_slot_add, reinterpret_cast<void*>(add_game)},
+        {"Test_Add_Renamed",
+         "func_00100000",
+         "i32(i32)",
+         &g_slot_add,
+         reinterpret_cast<void*>(add_game)},
     };
     static const openrac_script_alias aliases[] = {
         {"Test_Add", "test.add"},
@@ -1366,13 +1412,17 @@ void an_old_name_still_binds(const fs::path& plugins) {
         {"func_00100000", "test.add"},
     };
     static const char* const discs[] = {"one"};
-    static const openrac_script_binding binding = {"test", 1, discs, 0, nullptr, 0, nullptr, nullptr, 3, aliases};
+    static const openrac_script_binding binding =
+        {"test", 1, discs, 0, nullptr, 0, nullptr, nullptr, 3, aliases};
     CHECK(std::string(openrac_script_hook_id(&binding, "Test_Add")) == "test.add");
     CHECK(std::string(openrac_script_hook_id(&binding, "func_00100000")) == "test.add");
     CHECK(std::string(openrac_script_hook_id(&binding, "test.add")) == "test.add");
     CHECK(std::string(openrac_script_hook_id(&binding, "Unknown")) == "Unknown");
     CHECK(std::string(openrac_script_hook_id(nullptr, "Test_Add")) == "Test_Add");
-    write(plugins / "plugins.json", R"({"format": 1, "mods": [{"id": "test-a", "enabled": true, "settings": {"tag": 5}}]})");
+    write(
+        plugins / "plugins.json",
+        R"({"format": 1, "mods": [{"id": "test-a", "enabled": true, "settings": {"tag": 5}}]})"
+    );
     mods::Host h = host(plugins);
     h.hooks = renamed;
     h.scripts = &binding;
@@ -1593,7 +1643,8 @@ void motion_reaches_the_game(const fs::path& plugins, const fs::path& dir) {
 }
 
 int main() {
-    const fs::path dir = fs::temp_directory_path() / ("openrac_mod_loader_test_" + std::to_string(std::rand()));
+    const fs::path dir =
+        fs::temp_directory_path() / ("openrac_mod_loader_test_" + std::to_string(std::rand()));
     fs::remove_all(dir);
     const fs::path plugins = dir / "plugins";
     install(plugins, "a", OPENRAC_TEST_MOD_A);
