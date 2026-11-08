@@ -80,10 +80,15 @@ discordClientId: string | null,
  */
 layout: "compact" | "classic", 
 /**
- * The launcher's theme (src/lib/palettes.json): "openrac" (default), "gruvbox", "oled", "nord"
+ * The launcher's theme (src/lib/palettes.json): "openrac" (default), "oled", "nord"
  * or "mocha". The accent is not a theme's: it is the picked game's.
  */
 theme: string, 
+/**
+ * The picked game's own bar, gold and coal (palettes.json game_colors) instead of the
+ * launcher's, in the launcher and the game's menu. Off by default: every game wears the gold.
+ */
+gameColors: boolean, 
 /**
  * The game writes a detailed log (OPENRAC_LOG=verbose): level loads, controller changes,
  * what the port is missing. Off by default, so a log stays small.

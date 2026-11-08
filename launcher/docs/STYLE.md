@@ -27,7 +27,7 @@ follows the same rules.
   gold for Ratchet & Clank) laid over the window from the bar down
   (`body::after` in app.css: two radial gradients, 13 % and 7 %, screen
   blend, so it only lightens), fading out by about two thirds down. It eases
-  from game to game. The OLED theme has none. The game's menu window has the
+  from game to game, on every theme (OLED too, user decision). The game's menu window has the
   same light along its top (8 %, see below).
 - The bar's shadow is light (1 px down, 6 px blur, 18 %): a deeper one reads as
   a black band under the bar.
@@ -117,8 +117,8 @@ The site has no status colours; the launcher adds `--ok` (`#8fd694`), `--warn`
 (amber) and `--err` (`#ff8a7a`), used only in pills and messages. The theme is
 dark only, as the site is.
 
-These are the "OpenRAC" theme. The other themes (Settings → General: Gruvbox,
-OLED black, Nord, Catppuccin Mocha) live in `src/lib/palettes.json`, read by
+These are the "OpenRAC" theme. The other themes (Settings → General: OLED
+black, Nord, Catppuccin Mocha) live in `src/lib/palettes.json`, read by
 `src/lib/palettes.ts` and the core (`core/src/theme.rs`). A theme sets the
 page, panel, control, text, line and status tokens, never the
 accent (`--amber`, `--gold`, `--brand`, the bar's): that stays gold. So a colour that should follow the theme uses a
@@ -147,8 +147,7 @@ In code, `--control` / `--control-hi` is the fill on the page, and
 `--control-card` / `--control-card-hi` the fill on a card: any surface filled
 with `--card` or `--card-hi` sets `--control: var(--control-card)` (and
 `-hi`) for what is inside it. Each theme in `palettes.json` sets both pairs
-from its own colours (one step lighter than the page and than its cards;
-Gruvbox's controls sit darker, in its own `#1d2021`, as its page is lighter).
+from its own colours (one step lighter than the page and than its cards).
 
 The site's lighter home bands (`#111111`, with darker card stripes on them)
 have no place in the launcher, which has no such bands; its page is already
@@ -226,6 +225,15 @@ border and 12 px corners.
 `--title-weight`): set it on an element and everything inside it takes that
 game's colours. A game without a theme gets `FALLBACK` (the launcher's own
 gold); the tests fail until every game in `games/` has one.
+
+**Game colours** (Settings, General, a switch under the themes, off by
+default) puts each game's own colours back on: its bar, buttons and gold
+(`--bar-*`, `--amber`, `--gold`, `--brand`) and, on the OpenRAC theme only,
+its coal (`--tint-*`, the launcher's ladder at the same OKLCH lightness in the
+game's hue). They live in palettes.json `game_colors`; `applyAccent` sets them
+with `data-game-colors` on the page, and the core hands them to the game's menu
+(`ui_colors(theme, game, game_colors)`). The light under the bar stays as
+without it. Off, every game wears the gold (user decision).
 
 ## A game's picture
 
