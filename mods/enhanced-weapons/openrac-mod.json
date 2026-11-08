@@ -13,7 +13,7 @@
   "settings": [
     { "key": "infinite_ammo", "name": "Infinite ammo", "type": "bool", "default": false,
       "description": "Weapons can fire without consuming ammo." },
-    { "key": "ammo_cost_percent", "name": "Ammo cost", "type": "int", "default": 100, "min": 25, "max": 200, "step": 25,
+    { "key": "ammo_cost_percent", "name": "Ammo cost", "type": "int", "default": 100, "min": 25, "max": 200,
       "description": "Ammo consumed per shot as a percentage of the normal cost." }
   ]
 }
