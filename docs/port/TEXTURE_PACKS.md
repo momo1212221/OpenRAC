@@ -316,3 +316,15 @@ All four fields default to the legacy response. Clearcoat conserves a small amou
 energy, and an authored anisotropic response replaces the isotropic sidecar environment lobe instead
 of stacking the same reflection twice. Transmission/IOR/thickness are accepted by the material
 runtime but are not consumed by this stage yet.
+
+
+### Environment transmission
+
+Authored `surface.transmission` now mixes the opaque base response toward a local environment-capture
+sample refracted with `surface.ior`. The same IOR also contributes a Fresnel reflection term so fully
+transmissive surfaces do not lose their front-surface reflection. `surface.thickness` applies a
+restrained Beer-Lambert absorption approximation tinted by the de-lit albedo response.
+
+This stage does not change original alpha/depth coverage and currently runs only on the opaque
+Enhanced surface path. It is therefore suitable for opt-in solid glass/crystal/energy materials
+without silently changing legacy translucent packets.
