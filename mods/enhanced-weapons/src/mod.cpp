@@ -266,6 +266,202 @@ int32_t take_ammo(int32_t item, int32_t amount) {
     return result;
 }
 
+
+std::uint32_t colour(unsigned r, unsigned g, unsigned b, unsigned a) {
+    return ((r & 0xffu) << 24u) | ((g & 0xffu) << 16u) | ((b & 0xffu) << 8u) | (a & 0xffu);
+}
+
+void panel(const openrac_overlay* overlay, float x, float y, float w, float h, std::uint8_t alpha) {
+    if (!overlay || !overlay->rect) return;
+    const std::uint8_t shadow_a = static_cast<std::uint8_t>(alpha * 0.55f);
+    overlay->rect(overlay->context, x + 3.0f, y + 3.0f, w, h, colour(0, 0, 0, shadow_a));
+    overlay->rect(overlay->context, x, y, w, h, colour(91, 55, 10, alpha));
+    overlay->rect(overlay->context, x + 2.0f, y + 2.0f, w - 4.0f, h - 4.0f,
+                  colour(22, 18, 12, static_cast<std::uint8_t>(alpha * 0.94f)));
+    overlay->rect(overlay->context, x + 4.0f, y + 4.0f, 4.0f, h - 8.0f,
+                  colour(235, 157, 34, alpha));
+    overlay->rect(overlay->context, x + 8.0f, y + 4.0f, w - 12.0f, 2.0f,
+                  colour(255, 201, 72, static_cast<std::uint8_t>(alpha * 0.82f)));
+}
+
+void rac_text(
+    const openrac_overlay* overlay,
+    float x,
+    float y,
+    float height,
+    std::uint32_t rgba,
+    const char* text
+) {
+    if (!overlay || !overlay->text || !text) return;
+    overlay->text(overlay->context, x + 1.3f, y + 1.3f, height, colour(0, 0, 0, 190), text);
+    overlay->text(overlay->context, x, y, height, rgba, text);
+}
+
+void centred_text(
+    const openrac_overlay* overlay,
+    float centre,
+    float y,
+    float height,
+    std::uint32_t rgba,
+    const char* text
+) {
+    if (!overlay || !text) return;
+    const float width = overlay->text_width ? overlay->text_width(overlay->context, height, text) : 0.0f;
+    rac_text(overlay, centre - width * 0.5f, y, height, rgba, text);
+}
+
+void draw_hit_marker(const openrac_overlay* overlay) {
+    if (!g_hit_marker || g_marker_left <= 0 || !overlay || !overlay->rect) return;
+
+    const float fade = static_cast<float>(g_marker_left) / static_cast<float>(g_marker_duration);
+    const std::uint8_t alpha = static_cast<std::uint8_t>(std::clamp(255.0f * fade, 0.0f, 255.0f));
+    const float scale = g_marker_scale;
+    const float cx = 256.0f;
+    const float cy = 224.0f;
+    const float gap = 4.0f * scale;
+    const float length = 8.0f * scale;
+    const float thick = std::max(1.5f, 1.8f * scale);
+
+    // Dark undershadow keeps the marker readable against bright planets without looking like a PC FPS HUD.
+    const auto shadow = colour(18, 12, 4, static_cast<std::uint8_t>(alpha * 0.80f));
+    const auto gold = colour(255, 194, 56, alpha);
+    const auto core = colour(255, 244, 190, alpha);
+
+    auto piece = [&](float x, float y, float w, float h) {
+        overlay->rect(overlay->context, x + 1.0f, y + 1.0f, w, h, shadow);
+        overlay->rect(overlay->context, x, y, w, h, gold);
+    };
+
+    piece(cx - gap - length, cy - thick * 0.5f, length, thick);
+    piece(cx + gap, cy - thick * 0.5f, length, thick);
+    piece(cx - thick * 0.5f, cy - gap - length, thick, length);
+    piece(cx - thick * 0.5f, cy + gap, thick, length);
+    overlay->rect(overlay->context, cx - 1.0f, cy - 1.0f, 2.0f, 2.0f, core);
+
+    if (g_word_marker) {
+        centred_text(overlay, cx, cy + 13.0f * scale, 6.5f * scale, core, "HIT");
+    }
+}
+
+void draw_weapon_progress(const openrac_overlay* overlay) {
+    if (!g_weapon_xp || !g_xp_hud || !overlay) return;
+    const int item = current_item();
+    const WeaponInfo* active = weapon_info(item);
+    if (!active) return;
+
+    const std::uint32_t xp = xp_for(item);
+    const int tier = tier_for_xp(xp);
+    constexpr float x = 18.0f;
+    constexpr float y = 362.0f;
+    constexpr float w = 218.0f;
+    constexpr float h = 68.0f;
+    constexpr std::uint8_t a = 232;
+    panel(overlay, x, y, w, h, a);
+
+    rac_text(overlay, x + 15.0f, y + 10.0f, 8.0f, colour(255, 232, 168, 255), active->name);
+
+    const bool omega = tier >= 5;
+    const float badge_w = omega ? 58.0f : 38.0f;
+    const float badge_x = x + w - badge_w - 10.0f;
+    overlay->rect(overlay->context, badge_x, y + 8.0f, badge_w, 17.0f,
+                  omega ? colour(126, 70, 8, 245) : colour(71, 47, 18, 235));
+    overlay->rect(overlay->context, badge_x + 1.0f, y + 9.0f, badge_w - 2.0f, 2.0f,
+                  omega ? colour(255, 214, 71, 255) : colour(225, 151, 36, 255));
+    centred_text(
+        overlay, badge_x + badge_w * 0.5f, y + 13.0f, 6.5f,
+        omega ? colour(255, 231, 112, 255) : colour(255, 206, 92, 255), tier_name(tier)
+    );
+
+    char xp_line[64];
+    if (omega) {
+        std::snprintf(xp_line, sizeof xp_line, "WEAPON XP  %u  MAX", xp);
+    } else {
+        std::snprintf(xp_line, sizeof xp_line, "WEAPON XP  %u / %u", xp,
+                      kTierXp[static_cast<std::size_t>(tier + 1)]);
+    }
+    rac_text(overlay, x + 15.0f, y + 29.0f, 5.5f, colour(226, 211, 180, 240), xp_line);
+
+    constexpr float bar_x = x + 15.0f;
+    constexpr float bar_y = y + 42.0f;
+    constexpr float bar_w = w - 30.0f;
+    constexpr float bar_h = 8.0f;
+    overlay->rect(overlay->context, bar_x, bar_y, bar_w, bar_h, colour(8, 7, 5, 220));
+    overlay->rect(overlay->context, bar_x + 1.0f, bar_y + 1.0f, bar_w - 2.0f, bar_h - 2.0f,
+                  colour(56, 44, 27, 235));
+
+    float progress = 1.0f;
+    if (!omega) {
+        const std::uint32_t start = kTierXp[static_cast<std::size_t>(tier)];
+        const std::uint32_t end = kTierXp[static_cast<std::size_t>(tier + 1)];
+        progress = end > start ? static_cast<float>(xp - start) / static_cast<float>(end - start) : 0.0f;
+        progress = std::clamp(progress, 0.0f, 1.0f);
+    }
+    if (progress > 0.0f) {
+        overlay->rect(
+            overlay->context, bar_x + 2.0f, bar_y + 2.0f, (bar_w - 4.0f) * progress, bar_h - 4.0f,
+            omega ? colour(255, 213, 61, 255) : colour(231, 145, 25, 255)
+        );
+    }
+
+    // Six small illuminated cells make the V1 -> V5 -> OMEGA hierarchy readable at a glance.
+    constexpr float cell_gap = 3.0f;
+    constexpr float tier_y = y + 55.0f;
+    const float cell_w = (bar_w - cell_gap * 5.0f) / 6.0f;
+    for (int i = 0; i < 6; ++i) {
+        const float cell_x = bar_x + static_cast<float>(i) * (cell_w + cell_gap);
+        const bool reached = i <= tier;
+        overlay->rect(
+            overlay->context, cell_x, tier_y, cell_w, 5.0f,
+            reached
+                ? (i == 5 ? colour(255, 212, 52, 255) : colour(206, 121, 20, 245))
+                : colour(46, 38, 28, 210)
+        );
+    }
+}
+
+void draw_level_up(const openrac_overlay* overlay) {
+    if (!g_level_up_notice || g_levelup_left <= 0 || g_levelup_item < 0 || !overlay) return;
+    const WeaponInfo* upgraded = weapon_info(g_levelup_item);
+    if (!upgraded) return;
+
+    float fade = 1.0f;
+    if (g_levelup_left > 220) fade = static_cast<float>(240 - g_levelup_left) / 20.0f;
+    if (g_levelup_left < 35) fade = static_cast<float>(g_levelup_left) / 35.0f;
+    fade = std::clamp(fade, 0.0f, 1.0f);
+    const auto alpha = static_cast<std::uint8_t>(255.0f * fade);
+
+    constexpr float x = 111.0f;
+    constexpr float y = 68.0f;
+    constexpr float w = 290.0f;
+    constexpr float h = 64.0f;
+    panel(overlay, x, y, w, h, alpha);
+    overlay->rect(overlay->context, x + 8.0f, y + 8.0f, w - 16.0f, 4.0f,
+                  colour(255, 190, 40, alpha));
+
+    centred_text(
+        overlay, 256.0f, y + 17.0f, 7.0f,
+        colour(255, 224, 142, alpha), "WEAPON UPGRADE"
+    );
+
+    char line[96];
+    const int tier = tier_for_xp(xp_for(g_levelup_item));
+    std::snprintf(line, sizeof line, "%s  %s", upgraded->name, tier_name(tier));
+    centred_text(
+        overlay, 256.0f, y + 34.0f, 10.0f,
+        tier >= 5 ? colour(255, 218, 67, alpha) : colour(255, 246, 211, alpha), line
+    );
+
+    // A short gold underline gives the banner the same tech-card language as the weapon panel.
+    overlay->rect(overlay->context, 208.0f, y + 52.0f, 96.0f, 3.0f,
+                  colour(240, 153, 28, alpha));
+}
+
+void overlay_frame(void*, const openrac_overlay* overlay) {
+    draw_weapon_progress(overlay);
+    draw_hit_marker(overlay);
+    draw_level_up(overlay);
+}
+
 void frame(void*) {
     if (!g_api || !g_mod) return;
     update_progress_slot();
@@ -275,66 +471,11 @@ void frame(void*) {
         save_progress();
     }
 
-    openrac_hud_text lines[3]{};
-    int line_count = 0;
-
-    if (g_marker_left > 0 && g_hit_marker) {
-        openrac_hud_text& line = lines[line_count++];
-        std::strncpy(line.text, g_word_marker ? "HIT" : "+", sizeof(line.text) - 1);
-        line.x = 0.5f;
-        line.y = 0.5f;
-        line.scale = g_marker_scale;
-        const float fade = static_cast<float>(g_marker_left) / static_cast<float>(g_marker_duration);
-        line.rgba[0] = 255;
-        line.rgba[1] = 255;
-        line.rgba[2] = 255;
-        line.rgba[3] = static_cast<std::uint8_t>(std::clamp(255.0f * fade, 0.0f, 255.0f));
-        line.flags = OPENRAC_HUD_SHADOW;
-        --g_marker_left;
-    }
+    if (g_marker_left > 0) --g_marker_left;
+    if (g_levelup_left > 0) --g_levelup_left;
 
     const int item = current_item();
     const WeaponInfo* active = weapon_info(item);
-    if (g_weapon_xp && g_xp_hud && active) {
-        const std::uint32_t xp = xp_for(item);
-        const int tier = tier_for_xp(xp);
-        openrac_hud_text& line = lines[line_count++];
-        if (tier >= 5) {
-            std::snprintf(line.text, sizeof line.text, "%s  OMEGA  MAX", active->name);
-        } else {
-            const std::uint32_t next = kTierXp[static_cast<std::size_t>(tier + 1)];
-            std::snprintf(line.text, sizeof line.text, "%s  %s  %u/%u XP",
-                          active->name, tier_name(tier), xp, next);
-        }
-        line.x = 0.03f;
-        line.y = 0.92f;
-        line.scale = 0.52f;
-        line.rgba[0] = 255;
-        line.rgba[1] = 255;
-        line.rgba[2] = 255;
-        line.rgba[3] = 235;
-        line.flags = OPENRAC_HUD_SMALL | OPENRAC_HUD_SHADOW;
-    }
-
-    if (g_levelup_left > 0 && g_levelup_item >= 0) {
-        const WeaponInfo* upgraded = weapon_info(g_levelup_item);
-        if (upgraded) {
-            openrac_hud_text& line = lines[line_count++];
-            const int tier = tier_for_xp(xp_for(g_levelup_item));
-            std::snprintf(line.text, sizeof line.text, "%s UPGRADED: %s", upgraded->name, tier_name(tier));
-            line.x = 0.5f;
-            line.y = 0.16f;
-            line.scale = 0.86f;
-            line.rgba[0] = 255;
-            line.rgba[1] = 255;
-            line.rgba[2] = 255;
-            line.rgba[3] = 255;
-            line.flags = OPENRAC_HUD_SHADOW;
-        }
-        --g_levelup_left;
-    }
-
-    if (g_api->hud_text_set) g_api->hud_text_set(g_mod, line_count ? lines : nullptr, line_count);
 
     if (!g_api->haze_set) return;
     if (!g_projectile_haze || g_haze_strength <= 0.0f || !g_api->moby_list) {
@@ -360,9 +501,10 @@ void frame(void*) {
     }
     g_api->haze_set(g_mod, count ? haze.data() : nullptr, count);
 }
+
 }  // namespace
 
-OPENRAC_MOD_DEFINE("enhanced-weapons", "0.2.0")
+OPENRAC_MOD_DEFINE("enhanced-weapons", "0.3.0")
 
 OPENRAC_MOD_EXPORT int openrac_mod_load(const openrac_api* api, openrac_mod* mod) {
     if (!api || !mod || !api->game || std::string(api->game) != "rac1") {
@@ -398,12 +540,16 @@ OPENRAC_MOD_EXPORT int openrac_mod_load(const openrac_api* api, openrac_mod* mod
         api->fail(mod, "Weapon_TakeAmmo hook is unavailable.");
         return 1;
     }
+    if (!api->on_overlay || api->on_overlay(mod, overlay_frame, nullptr) != OPENRAC_HOOK_OK) {
+        api->fail(mod, "Enhanced RAC Style requires OpenRAC mod overlay API 1.14.");
+        return 1;
+    }
     if (api->on_frame(mod, frame, nullptr) != 0) {
         api->fail(mod, "Could not register the Enhanced Weapons callback.");
         return 1;
     }
 
-    api->log(mod, OPENRAC_LOG_INFO, "loaded: weapon XP and V1-V5/Omega progression enabled");
+    api->log(mod, OPENRAC_LOG_INFO, "loaded: Enhanced RAC Style weapon XP and V1-V5/Omega progression enabled");
     return 0;
 }
 
