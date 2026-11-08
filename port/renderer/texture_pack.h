@@ -102,6 +102,46 @@ std::uint64_t image_hash(const Rgba8Image& image);
 // Its file name: 16 lowercase hex digits and ".png".
 std::string file_name(std::uint64_t hash);
 
+// Optional material maps authored for one original texture hash. They are indexed independently
+// from the colour replacement so old texture packs remain fully compatible.
+struct MaterialMaps {
+    std::filesystem::path normal;
+    std::filesystem::path roughness;
+    std::filesystem::path height;
+    std::filesystem::path ao;
+    std::filesystem::path emissive;
+    std::filesystem::path specular;
+    std::filesystem::path metallic;
+    std::filesystem::path cavity;
+    std::filesystem::path curvature;
+    std::filesystem::path edgewear;
+
+    bool empty() const {
+        return normal.empty() && roughness.empty() && height.empty() && ao.empty()
+               && emissive.empty() && specular.empty() && metallic.empty() && cavity.empty()
+               && curvature.empty() && edgewear.empty();
+    }
+};
+
+// The material sidecars under Materials/<hash>/, when a pack provides any.
+std::optional<MaterialMaps> material_maps(std::uint64_t hash);
+
+enum class MaterialMap : std::uint8_t {
+    Normal,
+    Roughness,
+    Height,
+    Ao,
+    Emissive,
+    Specular,
+    Metallic,
+    Cavity,
+    Curvature,
+    EdgeWear
+};
+
+// Decodes one material sidecar through the same configured PNG loader as colour replacements.
+std::optional<Rgba8Image> load_material_map(std::uint64_t hash, MaterialMap map);
+
 // What replace() found for a texture.
 struct Replacement {
     std::uint64_t hash = 0;                      // the original's hash; 0 with no pack and no dump

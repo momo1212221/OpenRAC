@@ -130,7 +130,8 @@ void append_model_materials(
              primitive.material,
              mesh.name,
              material_identity(level, model, primitive.material, images),
-             transport.contains(static_cast<std::uint32_t>(model))}
+             transport.contains(static_cast<std::uint32_t>(model)),
+             level.materials[static_cast<std::size_t>(primitive.material)].texture_pack_hash}
         );
     }
 }
@@ -148,7 +149,8 @@ void append_water_material(MaterialAssets& assets) {
          slot,
          "Water appearance",
          std::move(identity),
-         false}
+         false,
+         0}
     );
 }
 

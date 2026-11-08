@@ -9,10 +9,12 @@
 
 #pragma once
 
+#include <array>
 #include <map>
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #ifdef OPENRAC_LIGHT_AUTHORING
@@ -187,6 +189,11 @@ private:
     void bind_surface_material(
         const renderer::Shader& shader, std::uint32_t model, int slot, const scene::Material& source
     ) const;
+    void load_material_sidecars(const scene::LevelData& level);
+    void bind_material_sidecars(
+        const renderer::Shader& shader, const scene::Material& source
+    ) const;
+    void release_material_sidecars();
     std::map<std::uint32_t, int>
         m_reflection_classes;  // Authored object identity for chrome overrides.
 #ifdef OPENRAC_LIGHT_AUTHORING
@@ -201,6 +208,12 @@ private:
     enhanced::HeroWetness m_wetness;
     bool m_material_overrides = true;       // The viewer enables appearance by default.
     enhanced::MaterialRuntime m_materials;  // Unified typed bindings and sparse authoring state.
+    // Original texture hash -> normal / ORMH / emissive / specular / detail 2D textures.
+    std::unordered_map<std::uint64_t, std::array<unsigned, 5>> m_material_sidecars;
+    // Neutral, fully-defined samplers used when a draw has no material sidecars. Vulkan's frame
+    // graph reflects sampler reads even behind a disabled uniform branch, so texture 0 is not a
+    // sufficient fallback: these images must contain defined contents before the colour pass.
+    std::array<unsigned, 5> m_material_sidecar_defaults{};
     enhanced::FoliageMaterials m_foliage;   // Reviewed per-material thin-sheet response.
     enhanced::HeroFur m_fur;
     enhanced::WaterFloat m_water_float;

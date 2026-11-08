@@ -8,19 +8,302 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
+#include <cstring>
 #include <memory>
+#include <tuple>
 #include <utility>
+#include <vector>
 
 #include "common/log.h"
 #include "enhanced/renderer/reflection_material.h"
 #include "enhanced/renderer/water.h"
 #include "enhanced_viewer_shaders.h"
 #include "renderer/gl.h"
+#include "renderer/texture_pack.h"
 #include "scene/level_renderer.h"
 
 namespace openrac::lighting {
 
 namespace {
+constexpr unsigned kMaterialNormalUnit = 8;
+constexpr unsigned kMaterialOrmhUnit = 9;
+constexpr unsigned kMaterialEmissiveUnit = 10;
+constexpr unsigned kMaterialSpecularUnit = 11;
+constexpr unsigned kMaterialDetailUnit = 12;
+
+bool same_extent(const renderer::Rgba8Image& image, int width, int height) {
+    return image.width == width && image.height == height
+           && image.pixels.size()
+                  == static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4;
+}
+
+renderer::Rgba8Image material_default(
+    int width, int height, std::array<std::uint8_t, 4> value
+) {
+    renderer::Rgba8Image image(width, height);
+    for (std::size_t i = 0; i < image.pixels.size(); i += 4) {
+        std::copy(value.begin(), value.end(), image.pixels.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+    return image;
+}
+
+std::optional<renderer::Rgba8Image> load_sidecar(
+    std::uint64_t hash, renderer::texture_pack::MaterialMap map, int width, int height
+) {
+    auto image = renderer::texture_pack::load_material_map(hash, map);
+    if (image && !same_extent(*image, width, height)) {
+        log::warn(
+            "material sidecar {:016x}: {}x{} does not match {}x{}; map ignored",
+            hash,
+            image->width,
+            image->height,
+            width,
+            height
+        );
+        image.reset();
+    }
+    return image;
+}
+
+enum class MaterialMipKind {
+    Normal,
+    Ormh,
+    Emissive,
+    Specular,
+    Detail
+};
+
+std::uint8_t byte(float value) {
+    return static_cast<std::uint8_t>(std::clamp(std::lround(value), 0l, 255l));
+}
+
+renderer::Rgba8Image material_mip(const renderer::Rgba8Image& source, MaterialMipKind kind) {
+    const int width = std::max(1, source.width / 2);
+    const int height = std::max(1, source.height / 2);
+    renderer::Rgba8Image result(width, height);
+    const auto sample = [&](int x, int y, int channel) {
+        x = std::min(source.width - 1, x);
+        y = std::min(source.height - 1, y);
+        return source.pixels[(static_cast<std::size_t>(y) * source.width + x) * 4 + channel];
+    };
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const std::size_t out = (static_cast<std::size_t>(y) * width + x) * 4;
+            if (kind == MaterialMipKind::Normal) {
+                std::array<float, 3> normal{};
+                float alpha = 0;
+                for (int oy = 0; oy < 2; ++oy) {
+                    for (int ox = 0; ox < 2; ++ox) {
+                        normal[0] += sample(x * 2 + ox, y * 2 + oy, 0) / 127.5f - 1.0f;
+                        normal[1] += sample(x * 2 + ox, y * 2 + oy, 1) / 127.5f - 1.0f;
+                        normal[2] += sample(x * 2 + ox, y * 2 + oy, 2) / 127.5f - 1.0f;
+                        alpha += sample(x * 2 + ox, y * 2 + oy, 3);
+                    }
+                }
+                const float length = std::sqrt(
+                    normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]
+                );
+                if (length > 1e-6f) {
+                    for (float& component : normal) {
+                        component /= length;
+                    }
+                } else {
+                    normal = {0, 0, 1};
+                }
+                result.pixels[out] = byte((normal[0] * 0.5f + 0.5f) * 255.0f);
+                result.pixels[out + 1] = byte((normal[1] * 0.5f + 0.5f) * 255.0f);
+                result.pixels[out + 2] = byte((normal[2] * 0.5f + 0.5f) * 255.0f);
+                result.pixels[out + 3] = byte(alpha * 0.25f);
+                continue;
+            }
+
+            for (int channel = 0; channel < 4; ++channel) {
+                float sum = 0;
+                float maximum = 0;
+                for (int oy = 0; oy < 2; ++oy) {
+                    for (int ox = 0; ox < 2; ++ox) {
+                        const float value = sample(x * 2 + ox, y * 2 + oy, channel) / 255.0f;
+                        if (kind == MaterialMipKind::Emissive && channel < 3) {
+                            sum += std::pow(value, 2.2f);
+                        } else if (kind == MaterialMipKind::Ormh && channel == 1) {
+                            sum += value * value;
+                        } else {
+                            sum += value;
+                        }
+                        maximum = std::max(maximum, value);
+                    }
+                }
+                float value = sum * 0.25f;
+                if (kind == MaterialMipKind::Emissive && channel < 3) {
+                    value = std::pow(std::max(0.0f, value), 1.0f / 2.2f);
+                } else if (kind == MaterialMipKind::Ormh && channel == 1) {
+                    value = std::sqrt(std::max(0.0f, value));
+                } else if (kind == MaterialMipKind::Specular && channel == 3) {
+                    value = maximum;
+                }
+                result.pixels[out + channel] = byte(value * 255.0f);
+            }
+        }
+    }
+    return result;
+}
+
+unsigned upload_material_texture(
+    const renderer::Rgba8Image& image, unsigned unit, MaterialMipKind kind
+) {
+    unsigned texture = 0;
+    gl::glGenTextures(1, &texture);
+    gl::glActiveTexture(gl::GL_TEXTURE0 + unit);
+    gl::glBindTexture(gl::GL_TEXTURE_2D, texture);
+
+    renderer::Rgba8Image level = image;
+    int mip = 0;
+    for (;;) {
+        gl::glTexImage2D(
+            gl::GL_TEXTURE_2D,
+            mip,
+            static_cast<gl::GLint>(gl::GL_RGBA8),
+            level.width,
+            level.height,
+            0,
+            gl::GL_RGBA,
+            gl::GL_UNSIGNED_BYTE,
+            level.pixels.data()
+        );
+        if (level.width == 1 && level.height == 1) {
+            break;
+        }
+        level = material_mip(level, kind);
+        ++mip;
+    }
+
+    gl::glTexParameteri(
+        gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR
+    );
+    gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
+    gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_S, gl::GL_REPEAT);
+    gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_T, gl::GL_REPEAT);
+    gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAX_LEVEL, mip);
+    gl::glBindTexture(gl::GL_TEXTURE_2D, 0);
+    gl::glActiveTexture(gl::GL_TEXTURE0);
+    return texture;
+}
+
+std::array<unsigned, 5> upload_default_sidecars() {
+    // These values are the exact neutral values used by the fragment shader when sidecars are
+    // disabled: +Z normal, full AO, mid roughness/height, zero metal/emission/detail and a
+    // specular alpha of zero so authored reflection settings remain authoritative.
+    return {
+        upload_material_texture(
+            material_default(1, 1, {128, 128, 255, 255}),
+            kMaterialNormalUnit,
+            MaterialMipKind::Normal
+        ),
+        upload_material_texture(
+            material_default(1, 1, {255, 128, 0, 128}),
+            kMaterialOrmhUnit,
+            MaterialMipKind::Ormh
+        ),
+        upload_material_texture(
+            material_default(1, 1, {0, 0, 0, 255}),
+            kMaterialEmissiveUnit,
+            MaterialMipKind::Emissive
+        ),
+        upload_material_texture(
+            material_default(1, 1, {0, 0, 0, 0}),
+            kMaterialSpecularUnit,
+            MaterialMipKind::Specular
+        ),
+        upload_material_texture(
+            material_default(1, 1, {0, 0, 0, 255}),
+            kMaterialDetailUnit,
+            MaterialMipKind::Detail
+        ),
+    };
+}
+
+std::array<unsigned, 5> upload_sidecars(std::uint64_t hash) {
+    const auto paths = renderer::texture_pack::material_maps(hash);
+    if (!paths) {
+        return {};
+    }
+
+    std::optional<renderer::Rgba8Image> reference;
+    for (const auto map : {
+             renderer::texture_pack::MaterialMap::Normal,
+             renderer::texture_pack::MaterialMap::Roughness,
+             renderer::texture_pack::MaterialMap::Height,
+             renderer::texture_pack::MaterialMap::Ao,
+             renderer::texture_pack::MaterialMap::Emissive,
+             renderer::texture_pack::MaterialMap::Metallic,
+             renderer::texture_pack::MaterialMap::Specular,
+             renderer::texture_pack::MaterialMap::Cavity,
+             renderer::texture_pack::MaterialMap::Curvature,
+             renderer::texture_pack::MaterialMap::EdgeWear,
+         }) {
+        reference = renderer::texture_pack::load_material_map(hash, map);
+        if (reference && reference->width > 0 && reference->height > 0) {
+            break;
+        }
+        reference.reset();
+    }
+    if (!reference) {
+        return {};
+    }
+
+    const int width = reference->width, height = reference->height;
+    auto normal = load_sidecar(hash, renderer::texture_pack::MaterialMap::Normal, width, height)
+                      .value_or(material_default(width, height, {128, 128, 255, 255}));
+    auto roughness =
+        load_sidecar(hash, renderer::texture_pack::MaterialMap::Roughness, width, height)
+            .value_or(material_default(width, height, {128, 128, 128, 255}));
+    auto height_map = load_sidecar(hash, renderer::texture_pack::MaterialMap::Height, width, height)
+                          .value_or(material_default(width, height, {128, 128, 128, 255}));
+    auto ao = load_sidecar(hash, renderer::texture_pack::MaterialMap::Ao, width, height)
+                  .value_or(material_default(width, height, {255, 255, 255, 255}));
+    auto emissive = load_sidecar(hash, renderer::texture_pack::MaterialMap::Emissive, width, height)
+                        .value_or(material_default(width, height, {0, 0, 0, 255}));
+    auto metallic = load_sidecar(hash, renderer::texture_pack::MaterialMap::Metallic, width, height)
+                        .value_or(material_default(width, height, {0, 0, 0, 255}));
+    const bool has_specular = !paths->specular.empty();
+    auto specular = load_sidecar(hash, renderer::texture_pack::MaterialMap::Specular, width, height)
+                        .value_or(material_default(width, height, {0, 0, 0, 0}));
+    auto cavity = load_sidecar(hash, renderer::texture_pack::MaterialMap::Cavity, width, height)
+                      .value_or(material_default(width, height, {0, 0, 0, 255}));
+    auto curvature =
+        load_sidecar(hash, renderer::texture_pack::MaterialMap::Curvature, width, height)
+            .value_or(material_default(width, height, {0, 0, 0, 255}));
+    auto edgewear = load_sidecar(hash, renderer::texture_pack::MaterialMap::EdgeWear, width, height)
+                        .value_or(material_default(width, height, {0, 0, 0, 255}));
+
+    renderer::Rgba8Image ormh(width, height);
+    for (std::size_t i = 0; i < ormh.pixels.size(); i += 4) {
+        ormh.pixels[i] = ao.pixels[i];
+        ormh.pixels[i + 1] = roughness.pixels[i];
+        ormh.pixels[i + 2] = metallic.pixels[i];
+        ormh.pixels[i + 3] = height_map.pixels[i];
+    }
+
+    renderer::Rgba8Image detail(width, height);
+    for (std::size_t i = 0; i < detail.pixels.size(); i += 4) {
+        detail.pixels[i] = cavity.pixels[i];
+        detail.pixels[i + 1] = curvature.pixels[i];
+        detail.pixels[i + 2] = edgewear.pixels[i];
+        detail.pixels[i + 3] = 255;
+        specular.pixels[i + 3] = has_specular ? 255 : 0;
+    }
+
+    return {
+        upload_material_texture(normal, kMaterialNormalUnit, MaterialMipKind::Normal),
+        upload_material_texture(ormh, kMaterialOrmhUnit, MaterialMipKind::Ormh),
+        upload_material_texture(emissive, kMaterialEmissiveUnit, MaterialMipKind::Emissive),
+        upload_material_texture(specular, kMaterialSpecularUnit, MaterialMipKind::Specular),
+        upload_material_texture(detail, kMaterialDetailUnit, MaterialMipKind::Detail)
+    };
+}
+
 // Static world variants cannot contain the live, skinned hero; discard every fur declaration there.
 std::string hero_only_source(const char* source) {
     return std::string("#ifndef OPENRAC_STATIC_COLOUR\n") + source + "\n#endif\n";
@@ -228,10 +511,40 @@ void SceneLighting::bind_surface_material(
     }
 }
 
+void SceneLighting::bind_material_sidecars(
+    const renderer::Shader& shader, const scene::Material& source
+) const {
+    const auto enabled_location = shader.uniform("material_sidecars_enabled");
+    if (enabled_location < 0) {
+        return;
+    }
+
+    const auto found = source.texture_pack_hash ? m_material_sidecars.find(source.texture_pack_hash)
+                                                : m_material_sidecars.end();
+    const bool enabled = found != m_material_sidecars.end();
+    gl::glUniform1i(enabled_location, enabled ? 1 : 0);
+
+    const std::array<unsigned, 5>& textures =
+        enabled ? found->second : m_material_sidecar_defaults;
+    for (const auto [unit, uniform, texture] : {
+             std::tuple{kMaterialNormalUnit, "material_sidecar_normal_tex", textures[0]},
+             std::tuple{kMaterialOrmhUnit, "material_sidecar_ormh_tex", textures[1]},
+             std::tuple{kMaterialEmissiveUnit, "material_sidecar_emissive_tex", textures[2]},
+             std::tuple{kMaterialSpecularUnit, "material_sidecar_specular_tex", textures[3]},
+             std::tuple{kMaterialDetailUnit, "material_sidecar_detail_tex", textures[4]},
+         }) {
+        gl::glUniform1i(shader.uniform(uniform), int(unit));
+        gl::glActiveTexture(gl::GL_TEXTURE0 + unit);
+        gl::glBindTexture(gl::GL_TEXTURE_2D, texture);
+    }
+    gl::glActiveTexture(gl::GL_TEXTURE0);
+}
+
 void SceneLighting::bind_material(
     const renderer::Shader& shader, std::uint32_t model, int slot, const scene::Material& source
 ) const {
     bind_surface_material(shader, model, slot, source);
+    bind_material_sidecars(shader, source);
     const auto location = shader.uniform("object_reflection_enabled");
 
     if (location < 0) {
@@ -309,6 +622,51 @@ bool SceneLighting::early_supported() const {
     return EarlyLighting::supported();
 }
 
+void SceneLighting::load_material_sidecars(const scene::LevelData& level) {
+    release_material_sidecars();
+    if (!gl::enhanced_rendering_available()) {
+        return;
+    }
+
+    // The frame graph records every reflected sampler read before executing draws. Keep neutral
+    // sidecar images resident even when no installed texture pack provides material maps.
+    m_material_sidecar_defaults = upload_default_sidecars();
+
+    for (const auto& material : level.materials) {
+        const auto hash = material.texture_pack_hash;
+        if (!hash || m_material_sidecars.contains(hash)
+            || !renderer::texture_pack::material_maps(hash)) {
+            continue;
+        }
+
+        const auto textures = upload_sidecars(hash);
+        if (textures[0] || textures[1] || textures[2] || textures[3] || textures[4]) {
+            m_material_sidecars.emplace(hash, textures);
+        }
+    }
+    if (!m_material_sidecars.empty()) {
+        log::info("material sidecars: {} texture sets resident", m_material_sidecars.size());
+    }
+}
+
+void SceneLighting::release_material_sidecars() {
+    for (const auto& [hash, textures] : m_material_sidecars) {
+        (void)hash;
+        for (const auto texture : textures) {
+            if (texture) {
+                gl::glDeleteTextures(1, &texture);
+            }
+        }
+    }
+    m_material_sidecars.clear();
+    for (const auto texture : m_material_sidecar_defaults) {
+        if (texture) {
+            gl::glDeleteTextures(1, &texture);
+        }
+    }
+    m_material_sidecar_defaults.fill(0);
+}
+
 void SceneLighting::load(const scene::LevelData& level) {
 #ifdef OPENRAC_LIGHT_AUTHORING
     if (gl::enhanced_rendering_available()) {
@@ -345,6 +703,7 @@ void SceneLighting::load(const scene::LevelData& level) {
     }
 
     enhanced::set_reflection_subjects(std::move(subjects));
+    load_material_sidecars(level);
     m_probes.load(level);
 
     // Foliage is optional: bad material authoring must not disable unrelated enhanced lighting.
@@ -408,6 +767,7 @@ void SceneLighting::release() {
     m_fur.release();
     m_foliage.clear();
     m_materials.clear();
+    release_material_sidecars();
     m_water_float.release();
     m_atmosphere.release();
     m_probes.release();
