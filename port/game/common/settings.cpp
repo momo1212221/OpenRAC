@@ -184,12 +184,18 @@ GraphicsPreset graphics_preset(const Settings& settings) {
 
 const char* name(GraphicsPreset preset) {
     switch (preset) {
-        case GraphicsPreset::SteamDeck: return "Steam Deck";
-        case GraphicsPreset::AppleSilicon: return "Apple Silicon";
-        case GraphicsPreset::Balanced: return "Balanced";
-        case GraphicsPreset::Rtx: return "RTX / High-end";
-        case GraphicsPreset::Custom: return "Custom";
-        case GraphicsPreset::Count: break;
+        case GraphicsPreset::SteamDeck:
+            return "Steam Deck";
+        case GraphicsPreset::AppleSilicon:
+            return "Apple Silicon";
+        case GraphicsPreset::Balanced:
+            return "Balanced";
+        case GraphicsPreset::Rtx:
+            return "RTX / High-end";
+        case GraphicsPreset::Custom:
+            return "Custom";
+        case GraphicsPreset::Count:
+            break;
     }
     return "Custom";
 }
