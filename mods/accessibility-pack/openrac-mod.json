@@ -1,0 +1,41 @@
+{
+  "format": 2,
+  "id": "accessibility-pack",
+  "name": "Accessibility Pack",
+  "version": "0.1.0",
+  "author": "Moritz Wallinger",
+  "description": "Health and damage accessibility assists: deterministic damage reduction, lethal-hit protection and a large high-contrast health HUD.",
+  "license": "MIT",
+  "api": "1.12",
+  "games": { "rac1": ["pal", "ntsc"] },
+  "multiplayer": "gameplay",
+  "hooks": ["Hero_TakeDamage"],
+  "settings": [
+    { "key": "damage_percent", "name": "Normal-hit frequency", "type": "int", "default": 100, "min": 0, "max": 100,
+      "description": "100 keeps every normal hit; 50 passes every second hit; 0 ignores normal hits." },
+    { "key": "lethal_protection", "name": "Lethal-hit protection", "type": "bool", "default": false,
+      "description": "At one health, ignore one normal hit, then wait three seconds before protection can trigger again." },
+    { "key": "invulnerable", "name": "Ignore normal damage", "type": "bool", "default": false,
+      "description": "Ignore normal hits handled by the game's damage function. Instant-kill hazards are unchanged." },
+    { "key": "large_health", "name": "Large health display", "type": "bool", "default": true, "multiplayer": "own",
+      "description": "Show Ratchet's current health as large high-contrast HUD text." },
+    { "key": "health_scale", "name": "Health text size", "type": "float", "default": 0.9, "min": 0.5, "max": 2.0, "step": 0.1, "multiplayer": "own",
+      "description": "Scale of the accessibility health display." },
+    { "key": "low_health_warning", "name": "Low-health warning", "type": "bool", "default": true, "multiplayer": "own",
+      "description": "Show a prominent warning at one health." }
+  ],
+  "presets": [
+    { "id": "visual_only", "name": "Visual only", "values": {
+      "damage_percent": 100, "lethal_protection": false, "invulnerable": false,
+      "large_health": true, "health_scale": 1.0, "low_health_warning": true
+    } },
+    { "id": "assist", "name": "Assist", "values": {
+      "damage_percent": 50, "lethal_protection": true, "invulnerable": false,
+      "large_health": true, "health_scale": 1.1, "low_health_warning": true
+    } },
+    { "id": "relaxed", "name": "Relaxed", "values": {
+      "damage_percent": 25, "lethal_protection": true, "invulnerable": false,
+      "large_health": true, "health_scale": 1.2, "low_health_warning": true
+    } }
+  ]
+}

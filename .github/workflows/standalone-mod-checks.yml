@@ -1,0 +1,47 @@
+name: standalone mod checks
+
+on:
+  pull_request:
+    paths:
+      - "mods/enhanced-weapons/**"
+      - "mods/enhanced-audio/**"
+      - "mods/accessibility-pack/**"
+      - ".github/workflows/standalone-mod-checks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mod:
+          - enhanced-weapons
+          - enhanced-audio
+          - accessibility-pack
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check manifest with checkout SDK
+        run: python3 sdk/tools/package_mod.py --check "mods/${{ matrix.mod }}/openrac-mod.json"
+      - name: Fetch the standalone mod's pinned SDK
+        shell: bash
+        run: |
+          sdk=$(cd "mods/${{ matrix.mod }}" && python3 tools/fetch_sdk.py)
+          echo "MOD_SDK=$sdk" >> "$GITHUB_ENV"
+      - name: Configure against pinned SDK
+        run: cmake -S "mods/${{ matrix.mod }}" -B "build/${{ matrix.mod }}" -DOPENRAC_SDK="$MOD_SDK" -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build "build/${{ matrix.mod }}" --parallel
+      - name: Check package layout
+        shell: bash
+        run: |
+          manifest=$(find "build/${{ matrix.mod }}" -path '*/package/*/openrac-mod.json' -print -quit)
+          test -n "$manifest"
+          python3 "$MOD_SDK/tools/package_mod.py" "$(dirname "$manifest")" -o "dist/${{ matrix.mod }}"
+          find "dist/${{ matrix.mod }}" -name '*.zip' -print

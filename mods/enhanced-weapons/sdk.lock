@@ -1,0 +1,6 @@
+{
+  "about": "Pinned OpenRAC mod SDK used for reproducible builds.",
+  "version": "1.14.2",
+  "url": "https://github.com/OpenRAC/OpenRAC/releases/download/sdk-v1.14.2/openrac-mod-sdk-1.14.2.zip",
+  "sha256": "e6177ec2f86373ad5ebf7b7236f2a3b977a47eab5617f0ff4c20e51adebf3c7a"
+}

@@ -1,0 +1,16 @@
+{
+  "id": "accessibility-pack",
+  "repo": "https://github.com/momo1212221/OpenRAC",
+  "path": "mods/accessibility-pack",
+  "description": "Health and damage accessibility assists with deterministic damage reduction, lethal-hit protection and a large health HUD.",
+  "tags": [
+    "accessibility",
+    "qol",
+    "gameplay",
+    "ui"
+  ],
+  "impact": [
+    "gameplay"
+  ],
+  "aiAssisted": true
+}

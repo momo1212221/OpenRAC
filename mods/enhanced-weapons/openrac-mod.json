@@ -1,0 +1,41 @@
+{
+  "format": 2,
+  "id": "enhanced-weapons",
+  "name": "Enhanced Weapons",
+  "version": "0.1.0",
+  "author": "Moritz Wallinger",
+  "description": "Cosmetic weapon feedback: configurable hit markers and heat distortion around player weapon projectiles.",
+  "license": "MIT",
+  "api": "1.12",
+  "games": { "rac1": ["pal", "ntsc"] },
+  "multiplayer": "cosmetic",
+  "hooks": ["Moby_GetHitMessage"],
+  "settings": [
+    { "key": "hit_marker", "name": "Hit marker", "type": "bool", "default": true,
+      "description": "Show a brief marker when your wrench or weapon hits a moby." },
+    { "key": "marker_style", "name": "Marker style", "type": "choice", "default": "cross",
+      "choices": [
+        { "value": "cross", "name": "Cross" },
+        { "value": "word", "name": "HIT" }
+      ],
+      "description": "Choose the in-game hit marker style." },
+    { "key": "marker_duration", "name": "Marker duration", "type": "int", "default": 10, "min": 4, "max": 30,
+      "description": "How many game ticks the hit marker remains visible." },
+    { "key": "marker_scale", "name": "Marker size", "type": "float", "default": 0.85, "min": 0.5, "max": 1.5, "step": 0.05,
+      "description": "Size of the hit marker." },
+    { "key": "projectile_haze", "name": "Projectile heat haze", "type": "bool", "default": true,
+      "description": "Add subtle heat distortion around player mines, bombs and missiles." },
+    { "key": "haze_strength", "name": "Heat haze strength", "type": "float", "default": 0.08, "min": 0.0, "max": 0.2, "step": 0.01,
+      "description": "Strength of the projectile distortion." }
+  ],
+  "presets": [
+    { "id": "subtle", "name": "Subtle", "values": {
+      "hit_marker": true, "marker_style": "cross", "marker_duration": 7, "marker_scale": 0.7,
+      "projectile_haze": false, "haze_strength": 0.05
+    } },
+    { "id": "cinematic", "name": "Cinematic", "values": {
+      "hit_marker": true, "marker_style": "word", "marker_duration": 14, "marker_scale": 1.0,
+      "projectile_haze": true, "haze_strength": 0.12
+    } }
+  ]
+}
