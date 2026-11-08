@@ -58,6 +58,11 @@ uniform int emission_vertex_colour;
 uniform float material_emission_contrast;
 uniform float material_diffuse_scale;
 uniform int material_fallback;
+// x/y: base roughness/F0, z/w: clearcoat strength/roughness.
+uniform vec4 material_optical_base;
+// x/y: signed anisotropy and rotation in turns; z/w reserved for transmission/IOR.
+uniform vec4 material_optical_extra;
+uniform float material_optical_thickness;
 uniform sampler2D gtao_visibility;
 // Layer 0: tangent-space normal. Layer 1: AO / roughness / height. Layer 2: emissive RGB.
 uniform int material_sidecars_enabled;
@@ -135,6 +140,125 @@ vec3 material_sidecar_normal(vec3 base_normal) {
     float denom = max(max(dot(tangent,tangent), dot(bitangent,bitangent)), 1e-8);
     float inv = inversesqrt(denom);
     return probe_unit(mat3(tangent*inv, bitangent*inv, base_normal) * mapped);
+}
+
+mat3 material_optical_frame(vec3 n) {
+    vec3 dp1 = dFdx(v_world_position), dp2 = dFdy(v_world_position);
+    vec2 duv1 = dFdx(v_uv), duv2 = dFdy(v_uv);
+    vec3 dp2perp = cross(dp2, n);
+    vec3 dp1perp = cross(n, dp1);
+    vec3 tangent = dp2perp * duv1.x + dp1perp * duv2.x;
+    float tangent_length = dot(tangent, tangent);
+    if (tangent_length < 1e-8) {
+        vec3 axis = abs(n.z) < .999 ? vec3(0., 0., 1.) : vec3(0., 1., 0.);
+        tangent = normalize(cross(axis, n));
+    } else {
+        tangent *= inversesqrt(tangent_length);
+    }
+    vec3 bitangent = normalize(cross(n, tangent));
+    float angle = material_optical_extra.y * 6.28318530718;
+    vec2 rotation = vec2(cos(angle), sin(angle));
+    vec3 rotated_tangent = tangent * rotation.x + bitangent * rotation.y;
+    vec3 rotated_bitangent = -tangent * rotation.y + bitangent * rotation.x;
+    return mat3(rotated_tangent, rotated_bitangent, n);
+}
+
+float material_anisotropic_roughness(vec3 n, vec3 eye, vec3 light, float roughness) {
+    float anisotropy = material_optical_extra.x;
+    if (abs(anisotropy) < 1e-4) return roughness;
+    vec3 sum = eye + light;
+    if (dot(sum, sum) < 1e-8) return roughness;
+    vec3 half_direction = normalize(sum);
+    mat3 frame = material_optical_frame(n);
+    float along = dot(half_direction, frame[0]);
+    float across = dot(half_direction, frame[1]);
+    float orientation = along * along - across * across;
+    return clamp(roughness * exp(-anisotropy * orientation * .9), .04, 1.);
+}
+
+vec3 material_advanced_direct(vec3 p, vec3 n, vec3 eye, vec4 selector, float visibility) {
+    float anisotropy = material_optical_extra.x;
+    float clearcoat = material_optical_base.z;
+    if (abs(anisotropy) < 1e-4 && clearcoat <= 0.) return vec3(0.);
+    int a = (int(selector.x + .5) & 15) * 4;
+    int b = (int(selector.y + .5) & 15) * 4;
+    float blend = clamp(selector.z, 0., 1.);
+    vec3 result = vec3(0.);
+    for (int source = 0; source < 2; ++source) {
+        int offset = source * 2;
+        vec3 radiance = max(mix(light_sets[a + offset].rgb, light_sets[b + offset].rgb, blend), vec3(0.));
+        vec3 travel = probe_unit(mix(light_sets[a + offset + 1].xyz, light_sets[b + offset + 1].xyz, blend));
+        if (source == 0) {
+            if (probe_sunlight_direction.w != 0.) travel = probe_sunlight_direction.xyz;
+            radiance *= probe_sunlight_scale;
+        }
+        vec3 light = -travel;
+        if (abs(anisotropy) >= 1e-4) {
+            float roughness = material_anisotropic_roughness(
+                n, eye, light, material_optical_base.x
+            );
+            result += radiance * mix(.1, 1., visibility)
+                      * ggx_specular(n, eye, light, roughness, material_optical_base.y);
+        }
+        if (clearcoat > 0.) {
+            result += radiance * mix(.1, 1., visibility) * clearcoat
+                      * ggx_specular(n, eye, light, material_optical_base.w, .04);
+        }
+    }
+    LOCAL_LIGHT_LOOP(i) {
+        vec4 position = LOCAL_POSITION(i);
+        vec3 delta = position.xyz - p;
+        float distance = length(delta);
+        if (position.w <= 0. || distance >= position.w || distance <= 1e-6) continue;
+        vec3 light = delta / distance;
+        vec3 radiance = max(LOCAL_COLOUR(i).rgb, vec3(0.))
+            * LOCAL_ATTENUATION(distance, position.w) * LOCAL_CONE(i, light);
+        if (abs(anisotropy) >= 1e-4) {
+            float roughness = material_anisotropic_roughness(
+                n, eye, light, material_optical_base.x
+            );
+            result += radiance * ggx_specular(
+                n, eye, light, roughness, material_optical_base.y
+            );
+        }
+        if (clearcoat > 0.) {
+            result += radiance * clearcoat
+                      * ggx_specular(n, eye, light, material_optical_base.w, .04);
+        }
+    }
+    return result;
+}
+
+vec3 material_advanced_environment(vec3 p, vec3 n, vec3 eye, vec3 indirect) {
+    float anisotropy = material_optical_extra.x;
+    float clearcoat = material_optical_base.z;
+    if (abs(anisotropy) < 1e-4 && clearcoat <= 0.) return vec3(0.);
+    vec3 result = vec3(0.);
+    if (abs(anisotropy) >= 1e-4) {
+        mat3 frame = material_optical_frame(n);
+        float orientation = dot(eye, frame[0]);
+        orientation = orientation * orientation - dot(eye, frame[1]) * dot(eye, frame[1]);
+        float roughness = clamp(
+            material_optical_base.x * exp(material_optical_extra.x * orientation * .45),
+            .04,
+            1.
+        );
+        vec3 fallback = gi_specular_fallback(
+            indirect * probe_gi_multiplier, dot(n, eye), material_optical_base.y
+        );
+        result += environment_specular(
+            p, n, eye, roughness, material_optical_base.y, fallback
+        );
+    }
+    if (clearcoat > 0.) {
+        vec3 fallback = gi_specular_fallback(
+            indirect * probe_gi_multiplier, dot(n, eye), .04
+        );
+        result += clearcoat * environment_specular(
+            p, n, eye, material_optical_base.w, .04, fallback
+        );
+    }
+    return result;
 }
 
 vec3 authored_emission() {
@@ -471,9 +595,18 @@ vec3 probe_surface(vec4 texel, vec3 original) {
         rim = gameplay_rim(indirect, eye_normal, -eye_position);
     }
 #endif
+    vec3 advanced = vec3(0.);
+    if (probe_mode == 1 && translucent_pass == 0 && effect_pass == 0) {
+        advanced = material_advanced_direct(
+            v_world_position, surface_n, toward_camera, selector, visibility
+        ) + material_advanced_environment(v_world_position, surface_n, toward_camera, indirect);
+    }
+    // A clear dielectric coat reflects a small share of incoming energy before it reaches the base.
+    float coat_energy = 1. - material_optical_base.z * .04;
     // Emission is independent of GI exposure, AO and shadow visibility.
-    vec3 diffuse = wet_coat(albedo * illumination * material_diffuse_scale + rim,
-                            surface_n, toward_camera, visibility) + fur_direct + fur_indirect;
+    vec3 diffuse = wet_coat(albedo * illumination * material_diffuse_scale * coat_energy + rim,
+                            surface_n, toward_camera, visibility)
+                   + fur_direct + fur_indirect + advanced;
     return probe_display(probe_mode == 1 ? apply_probe_look(diffuse, emitted) : diffuse);
 }
 
