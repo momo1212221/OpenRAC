@@ -116,7 +116,8 @@ struct BakeAtmosphereSettings {
     bool cloud_enabled = true;
     unsigned cloud_resolution = 64;
     std::shared_ptr<const CloudField> cloud_field;
-    bool enabled = true;
+    // A selected cloud profile opts into participating media; ordinary transport stays in vacuum.
+    bool enabled = false;
     float fog_density = .00022f;
     Float3 fog_colour{.65f, .70f, .75f};
     float fog_base = 0;

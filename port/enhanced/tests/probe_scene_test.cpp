@@ -18,6 +18,7 @@ using namespace openrac;
 using namespace openrac::lighting;
 
 namespace {
+// Checks explicit cloud profiles opt in, override level choices and preserve an explicit Off.
 void test_cloud_profile_overrides_and_cache_identity() {
     const auto root =
         std::filesystem::temp_directory_path()
@@ -31,6 +32,7 @@ void test_cloud_profile_overrides_and_cache_identity() {
     std::ofstream(root / "cloud-profile.json")
         << R"({"version":1,"atmosphere":{"cloud_seed":17,"cloud_resolution":32}})";
     const auto selected = load_level_bake_profile(level);
+    CHECK(selected.activation.bake.atmosphere.enabled);
     CHECK(selected.activation.bake.atmosphere.cloud_seed == 17);
     CHECK(selected.activation.bake.atmosphere.cloud_density == .03f);
     CHECK(selected.activation.bake.atmosphere.cloud_resolution == 32);
@@ -46,6 +48,8 @@ void test_cloud_profile_overrides_and_cache_identity() {
     std::string error;
     CHECK(json::parse(describe_level_bake_profile(selected), report, error));
     CHECK(report["atmosphere"]["cloud_seed"].number() == 17);
+    std::ofstream(root / "cloud-profile.json") << R"({"version":1,"atmosphere":{"enabled":false}})";
+    CHECK(!load_level_bake_profile(level).activation.bake.atmosphere.enabled);
     std::filesystem::remove_all(root);
 }
 
@@ -427,6 +431,9 @@ int main() {
     // Shared defaults, partial level/mod overrides and invalid profiles.
     CHECK((LevelBakeProfile{}.sparse_spacing == Float3{256, 256, 256}));
     CHECK((load_level_bake_profile(root).sparse_spacing == Float3{256, 256, 256}));
+    // No profile means vacuum transport, without fog emission in a black scene.
+    CHECK(!BakeSettings{}.atmosphere.enabled);
+    CHECK(!load_level_bake_profile(root).activation.bake.atmosphere.enabled);
     CHECK(BakeSettings{}.sky_intensity == 1.0f);
     CHECK(BakeSettings{}.sky_weight == 0.7f);
     CHECK(load_level_bake_profile(root).activation.bake.sky_weight == 0.7f);

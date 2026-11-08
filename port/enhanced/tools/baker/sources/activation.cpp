@@ -293,6 +293,9 @@ void apply_profile(const std::filesystem::path& path, LevelBakeProfile& profile)
             fail("atmosphere requires an object");
         }
 
+        // An atmosphere profile opts in; an explicit enabled field below can still turn it off.
+        result.enabled = true;
+
         for (const auto& [key, field] : value.members()) {
             if (key == "cloud_enabled") {
                 if (field.type() != json::Value::Type::Bool) {
