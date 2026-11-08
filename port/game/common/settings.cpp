@@ -72,18 +72,6 @@ void preset_common(Settings& settings) {
     settings.local_lights = true;
 }
 
-bool same_gtao(
-    const renderer::GtaoSettings& a,
-    renderer::GtaoQuality quality,
-    int slices,
-    int steps,
-    bool half_resolution,
-    bool hi_z
-) {
-    return a.quality == quality && a.slices == slices && a.steps == steps
-           && a.half_resolution == half_resolution && a.hi_z == hi_z;
-}
-
 }  // namespace
 
 void apply_graphics_preset(Settings& settings, GraphicsPreset preset) {
