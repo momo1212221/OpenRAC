@@ -98,6 +98,14 @@ describe("Android launcher", () => {
     await expect(page.getByRole("tab", { name: /NTSC/ }).getAttribute("aria-selected")).resolves.toBe("true");
   });
 
+  it("keeps renderer controls without inventing installed preparation or backup mods", async () => {
+    await open("page=mods&version=rac1/pal");
+    await page.getByRole("switch", { name: "Use Enhanced graphics", exact: true }).waitFor();
+    expect(await page.getByRole("switch", { name: "Use Enhanced graphics", exact: true }).isChecked()).toBe(false);
+    expect(await page.getByRole("switch", { name: "Enable Graphics preparation", exact: true }).count()).toBe(0);
+    expect(await page.getByRole("switch", { name: "Enable Backup & Cloud Saves", exact: true }).count()).toBe(0);
+  });
+
   it("shows Mods for the picked game, without the level editor", async () => {
     await open("page=mods&version=rac1/pal");
     await expect(page.locator(".game .name").textContent()).resolves.toBe("Ratchet & Clank");
