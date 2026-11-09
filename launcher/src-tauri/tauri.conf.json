@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "OpenRAC Launcher",
+  "productName": "OpenRAC Bloom Test",
   "version": "1.0.2",
-  "identifier": "dev.openrac.launcher",
+  "identifier": "dev.openrac.bloom-test",
   "build": {
     "beforeDevCommand": "yarn dev",
     "devUrl": "http://localhost:1430",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "OpenRAC Launcher",
+        "title": "OpenRAC Bloom Test",
         "width": 1200,
         "height": 780,
         "minWidth": 960,
