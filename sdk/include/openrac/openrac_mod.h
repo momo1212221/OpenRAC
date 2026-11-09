@@ -825,7 +825,8 @@ typedef struct openrac_hit {
 } openrac_hit;
 
 /* Told a hit the game posted (openrac_api.on_moby_hit); returns 1 to take it back (the victim
- * never reads it), 0 to leave it. Since 1.9. */
+ * never reads it), 0 to leave it. Every registered watcher is called in mod load order; if any
+ * watcher returns 1 the retail hit is taken back. Since 1.9. */
 typedef int (*openrac_hit_fn)(void* user, const openrac_hit* hit);
 
 /* The most eyes (openrac_api.play_eyes). Since 1.9. */
@@ -1588,8 +1589,10 @@ typedef struct openrac_api {
      * after it. Returns OPENRAC_HOOK_OK, or OPENRAC_HOOK_UNKNOWN outside that call. Since 1.9. */
     int (*hero_stand_in)(openrac_mod* mod, const float position[3], int figure);
 
-    /* Calls `fn(user, &hit)` for each hit the game posts (openrac_hit_fn). One mod's. Returns as
-     * on_moby_update. Since 1.9. */
+    /* Calls `fn(user, &hit)` for each hit the game posts (openrac_hit_fn). Each mod may register
+     * one watcher; all are called in load order and any may take the hit back. Returns
+     * OPENRAC_HOOK_OK, OPENRAC_HOOK_TAKEN when this same mod already registered one, or
+     * OPENRAC_HOOK_TOO_LATE after openrac_mod_load. Since 1.9. */
     int (*on_moby_hit)(openrac_mod* mod, openrac_hit_fn fn, void* user);
 
     /* Posts `hit` to its victim as the game posts one (the victim's update reads it: an enemy
