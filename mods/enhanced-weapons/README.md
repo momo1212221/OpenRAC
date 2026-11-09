@@ -90,3 +90,12 @@ ctest --test-dir build --output-on-failure --no-tests=ignore
 Current version: **0.3.0**.
 
 Author: **Moritz Wallinger**.
+
+
+## Arsenal Mastery compatibility
+
+When `arsenal-mastery` is loaded, Enhanced Weapons automatically disables only its own weapon-XP
+and damage-tier progression. Arsenal Mastery becomes the single gameplay progression owner.
+
+Hit markers, projectile heat haze and other Enhanced Weapons visual effects remain active. This
+prevents double XP and double damage scaling when both mods are installed from the personal mod list.
