@@ -42,3 +42,21 @@ ordinary sunlit geometry and UI.
 
 The GPU regression test checks compatibility bypass, multiple target sizes, alpha preservation,
 visible spread outside a bright patch, a weaker default-strength result and Vulkan validation.
+
+## Outpost X11 render-graph regression (test branch)
+
+The bloom placement is unchanged: after temporal reconstruction/motion blur (where active),
+before AgX tone mapping and native HUD overlays. Each Gaussian downsample and reconstruction
+dispatch now enters the enhanced compute graph with explicit sampled-image reads and a full
+storage-buffer write. Every completed buffer-to-RGBA8 copy is a separate transfer pass,
+declaring the exact buffer bytes and the destination image write; its output is exported for
+shader sampling. The final additive composite is a preserved-colour raster pass with an explicit
+pyramid-texture read and the framebuffer's colour read/write declaration. No bloom shader
+algorithm or cache key changes are required.
+
+The regression exercises the native before-HUD callback (FSR off) and the temporal-chain
+callback (FSR on), including odd target sizes, alpha preservation and a zero-strength bypass.
+These are callback integration checks rather than full live-game FSR playback. A separate
+Outpost X11 manual validation should cover FSR enabled, FSR disabled, enhanced rendering off,
+window resizing, and the Vulkan validation layers. No runtime test result is implied by the
+presence of this test.
