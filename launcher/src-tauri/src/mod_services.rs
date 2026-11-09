@@ -52,7 +52,7 @@ pub async fn mod_service_grant(
 ) -> Result<(), String> {
     installed(&state, &game, &id)?;
     let scope = if id == prep::ID {
-        "prepare and remove generated lighting/GI, water, cloud, texture and mesh caches; configure preparation and explicitly select Vulkan/Enhanced graphics when you choose an Enhanced preset"
+        "prepare and remove generated lighting/GI, water, cloud, texture and mesh caches; import and enable the texture pack this mod just generated; configure preparation and explicitly select Vulkan/Enhanced graphics when you choose an Enhanced preset"
     } else {
         "create/restore local save backups and synchronize saves with a folder you choose; the enable switch applies to all installed games"
     };
@@ -173,6 +173,49 @@ pub async fn mod_service(
                 .await?;
                 openrac_launcher_core::texture_packs::set_enabled(&home, &game, &version, true)?;
                 value(Ok(result))
+            }
+            "texture.install" => {
+                let source = crate::mod_tool::last_saved(&id)
+                    .ok_or("No completed texture pack from this mod session is available to install")?;
+                if !source
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+                {
+                    return Err("The most recent completed save is not a texture-pack ZIP".into());
+                }
+                if !source.is_file() {
+                    return Err("The generated texture-pack ZIP is no longer available".into());
+                }
+                let data = game_data_dir(&state, &game)?;
+                let g = game.clone();
+                let v = version.clone();
+                let source_for_import = source.clone();
+                let imported = tauri::async_runtime::spawn_blocking(move || {
+                    openrac_launcher_core::texture_packs::import(
+                        &data,
+                        &g,
+                        &v,
+                        &source_for_import,
+                        openrac_launcher_core::texture_packs::ImportMode::Merge,
+                    )
+                })
+                .await
+                .map_err(|e| e.to_string())??;
+                openrac_launcher_core::texture_packs::set_enabled(&home, &game, &version, true)?;
+                launcher_log::line(&format!(
+                    "{game}/{version}: imported and enabled {} generated texture(s) from {}",
+                    imported.0,
+                    source.display()
+                ));
+                Ok(json!({
+                    "installed": true,
+                    "textures": imported.0,
+                    "source": openrac_launcher_core::reports::tidy(
+                        &source.to_string_lossy(),
+                        openrac_launcher_core::reports::home().as_deref(),
+                    ),
+                }))
             }
             "ai.meshes" => {
                 let options = if payload["options"].is_object() {
