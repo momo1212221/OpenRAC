@@ -1142,6 +1142,49 @@ async fn ai_mesh_bake(
         .map_err(|e| e.to_string())?
 }
 
+/// Runs Graphics preparation's packaged geometry implementation through its fixed launcher service.
+///
+/// Unlike the legacy direct command, the page cannot choose a helper executable, root, levels or
+/// destination. Those paths come from the installed mod, launcher configuration and game install.
+async fn ai_mesh_bake_packaged(
+    state: &State<'_, AppState>,
+    game: String,
+    version: String,
+    mode: String,
+    options: serde_json::Value,
+    mod_folder: PathBuf,
+) -> Result<asset_ai::MeshBake, String> {
+    let home = openrac_launcher_core::saves::data_home();
+    openrac_launcher_core::launcher_addons::require(
+        &home,
+        openrac_launcher_core::graphics_preparation::ID,
+        &game,
+        &version,
+    )?;
+    let _preparation =
+        openrac_launcher_core::launcher_addons::begin_preparation(&home, &game, &version)?;
+    let data = game_data_dir(state, &game)?;
+    let config = state.config.lock().unwrap().clone();
+    let root = config.root()?.to_path_buf();
+    let python = config.python.clone().unwrap_or_else(|| {
+        PathBuf::from(if cfg!(windows) { "python" } else { "python3" })
+    });
+    tauri::async_runtime::spawn_blocking(move || {
+        asset_ai::bake_meshes_with_packaged_helper(
+            &data,
+            &game,
+            &version,
+            &mode,
+            &options,
+            &mod_folder,
+            &root,
+            &python,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Offline AI enhancement for a game's dumped static textures. The AI backend is deliberately
 /// external: the launcher invokes Upscayl's open-source NCNN backend, writes a complete staging
 /// pack, and swaps it in only after every batch succeeds.
