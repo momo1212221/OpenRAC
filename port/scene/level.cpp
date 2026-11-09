@@ -736,10 +736,10 @@ bool load_level(
         std::vector<ModelLod> lods;
     };
 
-    auto class_lods = [&](const json::Value& cls,
-                          std::uint32_t base_model,
-                          std::string_view where)
-        -> std::optional<std::vector<ModelLod>> {
+    auto class_lods =
+        [&](const json::Value& cls,
+            std::uint32_t base_model,
+            std::string_view where) -> std::optional<std::vector<ModelLod>> {
         std::vector<ModelLod> result;
         const json::Value& lods = cls["lods"];
         if (lods.is_null()) {
@@ -754,9 +754,8 @@ bool load_level(
             const json::Value& entry = lods[i];
             if (!entry.is_object() || !entry["mesh"].is_string()
                 || !entry["distance"].is_number()) {
-                error = std::format(
-                    "{}: lod {} needs a mesh string and numeric distance", where, i
-                );
+                error =
+                    std::format("{}: lod {} needs a mesh string and numeric distance", where, i);
                 return std::nullopt;
             }
             const double raw = entry["distance"].number(-1);
@@ -767,9 +766,7 @@ bool load_level(
             }
             const float distance = static_cast<float>(raw);
             if (!result.empty() && distance <= previous) {
-                error = std::format(
-                    "{}: lod distances must be strictly increasing", where
-                );
+                error = std::format("{}: lod distances must be strictly increasing", where);
                 return std::nullopt;
             }
             const auto model = model_at(entry["mesh"]);
@@ -780,9 +777,8 @@ bool load_level(
                 return std::nullopt;
             }
             if (!compatible_moby_lod(out.models[base_model], out.models[*model])) {
-                error = std::format(
-                    "{}: lod {} does not use the base model's armature", where, i
-                );
+                error =
+                    std::format("{}: lod {} does not use the base model's armature", where, i);
                 return std::nullopt;
             }
             result.push_back({*model, distance});
@@ -861,9 +857,8 @@ bool load_level(
                 }
                 std::vector<ModelLod> lods;
                 if (table == &mobys) {
-                    const auto parsed = class_lods(
-                        cls, *model, std::format("manifest moby class {}", id)
-                    );
+                    const auto parsed =
+                        class_lods(cls, *model, std::format("manifest moby class {}", id));
                     if (!parsed) {
                         return false;
                     }
@@ -907,7 +902,9 @@ bool load_level(
                 std::vector<ModelLod> lods;
                 if (table == &mobys) {
                     const auto parsed = class_lods(
-                        cls, *model, std::format("{}: moby class {}", file.string(), id)
+                        cls,
+                        *model,
+                        std::format("{}: moby class {}", file.string(), id)
                     );
                     if (!parsed) {
                         return false;
@@ -915,9 +912,10 @@ bool load_level(
                     lods = *parsed;
                     mod_moby_classes.insert(id);
                 }
-                (*table)[id] = {
-                    *model, static_cast<float>(cls["scale"].number(1.0)), false, std::move(lods)
-                };
+                (*table)[id] = {*model,
+                                static_cast<float>(cls["scale"].number(1.0)),
+                                false,
+                                std::move(lods)};
                 if (table == &shrubs) {
                     billboard_fades[id] =
                         static_cast<int>(cls["billboard_fade"].number(-1));
@@ -946,9 +944,8 @@ bool load_level(
                 return false;
             }
             if (authored["format"].number(-1) != 1 || !authored["moby"].is_object()) {
-                error = std::format(
-                    "{}: expected format 1 with a moby object", lod_file.string()
-                );
+                error =
+                    std::format("{}: expected format 1 with a moby object", lod_file.string());
                 return false;
             }
             for (const auto& [key, entry] : authored["moby"].members()) {
@@ -971,13 +968,13 @@ bool load_level(
                     return false;
                 }
                 if (!entry.is_object()) {
-                    error = std::format(
-                        "{}: moby class {} must be an object", lod_file.string(), id
-                    );
+                    error =
+                        std::format("{}: moby class {} must be an object", lod_file.string(), id);
                     return false;
                 }
                 const auto parsed = class_lods(
-                    entry, base->second.first,
+                    entry,
+                    base->second.first,
                     std::format("{}: moby class {}", lod_file.string(), id)
                 );
                 if (!parsed) {
