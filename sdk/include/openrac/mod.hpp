@@ -1424,9 +1424,10 @@ public:
     int figure_slot(int id) const { return m_api->api_minor >= 9 ? m_api->figure_slot(m_handle, id) : -1; }
 
     // Since 1.9: the gate around each moby's update, `fn(slot, phase)` returning true to skip it
-    // (before), and the watcher of the game's hits, `fn(hit)` returning true to take it back. A
-    // plain function each (the port keeps no state for a lambda's capture): `user` is passed on.
-    // Only during load; throws openrac::Error when refused.
+    // (before), and this mod's watcher of the game's hits, `fn(hit)` returning true to take it
+    // back. Hit watchers from different mods coexist and run in load order. A plain function each
+    // (the port keeps no state for a lambda's capture): `user` is passed on. Only during load;
+    // throws openrac::Error when refused.
     void on_moby_update(openrac_moby_update_fn fn, void* user = nullptr) {
         if (m_api->api_minor < 9 || m_api->on_moby_update(m_handle, fn, user) != OPENRAC_HOOK_OK) {
             throw Error("on_moby_update: refused (only during load, one mod's, interface 1.9)");
@@ -1435,7 +1436,7 @@ public:
 
     void on_moby_hit(openrac_hit_fn fn, void* user = nullptr) {
         if (m_api->api_minor < 9 || m_api->on_moby_hit(m_handle, fn, user) != OPENRAC_HOOK_OK) {
-            throw Error("on_moby_hit: refused (only during load, one mod's, interface 1.9)");
+            throw Error("on_moby_hit: refused (only during load, one watcher per mod, interface 1.9)");
         }
     }
 
