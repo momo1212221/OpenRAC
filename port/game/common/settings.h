@@ -19,6 +19,7 @@
 #include <string_view>
 
 #include "common/hdr.h"
+#include "enhanced/renderer/bloom_settings.h"
 #include "renderer/gtao_settings.h"
 #include "renderer/motion_blur_settings.h"
 #include "renderer/shadow_settings.h"
@@ -102,6 +103,7 @@ struct Settings {
     // only. Off, nothing of it is made and the game draws as a build without it.
     bool enhanced_rendering = false;
     bool enhanced_graphics = true;  // F4 within it; retains individual feature preferences
+    enhanced::BloomSettings bloom;  // On-screen controls, applied before the native HUD.
     bool enhanced_shadows = true;   // cascades and Ratchet map; off restores original shadows
     renderer::ShadowQuality shadow_quality = renderer::ShadowQuality::High;
     renderer::VolumetricQuality volumetric_quality = renderer::VolumetricQuality::Off;
