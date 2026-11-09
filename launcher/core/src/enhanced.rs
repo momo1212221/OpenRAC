@@ -403,6 +403,12 @@ mod tests {
         assert_eq!(value(&v, "bloom_threshold"), Value::from(0.82));
         assert_eq!(value(&v, "bloom_knee"), Value::from(0.18));
         assert_eq!(value(&v, "bloom_scatter"), Value::from(0.62));
+        assert_eq!(value(&v, "bloom_preview"), Value::Bool(false));
+        let presets = &v.entry.presets;
+        assert_eq!(presets.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+                   vec!["visible", "strong", "glow_only"]);
+        assert!(presets.iter().all(|p| p.values.keys().all(|key| key.starts_with("bloom"))));
+        assert_eq!(presets[2].values["bloom_preview"], Value::Bool(true));
 
         assert_eq!(value(&v, "agx_brightness"), Value::from(0.5));
         for brightness in [0.0, 0.5, 1.0] {
@@ -417,15 +423,18 @@ mod tests {
         set_setting(&home, "rac1", "pal", "agx_preview", &Value::Bool(false)).unwrap();
         assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), "agx_preview"), Value::Bool(false));
         // Bloom's launcher values share the port's settings file, without touching assets or bakes.
-        for (key, number) in [("bloom_strength", 0.35), ("bloom_threshold", 1.25),
+        for (key, number) in [("bloom_strength", 0.35), ("bloom_threshold", 0.75),
                               ("bloom_knee", 0.4), ("bloom_scatter", 0.8)] {
             set_setting(&home, "rac1", "pal", key, &Value::from(number)).unwrap();
             assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), key), Value::from(number));
         }
         set_setting(&home, "rac1", "pal", "bloom", &Value::Bool(false)).unwrap();
         assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), "bloom"), Value::Bool(false));
-        for (key, invalid) in [("bloom_strength", -0.01), ("bloom_threshold", 2.01),
-                                ("bloom_knee", 1.01), ("bloom_scatter", -0.01)] {
+        set_setting(&home, "rac1", "pal", "bloom_preview", &Value::Bool(true)).unwrap();
+        assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), "bloom_preview"), Value::Bool(true));
+        for (key, invalid) in [("bloom_strength", -0.01), ("bloom_strength", 2.01),
+                                ("bloom_threshold", 1.01), ("bloom_knee", 1.01),
+                                ("bloom_scatter", -0.01)] {
             assert!(set_setting(&home, "rac1", "pal", key, &Value::from(invalid)).is_err());
         }
         assert!(set_setting(&home, "rac1", "pal", "bloom", &Value::from("yes")).is_err());
@@ -452,9 +461,10 @@ mod tests {
             "motion_blur = 1",
             "bloom = 0",
             "bloom_strength = 0.35",
-            "bloom_threshold = 1.25",
+            "bloom_threshold = 0.75",
             "bloom_knee = 0.4",
             "bloom_scatter = 0.8",
+            "bloom_preview = 1",
         ] {
             assert!(text.lines().any(|l| l == line), "{line} in {text}");
         }
