@@ -190,6 +190,7 @@ private:
         const renderer::Shader& shader, std::uint32_t model, int slot, const scene::Material& source
     ) const;
     void load_material_sidecars(const scene::LevelData& level);
+    void ensure_material_sidecar_defaults() const;
     void bind_material_sidecars(
         const renderer::Shader& shader, const scene::Material& source
     ) const;
@@ -211,7 +212,7 @@ private:
     // Neutral 1x1 normal / ORMH / emissive / specular / detail textures keep every shader
     // sampler bound even when a material has no sidecars. This is required by the Vulkan
     // validation path and is also a safer OpenGL fallback than sampling texture object 0.
-    std::array<unsigned, 5> m_material_sidecar_defaults{};
+    mutable std::array<unsigned, 5> m_material_sidecar_defaults{};
     // Original texture hash -> normal / ORMH / emissive / specular / detail 2D textures.
     std::unordered_map<std::uint64_t, std::array<unsigned, 5>> m_material_sidecars;
     enhanced::FoliageMaterials m_foliage;   // Reviewed per-material thin-sheet response.
