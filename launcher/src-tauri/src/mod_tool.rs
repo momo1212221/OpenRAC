@@ -203,8 +203,7 @@ static SAVING: LazyLock<Mutex<(u64, HashMap<u64, Saving>)>> = LazyLock::new(|| M
 /// The most recent complete streamed save made by each mod page. This is kept as an internal
 /// absolute path so a consented service can consume exactly the file that page just produced,
 /// without accepting an arbitrary filesystem path from web content.
-static LAST_SAVED: LazyLock<Mutex<HashMap<String, PathBuf>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static LAST_SAVED: LazyLock<Mutex<HashMap<String, PathBuf>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn forget_last_saved(id: &str) {
     LAST_SAVED.lock().unwrap().remove(id);
