@@ -18,6 +18,7 @@
 #include "enhanced/renderer/water.h"
 #include "enhanced/renderer/wetness.h"
 #include "frontend.h"
+#include "renderer/gl.h"
 #include "options_menu.h"
 #include "settings.h"
 
@@ -427,8 +428,13 @@ void enhanced_settings_window() {
         return;
     }
     auto& graphics = settings::get();
-    const bool available = enhanced_graphics_available();
+    const bool available = gl::enhanced_rendering_available() && gl::is_vulkan();
+    const bool lighting_available = enhanced_graphics_available();
     if (!available) {
+        ImGui::TextColored(ImVec4(1.f, .4f, .3f, 1.f),
+                           "Bloom requires Vulkan Enhanced graphics (enable in launcher).");
+    }
+    if (!lighting_available) {
         const auto error = enhanced_graphics_error();
         if (!error.empty()) {
             ImGui::TextColored(ImVec4(1.f, .4f, .3f, 1.f), "Probe data could not be loaded");
@@ -439,10 +445,11 @@ void enhanced_settings_window() {
             );
         } else {
             ImGui::TextWrapped(
-                "Compatible probe data is required for this level. Prepare its lighting in the "
-                "launcher's Enhanced graphics page."
+                "Compatible probe data is required for advanced lighting on this level. Prepare "
+                "its lighting in the launcher's Enhanced graphics page."
             );
         }
+        ImGui::TextDisabled("Bloom does not need prepared lighting; Vulkan alone is sufficient.");
     }
     ImGui::BeginDisabled(!available);
     bool changed = checkbox("Enhanced graphics (F4)", &graphics.enhanced_graphics);
@@ -504,6 +511,7 @@ void enhanced_settings_window() {
         }
     }
     if (ImGui::CollapsingHeader("Lighting & shadows", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::BeginDisabled(!lighting_available);
         changed |= checkbox("Modern shadows", &graphics.enhanced_shadows);
         ImGui::BeginDisabled(!graphics.enhanced_shadows);
         int shadow_quality = static_cast<int>(graphics.shadow_quality);
@@ -634,24 +642,27 @@ void enhanced_settings_window() {
             graphics.sun_elevation = defaults.sun_elevation;
             changed = true;
         }
+        ImGui::EndDisabled();
     }
-    if (ImGui::CollapsingHeader("Post processing")) {
+    if (ImGui::CollapsingHeader("Post processing", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::SeparatorText("Bloom");
         changed |= checkbox("Bloom enabled", &graphics.bloom.enabled);
         ImGui::BeginDisabled(!graphics.bloom.enabled);
         float bloom_percent = graphics.bloom.strength * 100.0f;
         if (slider_float(
-                "Bloom intensity", &bloom_percent, 0.0f, 100.0f, "%.0f%%",
-                ImGuiSliderFlags_AlwaysClamp
+                "Bloom intensity", &bloom_percent, 0.0f, 200.0f, "%.1f%%",
+                ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic
             )) {
             graphics.bloom.strength = bloom_percent / 100.0f;
             changed = true;
         }
+        control_tip("Logarithmic control for fine adjustment near subtle intensities. 5.5% is "
+                    "the original preset; higher values intentionally exaggerate the glow.");
         changed |= slider_float(
-            "Brightness threshold", &graphics.bloom.threshold, 0.0f, 2.0f, "%.2f",
+            "Brightness threshold", &graphics.bloom.threshold, 0.0f, 1.0f, "%.2f",
             ImGuiSliderFlags_AlwaysClamp
         );
-        control_tip("Only brighter world pixels produce a halo. Lower values bloom more surfaces.");
+        control_tip("Only brighter pixels produce glow (0 includes more, 1 excludes all SDR pixels).");
         changed |= slider_float(
             "Soft knee", &graphics.bloom.knee, 0.0f, 1.0f, "%.2f",
             ImGuiSliderFlags_AlwaysClamp
@@ -661,9 +672,27 @@ void enhanced_settings_window() {
             "Halo spread", &graphics.bloom.scatter, 0.0f, 1.0f, "%.2f",
             ImGuiSliderFlags_AlwaysClamp
         );
-        control_tip("How much lower-resolution glow spreads into the final halo.");
+        control_tip("How far glow propagates across the reconstructed mip levels.");
+        changed |= checkbox("Show only glow (diagnostic)", &graphics.bloom.preview_only);
+        control_tip("Temporarily replaces world RGB with the bloom mask, preserving alpha and HUD. "
+                    "If this is black, check Vulkan and whether bright surfaces are present.");
         ImGui::EndDisabled();
-        ImGui::TextDisabled("Live preview on world colour; native HUD stays unchanged.");
+        ImGui::TextDisabled("Preset:"); 
+        if (ImGui::Button("Subtle##bloom")) {
+            graphics.bloom = enhanced::BloomSettings{};
+            changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Visible##bloom")) {
+            graphics.bloom = {true, 0.35f, 0.60f, 0.24f, 0.85f, false};
+            changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Strong##bloom")) {
+            graphics.bloom = {true, 0.80f, 0.40f, 0.28f, 0.90f, false};
+            changed = true;
+        }
+        ImGui::TextDisabled("Vulkan world colours only; HUD and game assets are untouched.");
         if (ImGui::Button("Reset Bloom")) {
             graphics.bloom = enhanced::BloomSettings{};
             changed = true;
