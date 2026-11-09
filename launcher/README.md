@@ -220,6 +220,33 @@ play** downloads OpenRAC's source and builds it from your disc. That needs a
 compiler, and says which is missing. On Linux it also needs SDL's X11, Wayland
 and audio development packages, such as `libxss-dev`.
 
+### Private Bloom test launcher (test branch only)
+
+The private `test/bloom-rendergraph-x11-20261109` branch builds a separate
+**OpenRAC Bloom Test** launcher (`dev.openrac.bloom-test`), to avoid macOS
+opening an already running stable OpenRAC Launcher through the single-instance
+plugin. Its title and header say **Bloom Test** even though the base package
+version is still `1.0.2`.
+
+The private launcher has its own Tauri settings folder. The shared game settings
+and existing level/bake assets are not rewritten. If it asks for folders on
+first launch, choose the test checkout as **OpenRAC folder** and the same
+existing **Install folder** to reuse imported disc data.
+
+Open **Mods → Enhanced graphics → Settings** to adjust Bloom on/off and its
+intensity, with threshold, soft knee and scatter in **Advanced**. These use the
+same version-specific settings keys as the in-game Enhanced Settings panel,
+and are applied to the next game start.
+
+To run from the checkout on macOS:
+
+```sh
+cd ~/OpenRAC-bloom-test/launcher
+export SDKROOT="/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
+export PATH="$(brew --prefix node@22)/bin:$PATH"
+corepack yarn tauri dev
+```
+
 ## Develop
 
 With **developer tools** on (Settings → Launcher), the app also shows
