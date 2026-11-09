@@ -102,6 +102,9 @@ struct Manifest {
     // (openrac_api.setup_vulkan), so the mods load before the window opens. Ignored on a script
     // mod or one of an older interface.
     bool vulkan_device = false;
+    // Fork extension: opt a mod's 1.14 on_overlay callback into native pause/vendor menus.
+    // Other mods retain the documented gameplay-only overlay behavior.
+    bool overlay_menus = false;
     // "multiplayer" (interface 1.14): an OPENRAC_PARTY_MOD_* value, gameplay when it says nothing.
     int party = 0;
 };
