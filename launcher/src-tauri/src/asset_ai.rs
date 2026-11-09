@@ -198,7 +198,6 @@ pub fn bake_meshes(data: &Path, version: &str, mode: &str) -> Result<MeshBake, S
     })
 }
 
-
 fn validate_helper_pack(root: &Path) -> Result<Vec<PathBuf>, String> {
     let mut render_meshes = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -215,10 +214,7 @@ fn validate_helper_pack(root: &Path) -> Result<Vec<PathBuf>, String> {
                 continue;
             }
             if is_collision(&path) {
-                return Err(format!(
-                    "geometry helper attempted to replace gameplay collision: {}",
-                    path.display()
-                ));
+                return Err(format!("geometry helper attempted to replace gameplay collision: {}", path.display()));
             }
             if is_glb(&path) {
                 render_meshes.push(path);
@@ -249,10 +245,7 @@ pub fn bake_with_graphics_helper(
         return Err(format!("installed geometry helper is missing: {}", helper.display()));
     }
     if !openrac_root.join("editor/assets.py").is_file() {
-        return Err(format!(
-            "OpenRAC asset tools are missing from {}",
-            openrac_root.display()
-        ));
+        return Err(format!("OpenRAC asset tools are missing from {}", openrac_root.display()));
     }
 
     let levels = data.join("port").join(version);
@@ -264,8 +257,7 @@ pub fn bake_with_graphics_helper(
     let ai_root = data.join("ai_assets").join(version);
     let staging = ai_root.join(".geometry-helper-next");
     let _ = fs::remove_dir_all(&staging);
-    fs::create_dir_all(&staging)
-        .map_err(|e| format!("could not create {}: {e}", staging.display()))?;
+    fs::create_dir_all(&staging).map_err(|e| format!("could not create {}: {e}", staging.display()))?;
 
     let job_file = staging.join("job.json");
     let output_root = staging.join("output");
@@ -278,11 +270,8 @@ pub fn bake_with_graphics_helper(
         "version": version,
         "options": options,
     });
-    fs::write(
-        &job_file,
-        serde_json::to_vec_pretty(&job).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| format!("could not write {}: {e}", job_file.display()))?;
+    fs::write(&job_file, serde_json::to_vec_pretty(&job).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("could not write {}: {e}", job_file.display()))?;
 
     let mut command = Command::new(python);
     command
@@ -337,23 +326,18 @@ pub fn bake_with_graphics_helper(
 
     let target = data.join("prepared-graphics").join("meshes").join(version);
     let target_parent = target.parent().ok_or("prepared mesh path has no parent")?;
-    fs::create_dir_all(target_parent)
-        .map_err(|e| format!("could not create {}: {e}", target_parent.display()))?;
+    fs::create_dir_all(target_parent).map_err(|e| format!("could not create {}: {e}", target_parent.display()))?;
 
     let backup = if target.exists() {
-        let backup = ai_root
-            .join("backups")
-            .join(format!("before-geometry-helper-{}", timestamp()?));
+        let backup = ai_root.join("backups").join(format!("before-geometry-helper-{}", timestamp()?));
         if backup.exists() {
             let _ = fs::remove_dir_all(&staging);
             return Err(format!("geometry backup already exists: {}", backup.display()));
         }
         if let Some(parent) = backup.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+            fs::create_dir_all(parent).map_err(|e| format!("could not create {}: {e}", parent.display()))?;
         }
-        fs::rename(&target, &backup)
-            .map_err(|e| format!("could not back up {}: {e}", target.display()))?;
+        fs::rename(&target, &backup).map_err(|e| format!("could not back up {}: {e}", target.display()))?;
         Some(backup)
     } else {
         None
@@ -368,8 +352,7 @@ pub fn bake_with_graphics_helper(
     }
 
     let processed = outputs.len();
-    let backup_text =
-        backup.as_ref().map(|path| path.display().to_string()).unwrap_or_default();
+    let backup_text = backup.as_ref().map(|path| path.display().to_string()).unwrap_or_default();
     let _ = fs::remove_dir_all(&staging);
     Ok(MeshBake {
         available: true,
