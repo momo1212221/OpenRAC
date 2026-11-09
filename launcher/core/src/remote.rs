@@ -673,7 +673,7 @@ fn read_github(
 ) -> Result<GitHubRead, String> {
     let (game, version, platform, dir) = ctx;
     let base = format!("{}/repos/{owner}/{repo}", hosts.api);
-    let releases: Vec<Release> = json(
+    let mut releases: Vec<Release> = json(
         &fetch.get(&format!("{base}/releases?per_page=100"), true).map_err(|e| {
             // GitHub answers a private repository and one that is not there alike (404) without a
             // login, so the message cannot tell them apart.
@@ -685,6 +685,10 @@ fn read_github(
         })?,
         "the repository's releases",
     )?;
+    // Do not rely on GitHub's response ordering: a release that was a draft moments ago can
+    // otherwise leave an older published release first during a refresh. Published ISO-8601
+    // timestamps sort lexically, so this deterministically picks the newest public release.
+    releases.sort_by(|a, b| b.published_at.cmp(&a.published_at));
     let eligible: Vec<Release> = match tag {
         Some(t) => {
             let r = releases
@@ -1730,6 +1734,25 @@ mod tests {
 
     fn ctx<'a>(dir: &'a Path, fetch: &'a dyn Fetch) -> Context<'a> {
         Context { dir, game: "rac1", version: "pal", platform: Some(PLATFORM), fetch, hosts: hosts() }
+    }
+
+    #[test]
+    fn newest_published_release_wins_even_when_github_returns_oldest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut fx = Fixture::default();
+        let mut old = release(&mut fx, "v1.0.0", "m", "1.0.0", Some(String::new()), false);
+        old["published_at"] = serde_json::json!("2026-01-01T12:00:00Z");
+        let mut new = release(&mut fx, "v1.1.0", "m", "1.1.0", Some(String::new()), false);
+        new["published_at"] = serde_json::json!("2026-02-01T12:00:00Z");
+        let files = [("openrac-mod.json", manifest("m", "1.1.0"))];
+
+        // Intentionally wrong order: the launcher must sort by publication time itself.
+        repo(&mut fx, &files, serde_json::json!([old, new]), "c1");
+
+        let p = preview(&ctx(dir.path(), &fx), "https://github.com/o/r").unwrap();
+        assert_eq!(p.reference, "v1.1.0");
+        assert_eq!(p.mods[0].version, "1.1.0");
+        assert_eq!(p.mods[0].tag.as_deref(), Some("v1.1.0"));
     }
 
     #[test]
