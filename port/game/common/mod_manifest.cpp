@@ -593,8 +593,7 @@ bool parse_manifest(std::string_view source, Manifest& m, std::string& error) {
                       && (m.api_major > 1 || m.api_minor >= 4);
     // Fork extension: menu overlays are opt-in for native mods with the 1.14 overlay ABI.
     // Missing/unknown fields remain false for older mods and scripts.
-    m.overlay_menus = v["overlay_menus"].boolean(false) && !m.script && m.has_api
-                      && (m.api_major > 1 || m.api_minor >= 14);
+    m.overlay_menus = v["overlay_menus"].boolean(false) && !m.script && m.has_api;
     // Interface 1.11: what the mod is to a party; a word the port does not know refuses the manifest,
     // as the packager's and the launcher's checks do.
     if (const json::Value& party = v["multiplayer"]; !party.is_null()) {
