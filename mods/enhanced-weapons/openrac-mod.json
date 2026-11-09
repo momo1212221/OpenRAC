@@ -2,57 +2,173 @@
   "format": 2,
   "id": "enhanced-weapons",
   "name": "Enhanced Weapons",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": "Moritz Wallinger",
-  "description": "Weapon XP with V1-V5/Omega progression and an Enhanced RAC Style in-game HUD.",
+  "description": "Enhanced RAC weapon visuals and optional V1-V5/Omega progression; automatically defers gameplay progression to Arsenal Mastery when both are loaded.",
   "license": "MIT",
   "api": "1.14",
-  "games": { "rac1": ["pal", "ntsc"] },
+  "games": {
+    "rac1": [
+      "pal",
+      "ntsc"
+    ]
+  },
   "multiplayer": "gameplay",
-  "hooks": ["Moby_GetHitMessage", "Weapon_TakeAmmo"],
+  "hooks": [
+    "Moby_GetHitMessage",
+    "Weapon_TakeAmmo"
+  ],
   "settings": [
-    { "key": "weapon_xp", "name": "Weapon XP", "type": "bool", "default": true,
-      "description": "Level supported combat weapons from V1 through V5 to OMEGA." },
-    { "key": "xp_hud", "name": "Enhanced RAC weapon HUD", "type": "bool", "default": true,
-      "description": "Show the equipped weapon in the Enhanced RAC Style with tier badge, segmented progression and XP bar." },
-    { "key": "xp_rate", "name": "XP rate", "type": "float", "default": 1.0, "min": 0.25, "max": 4.0, "step": 0.25,
-      "description": "Multiplier applied to weapon XP earned from shots and hits." },
-    { "key": "damage_upgrades", "name": "Tier damage upgrades", "type": "bool", "default": true,
-      "description": "Apply the V2-V5/Omega damage bonuses to supported weapon hits." },
-    { "key": "level_up_notice", "name": "Level-up notice", "type": "bool", "default": true,
-      "description": "Show a large HUD message whenever a weapon reaches a new tier." },
-    { "key": "hit_marker", "name": "Hit marker", "type": "bool", "default": true,
-      "description": "Show a brief marker when your wrench or weapon hits a moby." },
-    { "key": "marker_style", "name": "Marker style", "type": "choice", "default": "cross",
+    {
+      "key": "weapon_xp",
+      "name": "Weapon XP",
+      "type": "bool",
+      "default": true,
+      "description": "Level supported combat weapons from V1 through V5 to OMEGA."
+    },
+    {
+      "key": "xp_hud",
+      "name": "Enhanced RAC weapon HUD",
+      "type": "bool",
+      "default": true,
+      "description": "Show the equipped weapon in the Enhanced RAC Style with tier badge, segmented progression and XP bar."
+    },
+    {
+      "key": "xp_rate",
+      "name": "XP rate",
+      "type": "float",
+      "default": 1,
+      "min": 0.25,
+      "max": 4,
+      "step": 0.25,
+      "description": "Multiplier applied to weapon XP earned from shots and hits."
+    },
+    {
+      "key": "damage_upgrades",
+      "name": "Tier damage upgrades",
+      "type": "bool",
+      "default": true,
+      "description": "Apply the V2-V5/Omega damage bonuses to supported weapon hits."
+    },
+    {
+      "key": "level_up_notice",
+      "name": "Level-up notice",
+      "type": "bool",
+      "default": true,
+      "description": "Show a large HUD message whenever a weapon reaches a new tier."
+    },
+    {
+      "key": "hit_marker",
+      "name": "Hit marker",
+      "type": "bool",
+      "default": true,
+      "description": "Show a brief marker when your wrench or weapon hits a moby."
+    },
+    {
+      "key": "marker_style",
+      "name": "Marker style",
+      "type": "choice",
+      "default": "cross",
       "choices": [
-        { "value": "cross", "name": "Cross" },
-        { "value": "word", "name": "HIT" }
+        {
+          "value": "cross",
+          "name": "Cross"
+        },
+        {
+          "value": "word",
+          "name": "HIT"
+        }
       ],
-      "description": "Choose the in-game hit marker style." },
-    { "key": "marker_duration", "name": "Marker duration", "type": "int", "default": 10, "min": 4, "max": 30,
-      "description": "How many game ticks the hit marker remains visible." },
-    { "key": "marker_scale", "name": "Marker size", "type": "float", "default": 0.85, "min": 0.5, "max": 1.5, "step": 0.05,
-      "description": "Size of the hit marker." },
-    { "key": "projectile_haze", "name": "Projectile heat haze", "type": "bool", "default": true,
-      "description": "Add subtle heat distortion around known player mines, bombs and missiles; higher weapon tiers intensify it slightly." },
-    { "key": "haze_strength", "name": "Heat haze strength", "type": "float", "default": 0.08, "min": 0.0, "max": 0.2, "step": 0.01,
-      "description": "Base strength of the projectile distortion." }
+      "description": "Choose the in-game hit marker style."
+    },
+    {
+      "key": "marker_duration",
+      "name": "Marker duration",
+      "type": "int",
+      "default": 10,
+      "min": 4,
+      "max": 30,
+      "description": "How many game ticks the hit marker remains visible."
+    },
+    {
+      "key": "marker_scale",
+      "name": "Marker size",
+      "type": "float",
+      "default": 0.85,
+      "min": 0.5,
+      "max": 1.5,
+      "step": 0.05,
+      "description": "Size of the hit marker."
+    },
+    {
+      "key": "projectile_haze",
+      "name": "Projectile heat haze",
+      "type": "bool",
+      "default": true,
+      "description": "Add subtle heat distortion around known player mines, bombs and missiles; higher weapon tiers intensify it slightly."
+    },
+    {
+      "key": "haze_strength",
+      "name": "Heat haze strength",
+      "type": "float",
+      "default": 0.08,
+      "min": 0,
+      "max": 0.2,
+      "step": 0.01,
+      "description": "Base strength of the projectile distortion."
+    }
   ],
   "presets": [
-    { "id": "balanced", "name": "Balanced progression", "values": {
-      "weapon_xp": true, "xp_hud": true, "xp_rate": 1.0, "damage_upgrades": true,
-      "level_up_notice": true, "hit_marker": true, "marker_style": "cross",
-      "marker_duration": 10, "marker_scale": 0.85, "projectile_haze": true, "haze_strength": 0.08
-    } },
-    { "id": "fast", "name": "Fast progression", "values": {
-      "weapon_xp": true, "xp_hud": true, "xp_rate": 2.0, "damage_upgrades": true,
-      "level_up_notice": true, "hit_marker": true, "marker_style": "word",
-      "marker_duration": 12, "marker_scale": 0.95, "projectile_haze": true, "haze_strength": 0.10
-    } },
-    { "id": "visual_only", "name": "Visual only", "values": {
-      "weapon_xp": true, "xp_hud": true, "xp_rate": 1.0, "damage_upgrades": false,
-      "level_up_notice": true, "hit_marker": true, "marker_style": "cross",
-      "marker_duration": 7, "marker_scale": 0.7, "projectile_haze": true, "haze_strength": 0.06
-    } }
+    {
+      "id": "balanced",
+      "name": "Balanced progression",
+      "values": {
+        "weapon_xp": true,
+        "xp_hud": true,
+        "xp_rate": 1,
+        "damage_upgrades": true,
+        "level_up_notice": true,
+        "hit_marker": true,
+        "marker_style": "cross",
+        "marker_duration": 10,
+        "marker_scale": 0.85,
+        "projectile_haze": true,
+        "haze_strength": 0.08
+      }
+    },
+    {
+      "id": "fast",
+      "name": "Fast progression",
+      "values": {
+        "weapon_xp": true,
+        "xp_hud": true,
+        "xp_rate": 2,
+        "damage_upgrades": true,
+        "level_up_notice": true,
+        "hit_marker": true,
+        "marker_style": "word",
+        "marker_duration": 12,
+        "marker_scale": 0.95,
+        "projectile_haze": true,
+        "haze_strength": 0.1
+      }
+    },
+    {
+      "id": "visual_only",
+      "name": "Visual only",
+      "values": {
+        "weapon_xp": true,
+        "xp_hud": true,
+        "xp_rate": 1,
+        "damage_upgrades": false,
+        "level_up_notice": true,
+        "hit_marker": true,
+        "marker_style": "cross",
+        "marker_duration": 7,
+        "marker_scale": 0.7,
+        "projectile_haze": true,
+        "haze_strength": 0.06
+      }
+    }
   ]
 }
