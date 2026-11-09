@@ -52,7 +52,7 @@ pub async fn mod_service_grant(
 ) -> Result<(), String> {
     installed(&state, &game, &id)?;
     let scope = if id == prep::ID {
-        "prepare and remove generated lighting/GI, water, cloud, texture and mesh caches; configure preparation and explicitly enable Enhanced graphics when you choose an Enhanced preset"
+        "prepare and remove generated lighting/GI, water, cloud, texture and mesh caches; configure preparation and explicitly select Vulkan/Enhanced graphics when you choose an Enhanced preset"
     } else {
         "create/restore local save backups and synchronize saves with a folder you choose; the enable switch applies to all installed games"
     };
@@ -130,7 +130,17 @@ pub async fn mod_service(
                 )
                 .await,
             ),
-            "renderer.enable" => value(enhanced_set_enabled(state, game, version, true).await),
+            "renderer.enable" => {
+                if config.renderer != "vulkan" {
+                    let file = state.config_file.as_deref().ok_or("no per-user config folder")?;
+                    let mut next = config.clone();
+                    next.renderer = "vulkan".into();
+                    config::save(file, &next)?;
+                    *state.config.lock().unwrap() = next;
+                    launcher_log::line("graphics preset: renderer set to Vulkan");
+                }
+                value(enhanced_set_enabled(state, game, version, true).await)
+            },
             "bake.start" => {
                 if prep::version_bake_status(&config, &key).busy {
                     return Err("Lighting preparation is already running".into());
