@@ -54,7 +54,9 @@ private:
         unsigned high, unsigned low, unsigned destination, int width, int height,
         const BloomSettings& options, std::string& error
     );
-    [[nodiscard]] bool composite(renderer::FrameBuffer& output, float strength, std::string& error);
+    [[nodiscard]] bool composite(
+        renderer::FrameBuffer& output, float strength, bool preview_only, std::string& error
+    );
 
     std::array<Level, kMaxLevels> m_levels{};
     int m_count = 0;
@@ -67,6 +69,7 @@ private:
     std::size_t m_buffer_capacity = 0;
     unsigned m_vao = 0;
     bool m_failed = false;
+    unsigned m_failed_frames = 0;  // Retry a transient graphics/resize failure after 120 frames.
 };
 
 }  // namespace openrac::enhanced
