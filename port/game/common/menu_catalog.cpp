@@ -92,6 +92,10 @@ constexpr Entry kEntries[] = {
     {Id::EnhancedGraphics, Tab::Enhanced, "Enhanced graphics", kSwitch, A, "Enhanced graphics",
      "Bounced light, modern shadows and ambient occlusion over the original lighting. Off shows "
      "the game as the console drew it."},
+    {Id::GraphicsPreset, Tab::Enhanced, "Enhanced graphics", kChoice, A, "Performance preset",
+     "Applies a tested group of existing enhanced settings for Steam Deck, Apple Silicon, a "
+     "balanced PC or RTX/high-end hardware. Display mode, HDR and frame pacing are not changed. "
+     "Changing an individual graphics option afterwards shows Custom."},
     {Id::ModernShadows, Tab::Enhanced, "Enhanced graphics", kSwitch, A, "Modern shadows",
      "Shadows cast by the level's sun on everything, in place of the game's round blobs."},
     {Id::ShadowQuality, Tab::Enhanced, "Enhanced graphics", kChoice, A, "Shadow quality",

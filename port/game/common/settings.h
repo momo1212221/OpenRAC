@@ -79,6 +79,17 @@ enum class FrameRate {
     Count,
 };
 
+// Bundles only performance-sensitive graphics choices; display/HDR/frame pacing are never touched.
+// Custom is reported when a player changes any field after applying one of the named presets.
+enum class GraphicsPreset {
+    SteamDeck,
+    AppleSilicon,
+    Balanced,
+    Rtx,
+    Custom,
+    Count,
+};
+
 // Gameplay field of view bounds and native value, in percent.
 inline constexpr int kMinGameplayFov = 80;
 inline constexpr int kDefaultGameplayFov = 100;
@@ -298,7 +309,12 @@ int step_listed(std::span<const int> list, int now, int by);
 // Advances the frame counter by `by` modes, wrapping in either direction.
 void step_frame_counter(int by);
 
+// Applies/detects named groups of existing graphics settings. Detection has no hidden GPU logic.
+void apply_graphics_preset(Settings& settings, GraphicsPreset preset);
+GraphicsPreset graphics_preset(const Settings& settings);
+
 // What the options page shows for a value.
+const char* name(GraphicsPreset preset);
 const char* name(FrameCounter mode);
 const char* name(DisplayMode mode);
 const char* name(Aspect aspect);

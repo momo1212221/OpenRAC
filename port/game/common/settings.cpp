@@ -60,6 +60,164 @@ void Settings::reset_enhanced() {
     authored_object_lights = defaults.authored_object_lights;
 }
 
+namespace {
+
+void preset_common(Settings& settings) {
+    settings.enhanced_graphics = true;
+    settings.enhanced_shadows = true;
+    settings.gtao = true;
+    settings.bloom = true;
+    settings.agx_preview = true;
+    settings.texture_filter = renderer::TextureFilter::Normal;
+    settings.local_lights = true;
+}
+
+}  // namespace
+
+void apply_graphics_preset(Settings& settings, GraphicsPreset preset) {
+    if (preset == GraphicsPreset::Custom || preset == GraphicsPreset::Count) {
+        return;
+    }
+    preset_common(settings);
+    switch (preset) {
+        case GraphicsPreset::SteamDeck:
+            settings.temporal_quality = renderer::TemporalQuality::Balanced;
+            settings.temporal_sharpness = .15f;
+            settings.shadow_quality = renderer::ShadowQuality::Medium;
+            settings.volumetric_quality = renderer::VolumetricQuality::Low;
+            settings.gtao_settings = {
+                renderer::GtaoQuality::Performance,
+                4,
+                6,
+                true,
+                false,
+                1.25f,
+                1.0f
+            };
+            settings.anisotropy = 4;
+            settings.original_lod = true;
+            settings.draw_distance = 200;
+            settings.ray_tracing = false;
+            settings.motion_blur = false;
+            break;
+        case GraphicsPreset::AppleSilicon:
+            settings.temporal_quality = renderer::TemporalQuality::Quality;
+            settings.temporal_sharpness = .15f;
+            settings.shadow_quality = renderer::ShadowQuality::High;
+            settings.volumetric_quality = renderer::VolumetricQuality::Medium;
+            settings.gtao_settings = {
+                renderer::GtaoQuality::Performance,
+                6,
+                8,
+                true,
+                true,
+                1.25f,
+                1.0f
+            };
+            settings.anisotropy = 8;
+            settings.original_lod = false;
+            settings.draw_distance = 400;
+            settings.ray_tracing = false;
+            settings.motion_blur = true;
+            break;
+        case GraphicsPreset::Balanced:
+            settings.temporal_quality = renderer::TemporalQuality::Quality;
+            settings.temporal_sharpness = .2f;
+            settings.shadow_quality = renderer::ShadowQuality::High;
+            settings.volumetric_quality = renderer::VolumetricQuality::Medium;
+            settings.gtao_settings = {
+                renderer::GtaoQuality::Performance, 4, 6, true, false, 1.25f, 1.0f
+            };
+            settings.anisotropy = 8;
+            settings.original_lod = false;
+            settings.draw_distance = 400;
+            settings.ray_tracing = true;
+            settings.motion_blur = true;
+            break;
+        case GraphicsPreset::Rtx:
+            settings.temporal_quality = renderer::TemporalQuality::NativeAA;
+            settings.temporal_sharpness = .1f;
+            settings.shadow_quality = renderer::ShadowQuality::High;
+            settings.volumetric_quality = renderer::VolumetricQuality::High;
+            settings.gtao_settings = {
+                renderer::GtaoQuality::Quality,
+                8,
+                12,
+                false,
+                true,
+                1.5f,
+                1.0f
+            };
+            settings.anisotropy = 16;
+            settings.original_lod = false;
+            settings.draw_distance = 0;
+            settings.ray_tracing = true;
+            settings.motion_blur = true;
+            break;
+        case GraphicsPreset::Custom:
+        case GraphicsPreset::Count:
+            break;
+    }
+}
+
+GraphicsPreset graphics_preset(const Settings& settings) {
+    const auto matches = [&](GraphicsPreset preset) {
+        Settings expected = settings;
+        apply_graphics_preset(expected, preset);
+        return settings.enhanced_graphics == expected.enhanced_graphics
+               && settings.enhanced_shadows == expected.enhanced_shadows
+               && settings.gtao == expected.gtao && settings.bloom == expected.bloom
+               && settings.agx_preview == expected.agx_preview
+               && settings.texture_filter == expected.texture_filter
+               && settings.local_lights == expected.local_lights
+               && settings.temporal_quality == expected.temporal_quality
+               && settings.temporal_sharpness == expected.temporal_sharpness
+               && settings.shadow_quality == expected.shadow_quality
+               && settings.volumetric_quality == expected.volumetric_quality
+               && settings.gtao_settings.quality == expected.gtao_settings.quality
+               && settings.gtao_settings.slices == expected.gtao_settings.slices
+               && settings.gtao_settings.steps == expected.gtao_settings.steps
+               && settings.gtao_settings.half_resolution == expected.gtao_settings.half_resolution
+               && settings.gtao_settings.hi_z == expected.gtao_settings.hi_z
+               && settings.gtao_settings.radius == expected.gtao_settings.radius
+               && settings.gtao_settings.strength == expected.gtao_settings.strength
+               && settings.anisotropy == expected.anisotropy
+               && settings.original_lod == expected.original_lod
+               && settings.draw_distance == expected.draw_distance
+               && settings.ray_tracing == expected.ray_tracing
+               && settings.motion_blur == expected.motion_blur;
+    };
+    for (const auto preset : {
+             GraphicsPreset::SteamDeck,
+             GraphicsPreset::AppleSilicon,
+             GraphicsPreset::Balanced,
+             GraphicsPreset::Rtx,
+         }) {
+        if (matches(preset)) {
+            return preset;
+        }
+    }
+    return GraphicsPreset::Custom;
+}
+
+const char* name(GraphicsPreset preset) {
+    switch (preset) {
+        case GraphicsPreset::SteamDeck:
+            return "Steam Deck";
+        case GraphicsPreset::AppleSilicon:
+            return "Apple Silicon";
+        case GraphicsPreset::Balanced:
+            return "Balanced";
+        case GraphicsPreset::Rtx:
+            return "RTX / High-end";
+        case GraphicsPreset::Custom:
+            return "Custom";
+        case GraphicsPreset::Count:
+            break;
+    }
+    return "Custom";
+}
+
 std::optional<std::array<float, 3>> Settings::sunlight_direction() const {
     if (!sun_direction_override) {
         return std::nullopt;

@@ -248,6 +248,16 @@ Item item(Id id, std::uint8_t where) {
             it.shown = enhanced_ready();
             it.on = set.enhanced_graphics;
             return it;
+        case Id::GraphicsPreset: {
+            it.shown = enhanced_on();
+            const auto preset = settings::graphics_preset(set);
+            it.value = settings::name(preset);
+            const int at = static_cast<int>(preset);
+            const int last = static_cast<int>(settings::GraphicsPreset::Rtx);
+            it.can_lower = preset == settings::GraphicsPreset::Custom || at > 0;
+            it.can_raise = preset == settings::GraphicsPreset::Custom || at < last;
+            return it;
+        }
         case Id::ModernShadows:
             it.shown = enhanced_on();
             it.on = set.enhanced_shadows;
@@ -597,6 +607,18 @@ bool act(Id id, int by) {
             set.enhanced_graphics = !set.enhanced_graphics;
             changed();
             return false;
+        case Id::GraphicsPreset: {
+            const auto current = settings::graphics_preset(set);
+            const int last = static_cast<int>(settings::GraphicsPreset::Rtx);
+            int at = static_cast<int>(current);
+            if (current == settings::GraphicsPreset::Custom) {
+                at = by < 0 ? last + 1 : -1;
+            }
+            at = std::clamp(at + by, 0, last);
+            settings::apply_graphics_preset(set, static_cast<settings::GraphicsPreset>(at));
+            changed();
+            return false;
+        }
         case Id::ModernShadows:
             set.enhanced_shadows = !set.enhanced_shadows;
             changed();
