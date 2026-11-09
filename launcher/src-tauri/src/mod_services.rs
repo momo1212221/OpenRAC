@@ -52,7 +52,7 @@ pub async fn mod_service_grant(
 ) -> Result<(), String> {
     installed(&state, &game, &id)?;
     let scope = if id == prep::ID {
-        "prepare and remove generated lighting/GI, water, cloud, texture and mesh caches; configure preparation for this game"
+        "prepare and remove generated lighting/GI, water, cloud, texture and mesh caches; import and enable the texture pack this mod just generated; configure preparation and explicitly select Vulkan/Enhanced graphics when you choose an Enhanced preset"
     } else {
         "create/restore local save backups and synchronize saves with a folder you choose; the enable switch applies to all installed games"
     };
@@ -70,7 +70,7 @@ pub async fn mod_service(
     operation: String,
     payload: Value,
 ) -> Result<Value, String> {
-    installed(&state, &game, &id)?;
+    let folder = installed(&state, &game, &id)?;
     let home = openrac_launcher_core::saves::data_home();
     if !addons::granted(&home, &id, &game) {
         return Err("Open the mod and grant its service permission first".into());
@@ -130,6 +130,17 @@ pub async fn mod_service(
                 )
                 .await,
             ),
+            "renderer.enable" => {
+                if config.renderer != "vulkan" {
+                    let file = state.config_file.as_deref().ok_or("no per-user config folder")?;
+                    let mut next = config.clone();
+                    next.renderer = "vulkan".into();
+                    config::save(file, &next)?;
+                    *state.config.lock().unwrap() = next;
+                    launcher_log::line("graphics preset: renderer set to Vulkan");
+                }
+                value(enhanced_set_enabled(state, game, version, true).await)
+            }
             "bake.start" => {
                 if prep::version_bake_status(&config, &key).busy {
                     return Err("Lighting preparation is already running".into());
@@ -151,6 +162,18 @@ pub async fn mod_service(
             }
             "bake.clear" => value(enhanced_delete_bakes(state, game, version).await),
             "textures.prepare" => value(texture_packs_prepare_ultra(state, game, version).await),
+            "textures.sources.prepare" => {
+                let data = game_data_dir(&state, &game)?;
+                let home = openrac_launcher_core::saves::data_home();
+                let g = game.clone();
+                let v = version.clone();
+                let seeded = tauri::async_runtime::spawn_blocking(move || {
+                    openrac_launcher_core::texture_packs::seed_dump_from_levels(&home, &data, &g, &v)
+                })
+                .await
+                .map_err(|e| e.to_string())??;
+                value(Ok(seeded))
+            }
             "textures.clear" => value(graphics_delete_texture_cache(state, game, version)),
             "ai.textures" => {
                 let result = ai_texture_bake(
@@ -162,10 +185,101 @@ pub async fn mod_service(
                 .await?;
                 openrac_launcher_core::texture_packs::set_enabled(&home, &game, &version, true)?;
                 value(Ok(result))
-            },
-            "ai.meshes" => value(
-                ai_mesh_bake(state, game, version, payload["mode"].as_str().ok_or("Missing mesh mode")?.into()).await,
-            ),
+            }
+            "texture.install" => {
+                let source = crate::mod_tool::last_saved(&id)
+                    .ok_or("No completed texture pack from this mod session is available to install")?;
+                if !source
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+                {
+                    return Err("The most recent completed save is not a texture-pack ZIP".into());
+                }
+                if !source.is_file() {
+                    return Err("The generated texture-pack ZIP is no longer available".into());
+                }
+                let data = game_data_dir(&state, &game)?;
+                let g = game.clone();
+                let v = version.clone();
+                let source_for_import = source.clone();
+                let imported = tauri::async_runtime::spawn_blocking(move || {
+                    openrac_launcher_core::texture_packs::import(
+                        &data,
+                        &g,
+                        &v,
+                        &source_for_import,
+                        openrac_launcher_core::texture_packs::ImportMode::Merge,
+                    )
+                })
+                .await
+                .map_err(|e| e.to_string())??;
+                openrac_launcher_core::texture_packs::set_enabled(&home, &game, &version, true)?;
+                launcher_log::line(&format!(
+                    "{game}/{version}: imported and enabled {} generated texture(s) from {}",
+                    imported.0,
+                    source.display()
+                ));
+                Ok(json!({
+                    "installed": true,
+                    "textures": imported.0,
+                    "source": openrac_launcher_core::reports::tidy(
+                        &source.to_string_lossy(),
+                        openrac_launcher_core::reports::home().as_deref(),
+                    ),
+                }))
+            }
+            "ai.meshes" => {
+                let options = if payload["options"].is_object() {
+                    payload["options"].clone()
+                } else {
+                    let profile = match payload["mode"].as_str().unwrap_or("enhanced") {
+                        "faithful" => "enhanced",
+                        "balanced" => "high",
+                        _ => "modern",
+                    };
+                    json!({"profile":profile,"scope":"all"})
+                };
+                let root = config.root()?.to_path_buf();
+                let python = config
+                    .python
+                    .clone()
+                    .or_else(|| {
+                        let bundled = if cfg!(windows) {
+                            root.join("python/python.exe")
+                        } else {
+                            root.join("python/bin/python3")
+                        };
+                        bundled.is_file().then_some(bundled)
+                    })
+                    .ok_or("Python is not configured; reinstall or select the bundled Python in Settings")?;
+                let helper = folder.join("helper/openrac_graphics_helper.py");
+                let data = game_data_dir(&state, &game)?;
+                let material_pack =
+                    openrac_launcher_core::texture_packs::folder(&home, &data, &game, &version, false, "")?;
+                let _preparation = addons::begin_preparation(&home, &game, &version)?;
+                let g = game.clone();
+                let v = version.clone();
+                let result = tauri::async_runtime::spawn_blocking(move || {
+                    crate::asset_ai::bake_with_graphics_helper(crate::asset_ai::GraphicsHelperBake {
+                        python: &python,
+                        openrac_root: &root,
+                        helper: &helper,
+                        data: &data,
+                        game: &g,
+                        version: &v,
+                        material_pack: Some(&material_pack),
+                        options,
+                    })
+                })
+                .await
+                .map_err(|e| e.to_string())??;
+                launcher_log::line(&format!(
+                    "{game}/{version}: geometry preparation activated {} render mesh(es) at {}",
+                    result.processed, result.output
+                ));
+                value(Ok(result))
+            }
             _ => Err("Operation is not available to the graphics preparation mod".into()),
         }
     } else {

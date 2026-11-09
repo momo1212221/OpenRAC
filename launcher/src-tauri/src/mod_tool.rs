@@ -200,6 +200,22 @@ struct Saving {
 }
 
 static SAVING: LazyLock<Mutex<(u64, HashMap<u64, Saving>)>> = LazyLock::new(|| Mutex::new((0, HashMap::new())));
+/// The most recent complete streamed save made by each mod page. This is kept as an internal
+/// absolute path so a consented service can consume exactly the file that page just produced,
+/// without accepting an arbitrary filesystem path from web content.
+static LAST_SAVED: LazyLock<Mutex<HashMap<String, PathBuf>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn forget_last_saved(id: &str) {
+    LAST_SAVED.lock().unwrap().remove(id);
+}
+
+fn remember_last_saved(id: &str, path: &Path) {
+    LAST_SAVED.lock().unwrap().insert(id.to_string(), path.to_path_buf());
+}
+
+pub(crate) fn last_saved(id: &str) -> Option<PathBuf> {
+    LAST_SAVED.lock().unwrap().get(id).cloned()
+}
 
 /// Starts saving a large file a mod's page makes in parts (its texture pack): asks the player where
 /// on a desktop (on Android at the end), and answers the number its parts are sent with; 0 when
@@ -212,6 +228,8 @@ pub(crate) async fn mod_tool_save_start(
     extension: String,
 ) -> Result<u64, String> {
     let name = mod_tools::save_name(&name, &extension, mod_tools::SAVE_KINDS)?;
+    // A cancelled or failed new save must never leave an older file eligible for auto-install.
+    forget_last_saved(&id);
     let mime = if extension == "zip" { "application/zip" } else { "application/json" };
     #[cfg(target_os = "android")]
     let dest: PathBuf = {
@@ -280,6 +298,7 @@ pub(crate) async fn mod_tool_save_end(app: AppHandle, token: u64, keep: bool) ->
     #[cfg(not(target_os = "android"))]
     {
         let _ = &app;
+        remember_last_saved(&id, &dest);
         launcher_log::line(&format!("{id}: saved {}", dest.display()));
         Ok(openrac_launcher_core::reports::tidy(
             &dest.to_string_lossy(),
@@ -333,7 +352,9 @@ fn read_small(path: &Path) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, parts};
+    use std::path::PathBuf;
+
+    use super::{decode, forget_last_saved, last_saved, parts, remember_last_saved};
 
     #[test]
     fn addresses_name_a_file() {
@@ -363,5 +384,20 @@ mod tests {
         assert_eq!(decode("%zz"), None);
         assert_eq!(decode("%2"), None);
         assert_eq!(decode("%ff"), None);
+    }
+
+    #[test]
+    fn remembers_only_the_last_completed_save_for_a_mod() {
+        let id = "graphics-preparation-test-last-save";
+        let first = PathBuf::from("/tmp/first.zip");
+        let second = PathBuf::from("/tmp/second.zip");
+        forget_last_saved(id);
+        assert_eq!(last_saved(id), None);
+        remember_last_saved(id, &first);
+        assert_eq!(last_saved(id), Some(first));
+        remember_last_saved(id, &second);
+        assert_eq!(last_saved(id), Some(second));
+        forget_last_saved(id);
+        assert_eq!(last_saved(id), None);
     }
 }

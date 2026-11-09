@@ -18,6 +18,7 @@ struct MaterialSource {
     std::string model_name;        // Stable model label for authoring and bake fingerprints.
     materials::Identity identity;  // Layer/type/slot/texture matching fields.
     bool transport = false;  // At least one eligible static transport instance uses this model.
+    std::uint64_t texture_pack_hash = 0;  // Stable sidecar lookup for the source colour texture.
 };
 
 // Immutable level-load inputs; live edits reuse these hashes and originals rather than rereading assets.

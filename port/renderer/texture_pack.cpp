@@ -24,6 +24,7 @@ struct State {
     std::mutex lock;  // levels load on another thread than the 2D layer converts on
     Io io;
     std::unordered_map<std::uint64_t, fs::path> files;  // the pack's pictures by hash
+    std::unordered_map<std::uint64_t, MaterialMaps> materials;  // Materials/<hash>/* sidecars
     // The pack's animations by hash: a folder of frames or a GIF, and those read so far.
     std::unordered_map<std::uint64_t, fs::path> animated;
     std::unordered_map<std::uint64_t, std::shared_ptr<const Animation>> animations;
@@ -140,6 +141,51 @@ std::unordered_map<std::uint64_t, fs::path> files_under(const fs::path& root) {
     }
 
     return files;
+}
+
+// Enhanced material sidecars are deliberately outside the ordinary recursive PNG scan so files
+// such as normal.png can never be mistaken for colour replacements.
+std::unordered_map<std::uint64_t, MaterialMaps> materials_under(const fs::path& root) {
+    std::unordered_map<std::uint64_t, MaterialMaps> out;
+    std::error_code e;
+    const fs::path materials = root / "Materials";
+
+    if (root.empty() || !fs::is_directory(materials, e)) {
+        return out;
+    }
+
+    for (const auto& directory : fs::directory_iterator(materials, e)) {
+        if (e || !directory.is_directory(e)) {
+            continue;
+        }
+
+        const auto hash = parse_hash(directory.path().filename().string());
+        if (!hash) {
+            continue;
+        }
+
+        MaterialMaps maps;
+        const auto file = [&](const char* name) {
+            const fs::path path = directory.path() / name;
+            return fs::is_regular_file(path, e) ? path : fs::path{};
+        };
+        maps.normal = file("normal.png");
+        maps.roughness = file("roughness.png");
+        maps.height = file("height.png");
+        maps.ao = file("ao.png");
+        maps.emissive = file("emissive.png");
+        maps.specular = file("specular.png");
+        maps.metallic = file("metallic.png");
+        maps.cavity = file("cavity.png");
+        maps.curvature = file("curvature.png");
+        maps.edgewear = file("edgewear.png");
+
+        if (!maps.empty()) {
+            out.emplace(*hash, std::move(maps));
+        }
+    }
+
+    return out;
 }
 
 // A planet's name as a folder name: no separators or characters Windows refuses, no trailing
@@ -450,6 +496,7 @@ void configure(const fs::path& pack, const fs::path& dump, Io io, LevelNamer lev
     s.io = io;
     s.level_name = level_name;
     s.files.clear();
+    s.materials.clear();
     s.animated.clear();
     s.animations.clear();
     s.animation_bytes = 0;
@@ -461,6 +508,7 @@ void configure(const fs::path& pack, const fs::path& dump, Io io, LevelNamer lev
 
     if (!pack.empty() && fs::is_directory(pack, e)) {
         s.files = files_under(pack);
+        s.materials = materials_under(pack);
 
         for (auto it = fs::recursive_directory_iterator(pack, e);
              it != fs::recursive_directory_iterator();
@@ -484,10 +532,11 @@ void configure(const fs::path& pack, const fs::path& dump, Io io, LevelNamer lev
         }
 
         log::info(
-            "texture pack {}: {} texture(s), {} animated",
+            "texture pack {}: {} texture(s), {} animated, {} material sidecar set(s)",
             pack.string(),
             s.files.size(),
-            s.animated.size()
+            s.animated.size(),
+            s.materials.size()
         );
     }
 
@@ -527,7 +576,8 @@ bool replace(Rgba8Image& image, const Origin& origin, Replacement* found_out) {
     State& s = state();
     const std::lock_guard guard(s.lock);
 
-    if ((s.files.empty() && s.animated.empty() && s.dump.empty()) || image.pixels.empty()) {
+    if ((s.files.empty() && s.materials.empty() && s.animated.empty() && s.dump.empty())
+        || image.pixels.empty()) {
         return false;
     }
 
@@ -705,6 +755,60 @@ std::optional<std::vector<std::uint64_t>> CycleWatch::see(
     }
 
     return std::nullopt;
+}
+
+std::optional<MaterialMaps> material_maps(std::uint64_t hash) {
+    State& s = state();
+    const std::lock_guard guard(s.lock);
+    const auto found = s.materials.find(hash);
+    return found == s.materials.end() ? std::nullopt : std::optional<MaterialMaps>(found->second);
+}
+
+std::optional<Rgba8Image> load_material_map(std::uint64_t hash, MaterialMap map) {
+    fs::path path;
+    Io io;
+    {
+        State& s = state();
+        const std::lock_guard guard(s.lock);
+        const auto found = s.materials.find(hash);
+        if (found == s.materials.end()) {
+            return std::nullopt;
+        }
+        switch (map) {
+            case MaterialMap::Normal:
+                path = found->second.normal;
+                break;
+            case MaterialMap::Roughness:
+                path = found->second.roughness;
+                break;
+            case MaterialMap::Height:
+                path = found->second.height;
+                break;
+            case MaterialMap::Ao:
+                path = found->second.ao;
+                break;
+            case MaterialMap::Emissive:
+                path = found->second.emissive;
+                break;
+            case MaterialMap::Specular:
+                path = found->second.specular;
+                break;
+            case MaterialMap::Metallic:
+                path = found->second.metallic;
+                break;
+            case MaterialMap::Cavity:
+                path = found->second.cavity;
+                break;
+            case MaterialMap::Curvature:
+                path = found->second.curvature;
+                break;
+            case MaterialMap::EdgeWear:
+                path = found->second.edgewear;
+                break;
+        }
+        io = s.io;
+    }
+    return !path.empty() && io.load != nullptr ? io.load(path) : std::nullopt;
 }
 
 unsigned replaced_count() {

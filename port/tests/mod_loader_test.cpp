@@ -1043,11 +1043,27 @@ void the_world_reaches_the_game(const fs::path& plugins, const fs::path& dir) {
     CHECK(openrac_game_moby_update(2, OPENRAC_MOBY_BEFORE) == 1);
     CHECK((g_records == std::vector<int>{8700, 8710, 8720, 8702, 8710}));
     CHECK((g_played == std::vector<std::string>{"stand_in 1 3 0", "stand_in 1 3 0"}));
-    // The game's hit: the watcher is told and decides (more than 5 damage: taken back).
+    // A second mod may observe the same hit stream without taking the first mod's watcher.
+    openrac_api second_api{};
+    mods::fill_play_api(second_api, &kPlay, dir / "cards");
+    int second_hits = 0;
+    int second_owner = 0;
+    auto* second_mod = reinterpret_cast<openrac_mod*>(&second_owner);
+    const auto second_watch = [](void* user, const openrac_hit*) {
+        ++*static_cast<int*>(user);
+        return 0;
+    };
+    mods::play_loading(second_mod);
+    CHECK(second_api.on_moby_hit(second_mod, second_watch, &second_hits) == OPENRAC_HOOK_OK);
+    CHECK(second_api.on_moby_hit(second_mod, second_watch, &second_hits) == OPENRAC_HOOK_TAKEN);
+    mods::play_loading(nullptr);
+
+    // The game's hit: both watchers are told; either watcher may decide the hit is taken back.
     const float at[3] = {0, 0, 0};
     g_records.clear();
     CHECK(openrac_game_moby_hit(1, -1, 4, 3.0f, at, at, 0, at) == 0);
     CHECK(openrac_game_moby_hit(1, 0, 4, 9.0f, at, at, 71, at) == 1);
+    CHECK(second_hits == 2);
     CHECK((g_records == std::vector<int>{8810, 8811}));
     // The level loaded again: the drives are gone with it (and the fake level is whole again).
     g_loads = 2;

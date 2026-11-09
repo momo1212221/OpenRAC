@@ -9,10 +9,12 @@
 
 #pragma once
 
+#include <array>
 #include <map>
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #ifdef OPENRAC_LIGHT_AUTHORING
@@ -187,6 +189,12 @@ private:
     void bind_surface_material(
         const renderer::Shader& shader, std::uint32_t model, int slot, const scene::Material& source
     ) const;
+    void load_material_sidecars(const scene::LevelData& level);
+    void ensure_material_sidecar_defaults() const;
+    void bind_material_sidecars(
+        const renderer::Shader& shader, const scene::Material& source
+    ) const;
+    void release_material_sidecars();
     std::map<std::uint32_t, int>
         m_reflection_classes;  // Authored object identity for chrome overrides.
 #ifdef OPENRAC_LIGHT_AUTHORING
@@ -201,6 +209,12 @@ private:
     enhanced::HeroWetness m_wetness;
     bool m_material_overrides = true;       // The viewer enables appearance by default.
     enhanced::MaterialRuntime m_materials;  // Unified typed bindings and sparse authoring state.
+    // Neutral 1x1 normal / ORMH / emissive / specular / detail textures keep every shader
+    // sampler bound even when a material has no sidecars. This is required by the Vulkan
+    // validation path and is also a safer OpenGL fallback than sampling texture object 0.
+    mutable std::array<unsigned, 5> m_material_sidecar_defaults{};
+    // Original texture hash -> normal / ORMH / emissive / specular / detail 2D textures.
+    std::unordered_map<std::uint64_t, std::array<unsigned, 5>> m_material_sidecars;
     enhanced::FoliageMaterials m_foliage;   // Reviewed per-material thin-sheet response.
     enhanced::HeroFur m_fur;
     enhanced::WaterFloat m_water_float;

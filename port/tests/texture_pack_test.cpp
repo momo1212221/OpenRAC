@@ -307,7 +307,50 @@ int main() {
     fs::create_directories(pack / "sub");
     std::ofstream(pack / "sub" / name) << "png";
     std::ofstream(pack / "notes.txt") << "not a texture";
+    const auto material_dir = pack / "Materials" / name.substr(0, 16);
+    fs::create_directories(material_dir);
+    std::ofstream(material_dir / "normal.png") << "normal";
+    std::ofstream(material_dir / "roughness.png") << "roughness";
+    std::ofstream(material_dir / "height.png") << "height";
+    std::ofstream(material_dir / "ao.png") << "ao";
+    std::ofstream(material_dir / "emissive.png") << "emissive";
+    std::ofstream(material_dir / "specular.png") << "specular";
+    std::ofstream(material_dir / "metallic.png") << "metallic";
+    std::ofstream(material_dir / "cavity.png") << "cavity";
+    std::ofstream(material_dir / "curvature.png") << "curvature";
+    std::ofstream(material_dir / "edgewear.png") << "edgewear";
     disk()[name] = solid(8, 8, 200);
+    texture_pack::configure(pack, {}, {load, save});
+    const auto maps = texture_pack::material_maps(texture_pack::image_hash(small));
+    CHECK(maps && maps->normal.filename() == "normal.png");
+    CHECK(maps && maps->roughness.filename() == "roughness.png");
+    CHECK(maps && maps->height.filename() == "height.png");
+    CHECK(maps && maps->ao.filename() == "ao.png");
+    CHECK(maps && maps->emissive.filename() == "emissive.png");
+    CHECK(maps && maps->specular.filename() == "specular.png");
+    CHECK(maps && maps->metallic.filename() == "metallic.png");
+    CHECK(maps && maps->cavity.filename() == "cavity.png");
+    CHECK(maps && maps->curvature.filename() == "curvature.png");
+    CHECK(maps && maps->edgewear.filename() == "edgewear.png");
+    CHECK(!texture_pack::material_maps(texture_pack::image_hash(solid(2, 2, 77))));
+
+    // A sidecar-only pack must still expose the original texture hash to the scene so enhanced
+    // rendering can bind Materials/<hash>/ maps even when no diffuse replacement is provided.
+    const fs::path sidecar_only = pack / "sidecar-only";
+    const auto sidecar_dir = sidecar_only / "Materials" / name.substr(0, 16);
+    fs::create_directories(sidecar_dir);
+    std::ofstream(sidecar_dir / "normal.png") << "normal";
+    disk()["normal.png"] = solid(4, 4, 77);
+    texture_pack::configure(sidecar_only, {}, {load, save});
+    texture_pack::Replacement sidecar_found;
+    auto sidecar_source = small;
+    CHECK(!texture_pack::replace(sidecar_source, {}, &sidecar_found));
+    CHECK(sidecar_found.hash == texture_pack::image_hash(small));
+    CHECK(texture_pack::material_maps(sidecar_found.hash));
+    const auto loaded_normal =
+        texture_pack::load_material_map(sidecar_found.hash, texture_pack::MaterialMap::Normal);
+    CHECK(loaded_normal && loaded_normal->width == 4 && loaded_normal->pixels[0] == 77);
+
     texture_pack::configure(pack, {}, {load, save});
     auto image = small;
     CHECK(texture_pack::replace(image) && image.width == 8 && image.pixels[0] == 200);

@@ -113,7 +113,7 @@ std::array<Figure, OPENRAC_FIGURES_MAX> g_figures;
 Request g_request;
 
 // The world (interface 1.9): the mobys the mods drive, by slot (whose, in which level load), the
-// gate and the hit watcher (one mod's each), and the slot whose update the gate's call before it
+// gate, the hit watchers (in mod load order), and the slot whose update the gate's call before it
 // is about (-1: none, where a stand-in is refused).
 constexpr std::size_t kSlots = 4096;
 
@@ -145,7 +145,7 @@ struct MetalWatch {
 };
 
 MetalWatch g_metal;
-HitWatch g_hits;
+std::vector<HitWatch> g_hits;
 int g_before_slot = -1;
 
 // The mod that holds the card filter, what it asked, and the card folder its writes go to.
@@ -572,10 +572,15 @@ int api_on_moby_hit(openrac_mod* mod, openrac_hit_fn fn, void* user) {
     if (mod == nullptr || fn == nullptr || mod != g_loading_mod) {
         return OPENRAC_HOOK_TOO_LATE;
     }
-    if (g_hits.mod != nullptr) {
+    // A watcher observes the game's hit stream; unlike a hook point it does not own or replace the
+    // stream. Keep one callback per mod, but let independent gameplay/network mods observe it
+    // together in deterministic load order.
+    if (std::any_of(g_hits.begin(), g_hits.end(), [mod](const HitWatch& h) {
+            return h.mod == mod;
+        })) {
         return OPENRAC_HOOK_TAKEN;
     }
-    g_hits = {mod, fn, user};
+    g_hits.push_back({mod, fn, user});
     return OPENRAC_HOOK_OK;
 }
 
@@ -1182,7 +1187,7 @@ int game_moby_hit(
     std::int32_t source_oclass,
     const float source_position[3]
 ) {
-    if (g_hits.fn == nullptr) {
+    if (g_hits.empty()) {
         return 0;
     }
     openrac_hit hit{};
@@ -1197,7 +1202,17 @@ int game_moby_hit(
     if (source_position != nullptr) {
         std::copy(source_position, source_position + 3, hit.source_position);
     }
-    return g_hits.fn(g_hits.user, &hit) != 0 ? 1 : 0;
+    int taken = 0;
+    // All watchers see the same immutable hit, even if an earlier one takes the retail hit back.
+    // This lets a network authority watcher and a progression/telemetry watcher coexist. A watcher
+    // that wants to replace a hit can post a new one with moby_hit(); that replacement is a new
+    // event and is deliberately observed by the same chain.
+    for (const HitWatch& watcher : g_hits) {
+        if (watcher.fn != nullptr && watcher.fn(watcher.user, &hit) != 0) {
+            taken = 1;
+        }
+    }
+    return taken;
 }
 
 int api_world_family(char* out, std::uint32_t size) {
@@ -2067,7 +2082,7 @@ void reset_play() {
     g_request = Request{};
     std::fill(g_drives.begin(), g_drives.end(), Drive{});
     g_gate = Gate{};
-    g_hits = HitWatch{};
+    g_hits.clear();
     g_metal = MetalWatch{};
     g_camera_scripts = {};
     g_camera_shower = nullptr;
@@ -2140,9 +2155,7 @@ void drop_figures(const openrac_mod* mod) {
     if (g_gate.mod == mod) {
         g_gate = Gate{};
     }
-    if (g_hits.mod == mod) {
-        g_hits = HitWatch{};
-    }
+    std::erase_if(g_hits, [mod](const HitWatch& h) { return h.mod == mod; });
 }
 
 }  // namespace openrac::mods
