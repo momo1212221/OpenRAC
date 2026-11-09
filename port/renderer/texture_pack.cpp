@@ -576,7 +576,8 @@ bool replace(Rgba8Image& image, const Origin& origin, Replacement* found_out) {
     State& s = state();
     const std::lock_guard guard(s.lock);
 
-    if ((s.files.empty() && s.animated.empty() && s.dump.empty()) || image.pixels.empty()) {
+    if ((s.files.empty() && s.materials.empty() && s.animated.empty() && s.dump.empty())
+        || image.pixels.empty()) {
         return false;
     }
 
