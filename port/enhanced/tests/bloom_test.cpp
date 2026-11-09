@@ -154,12 +154,16 @@ int main(int argc, char**) {
     CHECK(enhanced::bloom_requested(choice));
 
     enhanced::Bloom bloom;
+    CHECK(enhanced::bloom_pass_status() == enhanced::BloomPassStatus::Never);
     // Exercise both graph entry points, across large, odd and very small render targets.
     for (bool fsr_path : {false, true}) {
         check_frame(bloom, 129, 97, fsr_path);
         check_frame(bloom, 47, 31, fsr_path);
         check_frame(bloom, 9, 7, fsr_path);
     }
+    CHECK(enhanced::bloom_pass_status()
+          == (enhanced_rendering_available() ? enhanced::BloomPassStatus::Completed
+                                              : enhanced::BloomPassStatus::Never));
     // A zero-strength/disabled enhanced effect must issue no dispatch and preserve colour.
     renderer::FrameBuffer disabled;
     CHECK(disabled.create(47, 31, error, 1));
@@ -241,6 +245,7 @@ int main(int argc, char**) {
     }
     tiny.release();
     bloom.release();
+    CHECK(enhanced::bloom_pass_status() == enhanced::BloomPassStatus::Never);
 
     CHECK(glGetError() == GL_NO_ERROR);
     std::puts("Bloom graph callbacks, live tuning, bypass, alpha and resize checks complete");
