@@ -11,6 +11,10 @@
 
 #include "enhanced/renderer/bloom.h"
 #include "renderer/gl.h"
+#include "renderer/surface_chain.h"
+#if defined(OPENRAC_VULKAN)
+#include "renderer/vulkan/temporal_graph.h"
+#endif
 #include "tests/check.h"
 #include "tests/renderer_gl_context.h"
 
@@ -50,7 +54,28 @@ int draw_patch(openrac::renderer::FrameBuffer& target) {
     return std::min(target.width() - 1, left + side);
 }
 
-void check_frame(openrac::enhanced::Bloom& bloom, int width, int height) {
+// Regression for both callback entry paths: native before-HUD colour and the temporal
+// post-resolve callback used when FSR is enabled. Either path must declare every compute
+// dispatch, transfer and additive raster pass to the shared surface graph.
+void apply_in_chain(openrac::enhanced::Bloom& bloom,
+                    openrac::renderer::FrameBuffer& target, bool fsr_path, float strength) {
+    using namespace openrac;
+    const auto result = renderer::run_surface_chain([&] {
+#if defined(OPENRAC_VULKAN)
+        if (fsr_path && gl::is_vulkan()) {
+            const auto temporal = vkgl::temporal_chain([&] { bloom.apply(target, strength); });
+            CHECK(temporal.has_value());
+            return;
+        }
+#else
+        (void)fsr_path;
+#endif
+        bloom.apply(target, strength);
+    });
+    CHECK(result.has_value());
+}
+
+void check_frame(openrac::enhanced::Bloom& bloom, int width, int height, bool fsr_path) {
     using namespace openrac;
     using namespace openrac::gl;
 
@@ -61,7 +86,7 @@ void check_frame(openrac::enhanced::Bloom& bloom, int width, int height) {
     const int near_x = draw_patch(target);
     const int cy = target.height() / 2;
     const auto before = target.read_rgba();
-    bloom.apply(target, 1.0f);
+    apply_in_chain(bloom, target, fsr_path, 1.0f);
     const auto strong = target.read_rgba();
 
     if (enhanced_rendering_available()) {
@@ -82,7 +107,7 @@ void check_frame(openrac::enhanced::Bloom& bloom, int width, int height) {
         }
 
         draw_patch(target);
-        bloom.apply(target);
+        apply_in_chain(bloom, target, fsr_path, 0.055f);
         const auto subtle = target.read_rgba();
         CHECK(rgb_total(subtle) > rgb_total(before));
         CHECK(rgb_total(subtle) < rgb_total(strong));
@@ -111,11 +136,23 @@ int main(int argc, char**) {
     }
 
     enhanced::Bloom bloom;
-    check_frame(bloom, 129, 97);
-    check_frame(bloom, 47, 31);
-    check_frame(bloom, 9, 7);
+    // Exercise both graph entry points, across large, odd and very small render targets.
+    for (bool fsr_path : {false, true}) {
+        check_frame(bloom, 129, 97, fsr_path);
+        check_frame(bloom, 47, 31, fsr_path);
+        check_frame(bloom, 9, 7, fsr_path);
+    }
+    // A zero-strength/disabled enhanced effect must issue no dispatch and preserve colour.
+    renderer::FrameBuffer disabled;
+    CHECK(disabled.create(47, 31, error, 1));
+    draw_patch(disabled);
+    const auto disabled_before = disabled.read_rgba();
+    apply_in_chain(bloom, disabled, false, 0.0f);
+    CHECK(disabled.read_rgba() == disabled_before);
+    disabled.release();
     bloom.release();
 
     CHECK(glGetError() == GL_NO_ERROR);
-    std::puts("Bloom compatibility, resize, alpha and Gaussian spread checks passed");
+    std::puts("Bloom graph callbacks (FSR path on/off), disabled bypass, alpha and resize checks complete");
+    return test::result();
 }
