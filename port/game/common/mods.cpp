@@ -1824,11 +1824,19 @@ bool is_mod_code_link(std::string_view url) {
 }
 
 bool overlay_wanted() {
-    return !g_overlays.empty() && overlay_shows_level();
+    if (g_overlays.empty()) return false;
+    if (overlay_shows_level()) return true;
+    if (!overlay_shows_menus()) return false;
+    return std::any_of(g_overlays.begin(), g_overlays.end(), [](const OverlayCallback& callback) {
+        return callback.mod != nullptr && callback.mod->manifest.overlay_menus;
+    });
 }
 
 void run_overlays(const openrac_overlay& overlay) {
+    const bool gameplay = overlay_shows_level();
+    if (!gameplay && !overlay_shows_menus()) return;
     for (const OverlayCallback& c : g_overlays) {
+        if (!gameplay && (c.mod == nullptr || !c.mod->manifest.overlay_menus)) continue;
         c.fn(c.user, &overlay);
     }
 }
