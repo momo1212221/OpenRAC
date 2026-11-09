@@ -209,6 +209,53 @@ Result<void> graph_blit(
 }
 }  // namespace
 
+// Orders a transient compute buffer against its full-image transfer destination.
+// Native recording borrows pinned allocations instead of re-entering legacy copy helpers,
+// which would independently transition an image already owned by the render graph.
+Result<void> temporal_buffer_to_texture(
+    std::string_view name, unsigned source_buffer, unsigned destination_texture, std::size_t bytes
+) {
+    GraphExecution execution;
+    if (!detail::g || !detail::g->open || !source_buffer || !destination_texture || !bytes) {
+        return unexpected(Error{"invalid bloom transfer resources"});
+    }
+    auto* source = detail::g->buffers.find(source_buffer);
+    auto* texture = detail::g->textures.find(destination_texture);
+    if (!source || !texture || !texture->image || source->size < bytes
+        || detail::buffer_image_bytes(*texture->image) != bytes) {
+        return unexpected(Error{"bloom transfer has incompatible buffer or image extent"});
+    }
+    const auto input = execution.import_buffer("bloom transfer buffer", source_buffer);
+    const auto output =
+        execution.import_image("bloom transfer texture", destination_texture, InitialContents::Discard);
+    if (!input || !output) {
+        return unexpected(!input ? input.error() : output.error());
+    }
+    const detail::BufferRef pinned_buffer = detail::resolve(*source);
+    const auto pinned_image = texture->image;
+    if (!pinned_buffer.buffer || pinned_buffer.size < bytes) {
+        return unexpected(Error{"bloom transfer has no stable buffer allocation"});
+    }
+    graph::Pass transfer{std::string(name)};
+    transfer.buffers.push_back(
+        {*input, {0, bytes}, {graph::Stage::Transfer, graph::Access::Read, graph::Layout::Buffer}}
+    );
+    transfer.images.push_back(
+        {*output, {graph::Aspect::Colour},
+         {graph::Stage::Transfer, graph::Access::Write, graph::Layout::TransferDestination}}
+    );
+    execution.add_pass(std::move(transfer));
+    execution.add_pass(
+        output_consumer(std::string(name) + " sampled", *output, graph::Aspect::Colour,
+                        TemporalConsumer::Shader)
+    );
+    // Capture stable native handles by value: the surface batch records this work after the
+    // temporary local GraphExecution is gone, but before its enclosing render call returns.
+    return execution.run_prepared([pinned_buffer, pinned_image](unsigned) {
+        detail::record_buffer_image_copy(pinned_buffer, *pinned_image);
+    });
+}
+
 Result<void> temporal_chain(const std::function<void()>& prepare) {
     // An empty scope cannot define a temporal section.
     if (!prepare) {
