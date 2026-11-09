@@ -477,7 +477,8 @@ void SceneLighting::bind_surface_material(
 }
 
 void SceneLighting::ensure_material_sidecar_defaults() const {
-    if (!gl::enhanced_rendering_available() || std::all_of(
+    if (!gl::enhanced_rendering_available()
+        || std::all_of(
             m_material_sidecar_defaults.begin(),
             m_material_sidecar_defaults.end(),
             [](unsigned texture) { return texture != 0; }
