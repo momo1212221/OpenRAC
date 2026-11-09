@@ -162,6 +162,18 @@ pub async fn mod_service(
             }
             "bake.clear" => value(enhanced_delete_bakes(state, game, version).await),
             "textures.prepare" => value(texture_packs_prepare_ultra(state, game, version).await),
+            "textures.sources.prepare" => {
+                let data = game_data_dir(&state, &game)?;
+                let home = openrac_launcher_core::saves::data_home();
+                let g = game.clone();
+                let v = version.clone();
+                let seeded = tauri::async_runtime::spawn_blocking(move || {
+                    openrac_launcher_core::texture_packs::seed_dump_from_levels(&home, &data, &g, &v)
+                })
+                .await
+                .map_err(|e| e.to_string())??;
+                value(Ok(seeded))
+            }
             "textures.clear" => value(graphics_delete_texture_cache(state, game, version)),
             "ai.textures" => {
                 let result = ai_texture_bake(
