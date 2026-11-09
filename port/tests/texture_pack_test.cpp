@@ -333,6 +333,25 @@ int main() {
     CHECK(maps && maps->curvature.filename() == "curvature.png");
     CHECK(maps && maps->edgewear.filename() == "edgewear.png");
     CHECK(!texture_pack::material_maps(texture_pack::image_hash(solid(2, 2, 77))));
+
+    // A sidecar-only pack must still expose the original texture hash to the scene so enhanced
+    // rendering can bind Materials/<hash>/ maps even when no diffuse replacement is provided.
+    const fs::path sidecar_only = root / "sidecar-only";
+    const auto sidecar_dir = sidecar_only / "Materials" / name.substr(0, 16);
+    fs::create_directories(sidecar_dir);
+    std::ofstream(sidecar_dir / "normal.png") << "normal";
+    disk()["normal.png"] = solid(4, 4, 77);
+    texture_pack::configure(sidecar_only, {}, {load, save});
+    texture_pack::Replacement sidecar_found;
+    auto sidecar_source = small;
+    CHECK(!texture_pack::replace(sidecar_source, {}, &sidecar_found));
+    CHECK(sidecar_found.hash == texture_pack::image_hash(small));
+    CHECK(texture_pack::material_maps(sidecar_found.hash));
+    const auto loaded_normal =
+        texture_pack::load_material_map(sidecar_found.hash, texture_pack::MaterialMap::Normal);
+    CHECK(loaded_normal && loaded_normal->width == 4 && loaded_normal->pixels[0] == 77);
+
+    texture_pack::configure(pack, {}, {load, save});
     auto image = small;
     CHECK(texture_pack::replace(image) && image.width == 8 && image.pixels[0] == 200);
     auto other = solid(2, 2, 99);
