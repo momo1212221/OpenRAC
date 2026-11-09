@@ -65,6 +65,7 @@ void Bloom::release() {
     m_upsample.release();
     m_composite.release();
     m_failed = false;
+    m_failed_frames = 0;
 }
 
 void Bloom::allocate_texture(Level& level, int width, int height) {
@@ -205,7 +206,7 @@ bool Bloom::downsample(
         static_cast<float>(source_height)
     );
     glUniform1i(m_downsample.uniform("first_pass"), first ? 1 : 0);
-    glUniform1f(m_downsample.uniform("threshold"), std::clamp(options.threshold, 0.0f, 2.0f));
+    glUniform1f(m_downsample.uniform("threshold"), std::clamp(options.threshold, 0.0f, 1.0f));
     glUniform1f(m_downsample.uniform("knee"), std::clamp(options.knee, 0.0f, 1.0f));
     const ComputeOutput result{m_buffer, output_bytes(destination.width, destination.height)};
     if (!run_compute_graph("bloom downsample", std::span(&result, 1), [&] {
@@ -248,21 +249,28 @@ bool Bloom::upsample(
     return computed && copy_output(destination, width, height, error);
 }
 
-bool Bloom::composite(renderer::FrameBuffer& output, float strength, std::string& error) {
+bool Bloom::composite(
+    renderer::FrameBuffer& output, float strength, bool preview_only, std::string& error
+) {
     glBindFramebuffer(GL_FRAMEBUFFER, output.id());
     glViewport(0, 0, output.width(), output.height());
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_STENCIL_TEST);
     glDisable(GL_CULL_FACE);
     glDisable(GL_SCISSOR_TEST);
-    glEnable(GL_BLEND);
+    if (preview_only) {
+        // Diagnostic replaces RGB with the glow mask, but retains the world's alpha.
+        glDisable(GL_BLEND);
+    } else {
+        glEnable(GL_BLEND);
+    }
     glBlendEquation(GL_FUNC_ADD);
     glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE);
     glDepthMask(GL_FALSE);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
 
     m_composite.use();
-    glUniform1f(m_composite.uniform("strength"), strength);
+    glUniform1f(m_composite.uniform("strength"), preview_only ? 1.0f : strength);
     glUniform2f(
         m_composite.uniform("output_size"),
         static_cast<float>(output.width()),
@@ -307,10 +315,17 @@ void Bloom::apply(renderer::FrameBuffer& output, float strength) {
 }
 
 void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
-    if (m_failed || !options.enabled || options.strength <= 0.0f
-        || output.width() <= 1 || output.height() <= 1
+    if (!bloom_requested(options) || output.width() <= 1 || output.height() <= 1
         || !enhanced_rendering_available()) {
         return;
+    }
+    // A transient Vulkan graph/resize error should not silence Bloom for the
+    // entire game session. Retry at a bounded interval instead of every frame.
+    if (m_failed) {
+        if (++m_failed_frames < 120) {
+            return;
+        }
+        release();
     }
 #if !defined(OPENRAC_VULKAN)
     (void)output;
@@ -369,7 +384,7 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
         }
     }
 
-    if (!composite(output, strength, error)) {
+    if (!composite(output, strength, options.preview_only, error)) {
         log::error("Bloom disabled: {}", error);
         m_failed = true;
         return;
