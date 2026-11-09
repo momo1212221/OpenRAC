@@ -97,6 +97,9 @@ bool loaded_mod(const char* id) {
 }
 
 bool own_progression_enabled() {
+    if (!g_arsenal_mastery_loaded && loaded_mod("arsenal-mastery")) {
+        g_arsenal_mastery_loaded = true;
+    }
     return g_weapon_xp && !g_arsenal_mastery_loaded;
 }
 
