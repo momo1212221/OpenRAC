@@ -336,7 +336,7 @@ int main() {
 
     // A sidecar-only pack must still expose the original texture hash to the scene so enhanced
     // rendering can bind Materials/<hash>/ maps even when no diffuse replacement is provided.
-    const fs::path sidecar_only = root / "sidecar-only";
+    const fs::path sidecar_only = pack / "sidecar-only";
     const auto sidecar_dir = sidecar_only / "Materials" / name.substr(0, 16);
     fs::create_directories(sidecar_dir);
     std::ofstream(sidecar_dir / "normal.png") << "normal";
