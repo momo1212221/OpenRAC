@@ -3012,6 +3012,16 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     }
     let bundled = bundled_copy(app, &mut config);
     settle_root(&mut config, bundled.as_deref());
+    // Existing launcher.json files can still name macOS's system Python 3.9,
+    // even after Python 3.12 has been installed. Upgrade only the interpreter
+    // choice on startup; keep the game installation, mods and saves intact.
+    if detect::repair_python(&mut config) {
+        if let Some(file) = config_file.as_deref() {
+            if let Err(e) = config::save(file, &config) {
+                eprintln!("Could not save the corrected Python selection: {e}");
+            }
+        }
+    }
     let discord = start_discord(&config);
     start_log(app, config_file.as_deref());
     migrate_install_saves(&config);
