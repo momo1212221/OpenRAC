@@ -249,16 +249,16 @@ pub async fn mod_service(
                 let g = game.clone();
                 let v = version.clone();
                 let result = tauri::async_runtime::spawn_blocking(move || {
-                    crate::asset_ai::bake_with_graphics_helper(
-                        &python,
-                        &root,
-                        &helper,
-                        &data,
-                        &g,
-                        &v,
-                        Some(&material_pack),
+                    crate::asset_ai::bake_with_graphics_helper(crate::asset_ai::GraphicsHelperBake {
+                        python: &python,
+                        openrac_root: &root,
+                        helper: &helper,
+                        data: &data,
+                        game: &g,
+                        version: &v,
+                        material_pack: Some(&material_pack),
                         options,
-                    )
+                    })
                 })
                 .await
                 .map_err(|e| e.to_string())??;
