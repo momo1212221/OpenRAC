@@ -60,6 +60,8 @@ bool g_weapon_xp = true;
 bool g_xp_hud = true;
 bool g_damage_upgrades = true;
 bool g_level_up_notice = true;
+bool g_arsenal_mastery_loaded = false;
+std::uint32_t g_mod_scan_timer = 0;
 int g_marker_duration = 10;
 int g_marker_left = 0;
 float g_marker_scale = 0.85f;
@@ -78,6 +80,24 @@ const WeaponInfo* weapon_info(int item) {
         if (weapon.item == item) return &weapon;
     }
     return nullptr;
+}
+
+bool loaded_mod(const char* id) {
+    if (!g_api || g_api->api_minor < 14 || !g_api->mod_count || !g_api->mod_entry) return false;
+    const int count = g_api->mod_count();
+    for (int i = 0; i < count; ++i) {
+        openrac_mod_entry entry{};
+        entry.size = sizeof entry;
+        if (g_api->mod_entry(i, &entry) == OPENRAC_HOOK_OK && entry.id
+            && std::strcmp(entry.id, id) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool own_progression_enabled() {
+    return g_weapon_xp && !g_arsenal_mastery_loaded;
 }
 
 const char* tier_name(int tier) {
@@ -193,7 +213,7 @@ void update_progress_slot() {
 }
 
 void grant_xp(int item, int base_amount) {
-    if (!g_weapon_xp || item < 0 || item >= kItemCount || !weapon_info(item) || base_amount <= 0) return;
+    if (!own_progression_enabled() || item < 0 || item >= kItemCount || !weapon_info(item) || base_amount <= 0) return;
 
     std::uint32_t& xp = xp_for(item);
     const int old_tier = tier_for_xp(xp);
@@ -248,7 +268,7 @@ openrac_gaddr get_hit(openrac_gaddr moby, int32_t mask, int32_t keep) {
     const int hit_xp = 8 + static_cast<int>(std::clamp(std::fabs(damage) * 2.0f, 0.0f, 32.0f));
     grant_xp(item, hit_xp);
 
-    if (g_damage_upgrades && damage > 0.0f) {
+    if (g_damage_upgrades && own_progression_enabled() && damage > 0.0f) {
         const int tier = tier_for_xp(xp_for(item));
         const float upgraded = damage * kDamageMultiplier[static_cast<std::size_t>(tier)];
         std::memcpy(g_api->memory + hit + 0x2c, &upgraded, sizeof upgraded);
@@ -344,7 +364,7 @@ void draw_hit_marker(const openrac_overlay* overlay) {
 }
 
 void draw_weapon_progress(const openrac_overlay* overlay) {
-    if (!g_weapon_xp || !g_xp_hud || !overlay) return;
+    if (!own_progression_enabled() || !g_xp_hud || !overlay) return;
     const int item = current_item();
     const WeaponInfo* active = weapon_info(item);
     if (!active) return;
@@ -464,6 +484,20 @@ void overlay_frame(void*, const openrac_overlay* overlay) {
 
 void frame(void*) {
     if (!g_api || !g_mod) return;
+
+    if (++g_mod_scan_timer >= 60 || !g_arsenal_mastery_loaded) {
+        g_mod_scan_timer = 0;
+        const bool found = loaded_mod("arsenal-mastery");
+        if (found && !g_arsenal_mastery_loaded && g_api->log) {
+            g_api->log(
+                g_mod,
+                OPENRAC_LOG_INFO,
+                "Arsenal Mastery detected: Enhanced Weapons keeps visual effects but disables its own XP/damage progression"
+            );
+        }
+        g_arsenal_mastery_loaded = found;
+    }
+
     update_progress_slot();
 
     if (++g_save_timer >= 300) {
@@ -484,7 +518,7 @@ void frame(void*) {
     }
 
     float tier_haze = 1.0f;
-    if (active && g_weapon_xp) tier_haze += static_cast<float>(tier_for_xp(xp_for(item))) * 0.08f;
+    if (active && own_progression_enabled()) tier_haze += static_cast<float>(tier_for_xp(xp_for(item))) * 0.08f;
 
     const int found = g_api->moby_list(g_mobys.data(), static_cast<int>(g_mobys.size()));
     std::array<openrac_haze, 16> haze{};
@@ -549,7 +583,14 @@ OPENRAC_MOD_EXPORT int openrac_mod_load(const openrac_api* api, openrac_mod* mod
         return 1;
     }
 
-    api->log(mod, OPENRAC_LOG_INFO, "loaded: Enhanced RAC Style weapon XP and V1-V5/Omega progression enabled");
+    g_arsenal_mastery_loaded = loaded_mod("arsenal-mastery");
+    api->log(
+        mod,
+        OPENRAC_LOG_INFO,
+        g_arsenal_mastery_loaded
+            ? "loaded: Arsenal Mastery owns progression; Enhanced Weapons visual effects remain enabled"
+            : "loaded: Enhanced RAC Style weapon XP and V1-V5/Omega progression enabled"
+    );
     return 0;
 }
 
