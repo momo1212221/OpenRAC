@@ -419,11 +419,7 @@ pub fn seed_dump_from_levels(
         added += 1;
     }
 
-    Ok(SeededTextureSources {
-        source_files: sources.len() as u32,
-        added,
-        total: items_under(&dump).len() as u32,
-    })
+    Ok(SeededTextureSources { source_files: sources.len() as u32, added, total: items_under(&dump).len() as u32 })
 }
 
 /// The launcher-built, persistent high-resolution pack. It is deliberately a subfolder of the
