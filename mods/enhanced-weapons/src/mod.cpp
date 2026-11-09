@@ -541,7 +541,7 @@ void frame(void*) {
 
 }  // namespace
 
-OPENRAC_MOD_DEFINE("enhanced-weapons", "0.3.1")
+OPENRAC_MOD_DEFINE("enhanced-weapons", "0.3.2")
 
 OPENRAC_MOD_EXPORT int openrac_mod_load(const openrac_api* api, openrac_mod* mod) {
     if (!api || !mod || !api->game || std::string(api->game) != "rac1") {
