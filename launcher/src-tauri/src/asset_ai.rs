@@ -225,22 +225,35 @@ fn validate_helper_pack(root: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(render_meshes)
 }
 
+/// Inputs for one consented Graphics Preparation geometry run.
+pub(crate) struct GraphicsHelperBake<'a> {
+    pub python: &'a Path,
+    pub openrac_root: &'a Path,
+    pub helper: &'a Path,
+    pub data: &'a Path,
+    pub game: &'a str,
+    pub version: &'a str,
+    pub material_pack: Option<&'a Path>,
+    pub options: serde_json::Value,
+}
+
 /// Runs the Geometry Enhancement helper shipped inside the consented graphics-preparation mod.
 ///
 /// The helper exports OpenRAC's render assets, refines them offline, then imports a normal
 /// level_NN override tree. Work happens under <data>/ai_assets first; only a validated complete
 /// pack replaces <data>/prepared-graphics/meshes/<version>. The game already mounts that directory
 /// through --prepared-meshes on its next start.
-pub fn bake_with_graphics_helper(
-    python: &Path,
-    openrac_root: &Path,
-    helper: &Path,
-    data: &Path,
-    game: &str,
-    version: &str,
-    material_pack: Option<&Path>,
-    options: serde_json::Value,
-) -> Result<MeshBake, String> {
+pub(crate) fn bake_with_graphics_helper(request: GraphicsHelperBake<'_>) -> Result<MeshBake, String> {
+    let GraphicsHelperBake {
+        python,
+        openrac_root,
+        helper,
+        data,
+        game,
+        version,
+        material_pack,
+        options,
+    } = request;
     if !helper.is_file() {
         return Err(format!("installed geometry helper is missing: {}", helper.display()));
     }
