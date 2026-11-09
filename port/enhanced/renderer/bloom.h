@@ -14,6 +14,10 @@
 
 namespace openrac::enhanced {
 
+// Whether the real in-game render worker completed the GPU bloom pass at least once.
+enum class BloomPassStatus { Never, Completed, Failed };
+[[nodiscard]] BloomPassStatus bloom_pass_status();
+
 class Bloom {
 public:
     ~Bloom();
@@ -69,6 +73,7 @@ private:
     std::size_t m_buffer_capacity = 0;
     unsigned m_vao = 0;
     bool m_failed = false;
+    bool m_logged_success = false;
     unsigned m_failed_frames = 0;  // Retry a transient graphics/resize failure after 120 frames.
 };
 
