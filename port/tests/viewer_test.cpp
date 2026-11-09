@@ -1133,25 +1133,32 @@ void mod_assets(const fs::path& dir) {
         const auto base_model = level.moby_classes.at(1234).first;
         const auto& added = level.models[base_model];
         CHECK(std::fabs(added.max[0] - 2.0f) < 1e-6f);
-        REQUIRE(level.moby_lods.contains(1234));
-        const auto& lods = level.moby_lods.at(1234);
-        REQUIRE(lods.size() == 2);
-        CHECK(scene::select_lod_model(base_model, lods, 0.0f) == base_model);
-        CHECK(scene::select_lod_model(base_model, lods, 39.0f) == base_model);
-        CHECK(scene::select_lod_model(base_model, lods, 40.0f) == lods[0].model);
-        CHECK(scene::select_lod_model(base_model, lods, 150.0f) == lods[1].model);
-        CHECK(std::fabs(level.models[lods[0].model].max[0] - 1.0f) < 1e-6f);
-        CHECK(std::fabs(level.models[lods[1].model].max[0] - 0.5f) < 1e-6f);
+        CHECK(level.moby_lods.contains(1234));
+        if (level.moby_lods.contains(1234)) {
+            const auto& lods = level.moby_lods.at(1234);
+            CHECK(lods.size() == 2);
+            if (lods.size() == 2) {
+                CHECK(scene::select_lod_model(base_model, lods, 0.0f) == base_model);
+                CHECK(scene::select_lod_model(base_model, lods, 39.0f) == base_model);
+                CHECK(scene::select_lod_model(base_model, lods, 40.0f) == lods[0].model);
+                CHECK(scene::select_lod_model(base_model, lods, 150.0f) == lods[1].model);
+                CHECK(std::fabs(level.models[lods[0].model].max[0] - 1.0f) < 1e-6f);
+                CHECK(std::fabs(level.models[lods[1].model].max[0] - 0.5f) < 1e-6f);
+            }
+        }
     }
     // Data packs can attach LODs to an existing class through geometry-lods.json.
-    REQUIRE(level.moby_lods.contains(7));
-    CHECK(level.moby_lods.at(7).size() == 1);
-    CHECK(
-        scene::select_lod_model(
-            level.moby_classes.at(7).first, level.moby_lods.at(7), 80.0f
-        )
-        == level.moby_lods.at(7)[0].model
-    );
+    CHECK(level.moby_lods.contains(7));
+    if (level.moby_lods.contains(7)) {
+        const auto& lods = level.moby_lods.at(7);
+        CHECK(lods.size() == 1);
+        if (lods.size() == 1) {
+            CHECK(
+                scene::select_lod_model(level.moby_classes.at(7).first, lods, 80.0f)
+                == lods[0].model
+            );
+        }
+    }
     // Without the first mod, the second's texture.
     scene::LevelData one;
     CHECK(scene::load_level(dir, one, error, {}, {second}));
