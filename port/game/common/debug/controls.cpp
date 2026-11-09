@@ -12,6 +12,7 @@
 #include "debug/overlay.h"
 #include "enhanced/fsr3/fsr3.h"
 #include "enhanced/renderer/atmosphere.h"
+#include "enhanced/renderer/bloom.h"
 #include "enhanced/renderer/foliage.h"
 #include "enhanced/renderer/fur.h"
 #include "enhanced/renderer/reflection_material.h"
@@ -646,6 +647,26 @@ void enhanced_settings_window() {
     }
     if (ImGui::CollapsingHeader("Post processing", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::SeparatorText("Bloom");
+        if (!available) {
+            ImGui::TextColored(ImVec4(1.f, .4f, .3f, 1.f),
+                               "Bloom inactive: Vulkan enhanced renderer not running.");
+        } else if (!graphics.enhanced_graphics || !graphics.bloom.enabled) {
+            ImGui::TextDisabled("Bloom inactive: a graphics/Bloom switch is off.");
+        } else {
+            switch (enhanced::bloom_pass_status()) {
+                case enhanced::BloomPassStatus::Never:
+                    ImGui::TextDisabled("Bloom: no completed GPU pass yet (open a gameplay scene).");
+                    break;
+                case enhanced::BloomPassStatus::Completed:
+                    ImGui::TextColored(ImVec4(.3f, .9f, .4f, 1.f),
+                                       "Bloom GPU pass completed. Use Glow only to see its mask.");
+                    break;
+                case enhanced::BloomPassStatus::Failed:
+                    ImGui::TextColored(ImVec4(1.f, .4f, .3f, 1.f),
+                                       "Bloom GPU error. Check the latest game log.");
+                    break;
+            }
+        }
         changed |= checkbox("Bloom enabled", &graphics.bloom.enabled);
         ImGui::BeginDisabled(!graphics.bloom.enabled);
         float bloom_percent = graphics.bloom.strength * 100.0f;
