@@ -898,8 +898,19 @@ pub const NOT_A_PACK_BUT_A_MOD: &str = "This .zip is a mod, not a texture pack."
 /// folder) is taken off.
 const PACK_FOLDERS: &[&str] = &["Interface", "Shared", "Planets", "Animated", "Materials"];
 
-const MATERIAL_FILES: &[&str] =
-    &["normal.png", "roughness.png", "height.png", "ao.png", "emissive.png", "material.json"];
+const MATERIAL_FILES: &[&str] = &[
+    "normal.png",
+    "roughness.png",
+    "height.png",
+    "ao.png",
+    "emissive.png",
+    "specular.png",
+    "metallic.png",
+    "cavity.png",
+    "curvature.png",
+    "edgewear.png",
+    "material.json",
+];
 
 fn material_sidecar(rel: &str) -> Option<(String, PathBuf)> {
     let parts: Vec<&str> = rel.split('/').collect();
@@ -1264,9 +1275,8 @@ fn item_files(pack: &Path, item: &Item) -> Vec<PathBuf> {
         frames
     };
 
-    const NAMES: &[&str] = &["normal.png", "roughness.png", "height.png", "ao.png", "emissive.png", "material.json"];
     let material = Path::new("Materials").join(&item.hash);
-    for name in NAMES {
+    for name in MATERIAL_FILES {
         let rel = material.join(name);
         if pack.join(&rel).is_file() {
             files.push(rel);
@@ -1431,6 +1441,14 @@ mod tests {
                 ("Planets/Oozla/fedcba9876543210.png", png(2)),
                 ("Materials/0123456789abcdef/normal.png", png(3)),
                 ("Materials/0123456789abcdef/roughness.png", png(4)),
+                ("Materials/0123456789abcdef/height.png", png(5)),
+                ("Materials/0123456789abcdef/ao.png", png(6)),
+                ("Materials/0123456789abcdef/emissive.png", png(7)),
+                ("Materials/0123456789abcdef/specular.png", png(8)),
+                ("Materials/0123456789abcdef/metallic.png", png(9)),
+                ("Materials/0123456789abcdef/cavity.png", png(10)),
+                ("Materials/0123456789abcdef/curvature.png", png(11)),
+                ("Materials/0123456789abcdef/edgewear.png", png(12)),
                 ("Materials/0123456789abcdef/material.json", br#"{"roughnessScale":0.8}"#.to_vec()),
                 ("README.txt", b"made by me".to_vec()),
             ],
@@ -1447,6 +1465,18 @@ mod tests {
         assert!(pack.join(format!("Planets/Oozla/{HASH_B}.png")).is_file());
         assert_eq!(fs::read(pack.join(format!("Materials/{HASH_A}/normal.png"))).unwrap(), png(3));
         assert_eq!(fs::read(pack.join(format!("Materials/{HASH_A}/roughness.png"))).unwrap(), png(4));
+        for name in [
+            "height.png",
+            "ao.png",
+            "emissive.png",
+            "specular.png",
+            "metallic.png",
+            "cavity.png",
+            "curvature.png",
+            "edgewear.png",
+        ] {
+            assert!(pack.join(format!("Materials/{HASH_A}/{name}")).is_file(), "{name}");
+        }
         assert!(pack.join(format!("Materials/{HASH_A}/material.json")).is_file());
         assert!(!pack.join("README.txt").exists());
         assert!(!data.join("texture_packs/.rac2-ntsc.importing").exists());
