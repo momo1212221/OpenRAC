@@ -233,10 +233,15 @@ and existing level/bake assets are not rewritten. If it asks for folders on
 first launch, choose the test checkout as **OpenRAC folder** and the same
 existing **Install folder** to reuse imported disc data.
 
-Open **Mods → Enhanced graphics → Settings** to adjust Bloom on/off and its
-intensity, with threshold, soft knee and scatter in **Advanced**. These use the
-same version-specific settings keys as the in-game Enhanced Settings panel,
-and are applied to the next game start.
+Open **Mods → Enhanced graphics → Settings** to adjust Bloom on/off and
+intensity, with threshold, soft knee and scatter in **Advanced**. The
+**Defaults**, **Visible**, **Strong** and **Glow only** presets let you compare
+results without guessing slider combinations. Glow only is a diagnostic that
+shows the blur mask in place of world RGB; disable it before playing normally.
+Bloom now works without prepared probe-lighting data as long as Vulkan enhanced
+rendering is enabled. These controls use the same version-specific settings
+keys as the in-game Enhanced Settings panel, and take effect at the next game
+start. See `port/enhanced/docs/bloom.md` for rendering and troubleshooting.
 
 To run from the checkout on macOS:
 
