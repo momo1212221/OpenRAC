@@ -70,7 +70,7 @@ pub async fn mod_service(
     operation: String,
     payload: Value,
 ) -> Result<Value, String> {
-    installed(&state, &game, &id)?;
+    let service_folder = installed(&state, &game, &id)?;
     let home = openrac_launcher_core::saves::data_home();
     if !addons::granted(&home, &id, &game) {
         return Err("Open the mod and grant its service permission first".into());
@@ -163,9 +163,21 @@ pub async fn mod_service(
                 openrac_launcher_core::texture_packs::set_enabled(&home, &game, &version, true)?;
                 value(Ok(result))
             },
-            "ai.meshes" => value(
-                ai_mesh_bake(state, game, version, payload["mode"].as_str().ok_or("Missing mesh mode")?.into()).await,
-            ),
+            "ai.meshes" => {
+                let mode = payload["mode"].as_str().ok_or("Missing mesh mode")?.to_string();
+                let options = payload.get("options").cloned().unwrap_or_else(|| json!({}));
+                value(
+                    ai_mesh_bake_packaged(
+                        &state,
+                        game,
+                        version,
+                        mode,
+                        options,
+                        service_folder,
+                    )
+                    .await,
+                )
+            }
             _ => Err("Operation is not available to the graphics preparation mod".into()),
         }
     } else {

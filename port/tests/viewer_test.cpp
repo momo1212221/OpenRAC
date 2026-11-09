@@ -1108,8 +1108,19 @@ void mod_assets(const fs::path& dir) {
     solid(first / "textures" / "terrain_0000.png", 4, 11);
     solid(second / "textures" / "terrain_0000.png", 8, 22);
     solid(pack / "textures" / "terrain_0000.png", 16, 33);
+    solid(pack / "textures" / "tie_0001.png", 4, 44);
     write_square(second / "mobys" / "added.gltf", 4.0f, 0.0f, "../textures/tie_0001.png");
-    write_text(second / "classes.json", R"({"moby": {"1234": {"mesh": "mobys/added.gltf"}}})");
+    write_square(second / "mobys" / "added_mid.gltf", 2.0f, 0.0f, "../textures/tie_0001.png");
+    write_square(second / "mobys" / "added_low.gltf", 1.0f, 0.0f, "../textures/tie_0001.png");
+    write_text(
+        second / "classes.json",
+        R"({"moby":{"1234":{"mesh":"mobys/added.gltf","lods":[{"mesh":"mobys/added_mid.gltf","distance":40},{"mesh":"mobys/added_low.gltf","distance":100}]}}})"
+    );
+    write_square(pack / "mobys" / "class7_lod.gltf", 1.5f, 0.0f, "../textures/tie_0001.png");
+    write_text(
+        pack / "geometry-lods.json",
+        R"({"format":1,"moby":{"7":{"lods":[{"mesh":"mobys/class7_lod.gltf","distance":60}]}}})"
+    );
 
     scene::LevelData level;
     std::string error;
@@ -1119,13 +1130,49 @@ void mod_assets(const fs::path& dir) {
     // The second mod's class is there, its mesh 4 units across; the level's own class 7 too.
     CHECK(level.moby_classes.contains(1234) && level.moby_classes.contains(7));
     if (level.moby_classes.contains(1234)) {
-        const auto& added = level.models[level.moby_classes.at(1234).first];
+        const auto base_model = level.moby_classes.at(1234).first;
+        const auto& added = level.models[base_model];
         CHECK(std::fabs(added.max[0] - 2.0f) < 1e-6f);
+        CHECK(level.moby_lods.contains(1234));
+        if (level.moby_lods.contains(1234)) {
+            const auto& lods = level.moby_lods.at(1234);
+            CHECK(lods.size() == 2);
+            if (lods.size() == 2) {
+                CHECK(scene::select_lod_model(base_model, lods, 0.0f) == base_model);
+                CHECK(scene::select_lod_model(base_model, lods, 39.0f) == base_model);
+                CHECK(scene::select_lod_model(base_model, lods, 40.0f) == lods[0].model);
+                CHECK(scene::select_lod_model(base_model, lods, 150.0f) == lods[1].model);
+                CHECK(std::fabs(level.models[lods[0].model].max[0] - 1.0f) < 1e-6f);
+                CHECK(std::fabs(level.models[lods[1].model].max[0] - 0.5f) < 1e-6f);
+            }
+        }
+    }
+    // Data packs can attach LODs to an existing class through geometry-lods.json.
+    CHECK(level.moby_lods.contains(7));
+    if (level.moby_lods.contains(7)) {
+        const auto& lods = level.moby_lods.at(7);
+        CHECK(lods.size() == 1);
+        if (lods.size() == 1) {
+            CHECK(
+                scene::select_lod_model(level.moby_classes.at(7).first, lods, 80.0f)
+                == lods[0].model
+            );
+        }
     }
     // Without the first mod, the second's texture.
     scene::LevelData one;
     CHECK(scene::load_level(dir, one, error, {}, {second}));
     CHECK(one.images[0].width == 8 && (one.images[0].texel(0, 0) & 0xFF) == 22);
+    // LOD distances must be ordered; a malformed chain is an error, not a silent skip.
+    write_text(
+        second / "classes.json",
+        R"({"moby":{"1234":{"mesh":"mobys/added.gltf","lods":[{"mesh":"mobys/added_mid.gltf","distance":100},{"mesh":"mobys/added_low.gltf","distance":40}]}}})"
+    );
+    scene::LevelData bad_lod;
+    CHECK(
+        !scene::load_level(dir, bad_lod, error, {}, {second})
+        && error.find("strictly increasing") != std::string::npos
+    );
     // A broken classes.json is an error, not a silent skip.
     write_text(second / "classes.json", R"({"moby": {"5": {"scale": 2}}})");
     scene::LevelData broken;

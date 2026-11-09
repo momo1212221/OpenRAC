@@ -12,8 +12,10 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <set>
 #include <stb_image.h>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 #include "common/json.h"
@@ -305,6 +307,24 @@ float game_draw_distance(Layer layer, const json::Value& stored, int fade) {
     }
     const float raised = std::max(d, fade >= 0 ? static_cast<float>(fade) + kFadeBand : kShrubMin);
     return std::min(std::max(raised, kShrubMin), kShrubCap);
+}
+
+bool compatible_moby_lod(const Model& base, const Model& candidate) {
+    // Rigid meshes can change topology freely. Skinned LODs must keep the same armature identity so
+    // the live game pose can drive every level without remapping or animation-specific guesses.
+    if (base.bones.empty() && candidate.bones.empty()) {
+        return true;
+    }
+    if (base.bones.size() != candidate.bones.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < base.bones.size(); ++i) {
+        if (base.bones[i].name != candidate.bones[i].name
+            || base.bones[i].parent != candidate.bones[i].parent) {
+            return false;
+        }
+    }
+    return true;
 }
 
 }  // namespace
@@ -713,6 +733,58 @@ bool load_level(
         std::uint32_t model;
         float scale;
         bool box;
+        std::vector<ModelLod> lods;
+    };
+
+    auto class_lods =
+        [&](const json::Value& cls,
+            std::uint32_t base_model,
+            std::string_view where) -> std::optional<std::vector<ModelLod>> {
+        std::vector<ModelLod> result;
+        const json::Value& lods = cls["lods"];
+        if (lods.is_null()) {
+            return result;
+        }
+        if (!lods.is_array()) {
+            error = std::format("{}: lods must be an array", where);
+            return std::nullopt;
+        }
+        float previous = 0.0f;
+        for (std::size_t i = 0; i < lods.items().size(); ++i) {
+            const json::Value& entry = lods[i];
+            if (!entry.is_object() || !entry["mesh"].is_string()
+                || !entry["distance"].is_number()) {
+                error =
+                    std::format("{}: lod {} needs a mesh string and numeric distance", where, i);
+                return std::nullopt;
+            }
+            const double raw = entry["distance"].number(-1);
+            if (!std::isfinite(raw) || raw <= 0.0
+                || raw > static_cast<double>(std::numeric_limits<float>::max())) {
+                error = std::format("{}: lod {} has an invalid distance", where, i);
+                return std::nullopt;
+            }
+            const float distance = static_cast<float>(raw);
+            if (!result.empty() && distance <= previous) {
+                error = std::format("{}: lod distances must be strictly increasing", where);
+                return std::nullopt;
+            }
+            const auto model = model_at(entry["mesh"]);
+            if (!model) {
+                if (error.empty()) {
+                    error = std::format("{}: cannot load lod {} mesh", where, i);
+                }
+                return std::nullopt;
+            }
+            if (!compatible_moby_lod(out.models[base_model], out.models[*model])) {
+                error =
+                    std::format("{}: lod {} does not use the base model's armature", where, i);
+                return std::nullopt;
+            }
+            result.push_back({*model, distance});
+            previous = distance;
+        }
+        return result;
     };
 
     std::map<int, ClassModel> ties;
@@ -722,6 +794,7 @@ bool load_level(
     std::map<int, int> shrub_relight_class;
     std::map<int, ClassModel> shrubs;
     std::map<int, ClassModel> mobys;
+    std::set<int> mod_moby_classes;
     // The shrub classes' billboard fade distances ("billboard_fade", -1 none), when every class
     // has one; and the game's caps, known for Ratchet & Clank's (renderer/world/draw_data.h).
     std::map<int, int> billboard_fades;
@@ -782,12 +855,21 @@ bool load_level(
                 if (!model) {
                     return false;
                 }
-                (*table)[id] = {*model, scale, false};
+                std::vector<ModelLod> lods;
+                if (table == &mobys) {
+                    const auto parsed =
+                        class_lods(cls, *model, std::format("manifest moby class {}", id));
+                    if (!parsed) {
+                        return false;
+                    }
+                    lods = *parsed;
+                }
+                (*table)[id] = {*model, scale, false, std::move(lods)};
             } else {
                 if (!box) {
                     box = add_box_model(out);
                 }
-                (*table)[id] = {*box, 1.0f, true};
+                (*table)[id] = {*box, 1.0f, true, {}};
             }
         }
     }
@@ -816,11 +898,26 @@ bool load_level(
                 if (!model) {
                     return false;
                 }
-                (*table)[std::atoi(key.c_str())] = {
-                    *model, static_cast<float>(cls["scale"].number(1.0)), false
-                };
+                const int id = std::atoi(key.c_str());
+                std::vector<ModelLod> lods;
+                if (table == &mobys) {
+                    const auto parsed = class_lods(
+                        cls,
+                        *model,
+                        std::format("{}: moby class {}", file.string(), id)
+                    );
+                    if (!parsed) {
+                        return false;
+                    }
+                    lods = *parsed;
+                    mod_moby_classes.insert(id);
+                }
+                (*table)[id] = {*model,
+                                static_cast<float>(cls["scale"].number(1.0)),
+                                false,
+                                std::move(lods)};
                 if (table == &shrubs) {
-                    billboard_fades[std::atoi(key.c_str())] =
+                    billboard_fades[id] =
                         static_cast<int>(cls["billboard_fade"].number(-1));
                     fades_known = fades_known && cls["billboard_fade"].is_number();
                 }
@@ -830,6 +927,64 @@ bool load_level(
 
     for (const auto& [id, cls] : mobys) {
         out.moby_classes[id] = {cls.model, cls.box};
+        if (!cls.lods.empty()) {
+            out.moby_lods[id] = cls.lods;
+        }
+    }
+
+    // Graphics/data packs may add LODs without becoming native plugins. The file lives beside the
+    // level override and maps existing moby classes to extra meshes; native mod classes keep
+    // precedence and are never silently paired with a data pack's unrelated LODs.
+    if (!out.overrides.empty()) {
+        const fs::path lod_file = out.overrides / "geometry-lods.json";
+        std::error_code file_error;
+        if (fs::is_regular_file(lod_file, file_error)) {
+            json::Value authored;
+            if (!json::parse_file(lod_file.string(), authored, error)) {
+                return false;
+            }
+            if (authored["format"].number(-1) != 1 || !authored["moby"].is_object()) {
+                error =
+                    std::format("{}: expected format 1 with a moby object", lod_file.string());
+                return false;
+            }
+            for (const auto& [key, entry] : authored["moby"].members()) {
+                char* end = nullptr;
+                const long raw_id = std::strtol(key.c_str(), &end, 10);
+                if (end == key.c_str() || *end != '\0' || raw_id < 0
+                    || raw_id > std::numeric_limits<int>::max()) {
+                    error = std::format("{}: invalid moby class {}", lod_file.string(), key);
+                    return false;
+                }
+                const int id = static_cast<int>(raw_id);
+                if (mod_moby_classes.contains(id)) {
+                    continue;
+                }
+                const auto base = out.moby_classes.find(id);
+                if (base == out.moby_classes.end()) {
+                    error = std::format(
+                        "{}: moby class {} is not loaded in this level", lod_file.string(), id
+                    );
+                    return false;
+                }
+                if (!entry.is_object()) {
+                    error =
+                        std::format("{}: moby class {} must be an object", lod_file.string(), id);
+                    return false;
+                }
+                const auto parsed = class_lods(
+                    entry,
+                    base->second.first,
+                    std::format("{}: moby class {}", lod_file.string(), id)
+                );
+                if (!parsed) {
+                    return false;
+                }
+                if (!parsed->empty()) {
+                    out.moby_lods[id] = *parsed;
+                }
+            }
+        }
     }
 
     json::Value emission_edits;

@@ -1659,14 +1659,36 @@ TickMobys pose_mobys(
                })) {
             continue;
         }
-        auto cls = g->level.moby_classes.find(m.model_class);
+        int render_class = m.model_class;
+        auto cls = g->level.moby_classes.find(render_class);
         if (cls == g->level.moby_classes.end() && !m.model_only) {
-            cls = g->level.moby_classes.find(m.class_id);
+            render_class = m.class_id;
+            cls = g->level.moby_classes.find(render_class);
         }
         if (cls == g->level.moby_classes.end()) {
             continue;
         }
-        scene::Instance instance{cls->second.first, m.matrix, {1, 1, 1, 1}};
+
+        std::uint32_t render_model = cls->second.first;
+        if (!own_camera && !extra && !light_only) {
+            // Use the same world-camera path that already decided whether MobyProc would draw the
+            // object. Distance is to the animated world bound when available, otherwise to the
+            // instance origin. Menu/vendor cameras stay on LOD0 for stable close-up previews.
+            renderer::Vec3 centre{m.matrix[12], m.matrix[13], m.matrix[14]};
+            if (m.world_sphere[3] > 0.0f && std::isfinite(m.world_sphere[0])
+                && std::isfinite(m.world_sphere[1]) && std::isfinite(m.world_sphere[2])) {
+                centre = {m.world_sphere[0], m.world_sphere[1], m.world_sphere[2]};
+            }
+            const float dx = centre[0] - state.camera_position[0];
+            const float dy = centre[1] - state.camera_position[1];
+            const float dz = centre[2] - state.camera_position[2];
+            const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (const auto lods = g->level.moby_lods.find(render_class);
+                lods != g->level.moby_lods.end()) {
+                render_model = scene::select_lod_model(render_model, lods->second, distance);
+            }
+        }
+        scene::Instance instance{render_model, m.matrix, {1, 1, 1, 1}};
         instance.lighting_only = light_only;
         instance.gameplay_essential = g->profile->gameplay_essential(m.class_id);
         instance.occlusion = m.occlusion;
@@ -1774,7 +1796,7 @@ TickMobys pose_mobys(
 #ifdef OPENRAC_LIGHT_AUTHORING
         if (attached_catalog && !attached_catalog->objects.empty()) {
             const auto lights = attached_catalog->objects.find(
-                enhanced::object_light_key(g->level, scene::Layer::Mobys, instance.model)
+                enhanced::object_light_key(g->level, scene::Layer::Mobys, cls->second.first)
             );
             attached_bones =
                 lights != attached_catalog->objects.end()

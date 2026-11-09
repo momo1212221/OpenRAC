@@ -156,6 +156,66 @@ class PackTests(unittest.TestCase):
                                                                           rgb_png(2, 2, (1, 1, 1))}), self.into)
         self.assertEqual(new, "one-2")
 
+    def test_generated_asset_pack_update_reuses_export_identity(self):
+        first = write_pack(
+            self.root / "generated-a",
+            "Graphics preparation Geometry",
+            {"level_00/mobys/moby_0.glb": glb()},
+            export="graphics-preparation:geometry:rac1:pal",
+        )
+        first_id, _, first_problems = overrides.add(first, self.into)
+        self.assertEqual(first_problems, [])
+        self.assertEqual(first_id, "graphics-preparation-geometry")
+        overrides.main(["disable", first_id, "--into", str(self.into)])
+
+        replacement = write_pack(
+            self.root / "generated-b",
+            "Graphics preparation Geometry",
+            {
+                "level_00/mobys/moby_0.glb": glb(),
+                "level_00/mobys/moby_0.gprep-lod1.glb": glb(),
+                "level_00/geometry-lods.json": json.dumps({
+                    "format": 1,
+                    "moby": {"0": {"lods": [
+                        {"mesh": "mobys/moby_0.gprep-lod1.glb", "distance": 50},
+                    ]}},
+                }).encode(),
+            },
+            export="graphics-preparation:geometry:rac1:pal",
+        )
+        second_id, ignored, problems = overrides.add(replacement, self.into)
+        self.assertEqual((second_id, ignored, problems), (first_id, [], []))
+        state = overrides.load_state(self.into)
+        self.assertEqual(state["packs"], [{"id": first_id, "enabled": False}])
+        installed = self.into / "packs" / first_id
+        self.assertTrue((installed / "level_00/geometry-lods.json").is_file())
+        self.assertTrue((installed / "level_00/mobys/moby_0.gprep-lod1.glb").is_file())
+
+    def test_geometry_lod_sidecar_stacks_with_its_extra_moby_models(self):
+        pack = write_pack(
+            self.root / "lod-pack",
+            "LOD",
+            {
+                "level_00/mobys/moby_0.glb": glb(),
+                "level_00/mobys/moby_0.gprep-lod1.glb": glb(),
+                "level_00/mobys/moby_0.gprep-lod2.glb": glb(),
+                "level_00/geometry-lods.json": b'{"format":1,"moby":{"0":{"lods":[]}}}',
+            },
+        )
+        manifest, used, ignored, problems = overrides.check(pack)
+        self.assertEqual(manifest["name"], "LOD")
+        self.assertEqual(ignored, [])
+        self.assertEqual(problems, [])
+        self.assertIn("level_00/geometry-lods.json", used)
+        self.assertIn("level_00/mobys/moby_0.gprep-lod1.glb", used)
+
+        overrides.add(pack, self.into)
+        out = self.root / "mods-lod"
+        overrides.stack(self.into, out, None, levels(self.root / "levels-lod"))
+        self.assertTrue((out / "level_00/geometry-lods.json").is_file())
+        self.assertTrue((out / "level_00/mobys/moby_0.gprep-lod1.glb").is_file())
+        self.assertTrue((out / "level_00/mobys/moby_0.gprep-lod2.glb").is_file())
+
     def test_stack_layers_packed_levels_and_packs_in_order(self):
         packed = self.root / "packed"
         (packed / "level_02").mkdir(parents=True)

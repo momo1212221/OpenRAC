@@ -276,6 +276,51 @@ broken `classes.json` stops the level from loading, with the reason in the log.
 The original manifests are never changed. `package_mod.py` checks the folder
 and packs it whole (hidden files left out).
 
+A replacement **moby** may optionally add distance LODs. `mesh` is always LOD0;
+the array is strictly near-to-far and each distance is in world units:
+
+```json
+{
+  "moby": {
+    "1234": {
+      "mesh": "mobys/my_weapon-lod0.glb",
+      "scale": 1,
+      "lods": [
+        { "mesh": "mobys/my_weapon-lod1.glb", "distance": 40 },
+        { "mesh": "mobys/my_weapon-lod2.glb", "distance": 100 }
+      ]
+    }
+  }
+}
+```
+
+The world camera selects the last threshold it has reached after the game's own
+moby draw-distance test. Mobys rendered with a dedicated menu/vendor/texture
+camera deliberately stay on LOD0. Skinned LODs must keep the base model's
+armature identity; a mismatched skeleton or unordered/invalid threshold makes
+the level fail to load instead of animating the wrong mesh.
+
+A normal editor/data override pack can attach the same LOD chain without becoming
+a native plugin by putting `geometry-lods.json` in `level_NN/`:
+
+```json
+{
+  "format": 1,
+  "moby": {
+    "1234": {
+      "lods": [
+        { "mesh": "lods/mobys/1234-lod1.gltf", "distance": 40 },
+        { "mesh": "lods/mobys/1234-lod2.gltf", "distance": 100 }
+      ]
+    }
+  }
+}
+```
+
+Those meshes are relative to the level override folder. A native mod class of the
+same id has precedence, so a data pack's LOD sidecar is never silently paired
+with another mod's replacement model.
+
 ### Touch controls
 
 On a touch screen the pad can show action buttons with icons (drawer:

@@ -105,7 +105,7 @@ LEVELS_FORMAT = FORMAT
 # pack's older models still draw, repeating them) (port.py FORMAT).
 MODELS_SINCE = 2
 FILES = re.compile(r"^(?:patches\.tsv|virtual\.tsv|audio/[0-9a-f]{16}\.wav|level_\d{2}/(?:textures/[A-Za-z0-9_.-]+\.png|(?:mobys|ties|shrubs)/"
-                   r"[A-Za-z0-9_.-]+\.glb|terrain\.glb|placements\.json|gameplay_(?:" + "|".join(VERSIONS) + r")\.wad"
+                   r"[A-Za-z0-9_.-]+\.glb|terrain\.glb|geometry-lods\.json|placements\.json|gameplay_(?:" + "|".join(VERSIONS) + r")\.wad"
                    r"|(?:core|index|data)_(?:" + "|".join(VERSIONS) + r")\.bin"
                    r"|header_(?:" + "|".join(VERSIONS) + r")\.bin))$")
 TEXTURE = re.compile(r"^level_(\d{2})/textures/([A-Za-z0-9_.-]+)\.png$")
@@ -459,7 +459,11 @@ def add(source_path: Path, folder: Path) -> tuple[str, list[str], list[str]]:
                 target = staged / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(source.read(rel))
-            identity = manifest.get("export") if manifest.get("format") == DESTINATION_PACK_FORMAT else None
+            # Asset imports carry the export id they came from. Adding a newer pack made from
+            # the same export is the same update semantics as assets.py import --into: keep its
+            # position/on-off state and replace its files atomically instead of accumulating -2/-3.
+            identity = manifest.get("export") if manifest.get("format") in (PACK_FORMAT, DESTINATION_PACK_FORMAT) else None
+            identity = identity if isinstance(identity, str) and identity else None
             new = install(staged, folder, replace_export=identity)
     finally:
         source.close()
