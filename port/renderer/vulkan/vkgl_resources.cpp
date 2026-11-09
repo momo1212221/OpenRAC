@@ -360,6 +360,11 @@ void copy_to_image(
         cmd, from.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy
     );
     count_copy(copy.imageExtent.width, copy.imageExtent.height);
+
+    // A CPU/staging upload defines the addressed image contents. Keep the legacy discard tracker
+    // in sync so frame-graph imports may safely sample freshly uploaded textures.
+    image.discarded &= ~image.aspect;
+    image.touched = g->recording;
 }
 
 ImagePtr with_chain(const ImagePtr& old) {
