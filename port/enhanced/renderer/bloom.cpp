@@ -23,9 +23,6 @@ namespace openrac::enhanced {
 using namespace openrac::gl;
 
 namespace {
-constexpr float kThreshold = 0.82f;
-constexpr float kKnee = 0.18f;
-constexpr float kScatter = 0.62f;
 constexpr int kWorkgroup = 8;
 
 std::size_t output_bytes(int width, int height) {
@@ -191,6 +188,7 @@ bool Bloom::downsample(
     int source_height,
     Level& destination,
     bool first,
+    const BloomSettings& options,
     std::string& error
 ) {
     if (!ensure_buffer(output_bytes(destination.width, destination.height))) {
@@ -207,8 +205,8 @@ bool Bloom::downsample(
         static_cast<float>(source_height)
     );
     glUniform1i(m_downsample.uniform("first_pass"), first ? 1 : 0);
-    glUniform1f(m_downsample.uniform("threshold"), kThreshold);
-    glUniform1f(m_downsample.uniform("knee"), kKnee);
+    glUniform1f(m_downsample.uniform("threshold"), std::clamp(options.threshold, 0.0f, 2.0f));
+    glUniform1f(m_downsample.uniform("knee"), std::clamp(options.knee, 0.0f, 1.0f));
     const ComputeOutput result{m_buffer, output_bytes(destination.width, destination.height)};
     if (!run_compute_graph("bloom downsample", std::span(&result, 1), [&] {
             glDispatchCompute(
@@ -222,7 +220,8 @@ bool Bloom::downsample(
 }
 
 bool Bloom::upsample(
-    unsigned high, unsigned low, unsigned destination, int width, int height, std::string& error
+    unsigned high, unsigned low, unsigned destination, int width, int height,
+    const BloomSettings& options, std::string& error
 ) {
     if (!ensure_buffer(output_bytes(width, height))) {
         error = "bloom compute buffer allocation failed";
@@ -237,7 +236,7 @@ bool Bloom::upsample(
     glUniform2f(
         m_upsample.uniform("output_size"), static_cast<float>(width), static_cast<float>(height)
     );
-    glUniform1f(m_upsample.uniform("scatter"), kScatter);
+    glUniform1f(m_upsample.uniform("scatter"), std::clamp(options.scatter, 0.0f, 1.0f));
     const ComputeOutput result{m_buffer, output_bytes(width, height)};
     const bool computed = run_compute_graph("bloom upsample", std::span(&result, 1), [&] {
         glDispatchCompute(
@@ -302,13 +301,20 @@ bool Bloom::composite(renderer::FrameBuffer& output, float strength, std::string
 }
 
 void Bloom::apply(renderer::FrameBuffer& output, float strength) {
-    if (m_failed || strength <= 0.0f || output.width() <= 1 || output.height() <= 1
+    BloomSettings options;
+    options.strength = strength;
+    apply(output, options);
+}
+
+void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
+    if (m_failed || !options.enabled || options.strength <= 0.0f
+        || output.width() <= 1 || output.height() <= 1
         || !enhanced_rendering_available()) {
         return;
     }
 #if !defined(OPENRAC_VULKAN)
     (void)output;
-    (void)strength;
+    (void)options;
     return;
 #else
     if (!is_vulkan()) {
@@ -316,7 +322,7 @@ void Bloom::apply(renderer::FrameBuffer& output, float strength) {
     }
 
     const stats::Scope timing("Bloom", stats::kGpu);
-    strength = std::clamp(strength, 0.0f, 1.0f);
+    const float strength = std::clamp(options.strength, 0.0f, 1.0f);
 
     std::string error;
     if (!prepare(output.width(), output.height(), error)) {
@@ -343,7 +349,7 @@ void Bloom::apply(renderer::FrameBuffer& output, float strength) {
 
     for (int i = 0; i < m_count; ++i) {
         auto& level = m_levels[i];
-        if (!downsample(source, source_width, source_height, level, i == 0, error)) {
+        if (!downsample(source, source_width, source_height, level, i == 0, options, error)) {
             log::error("Bloom disabled: {}", error);
             m_failed = true;
             return;
@@ -356,7 +362,7 @@ void Bloom::apply(renderer::FrameBuffer& output, float strength) {
     for (int i = m_count - 2; i >= 0; --i) {
         auto& high = m_levels[i];
         const auto& low = m_levels[i + 1];
-        if (!upsample(high.colour, low.colour, high.colour, high.width, high.height, error)) {
+        if (!upsample(high.colour, low.colour, high.colour, high.width, high.height, options, error)) {
             log::error("Bloom disabled: {}", error);
             m_failed = true;
             return;
