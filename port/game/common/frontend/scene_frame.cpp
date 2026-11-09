@@ -422,16 +422,22 @@ bool draw_world(SceneFrame& frame) {
         target.resolves_itself = owner.frame.resolves_itself();
         target.wide_2d = picture_scale < 1.0f && graphics.hud == settings::Hud::Edges;
 
-        const bool finish_world_colour = graphics.enhanced_graphics && enhanced_graphics_available()
-                                         && scene.has_camera && !input.keep_colour
-                                         && (scene.draws & 0x1Fu) != 0;
-        const bool grade_colour = finish_world_colour && graphics.agx_preview;
+        // Bloom only needs completed Vulkan world colour. It does not read the
+        // baked probe data; a fresh level without prepared lighting must still glow.
+        const bool post_world = graphics.enhanced_graphics && gl::enhanced_rendering_available()
+                                && gl::is_vulkan() && scene.has_camera && !input.keep_colour
+                                && (scene.draws & 0x1Fu) != 0;
+        const bool bloom_wanted = post_world && enhanced::bloom_requested(graphics.bloom);
+        const bool grade_colour =
+            post_world && enhanced_graphics_available() && graphics.agx_preview;
+        const bool finish_world_colour = bloom_wanted || grade_colour;
         std::function<void()> finish_colour;
         // Bloom and optional tone mapping are colour-only and run before late world/HUD work.
         if (finish_world_colour) {
-            finish_colour = [&owner, grade_colour, exposure = graphics.adjusted_agx_exposure(),
+            finish_colour = [&owner, bloom_wanted, grade_colour,
+                             exposure = graphics.adjusted_agx_exposure(),
                              bloom = graphics.bloom] {
-                if (bloom.enabled && bloom.strength > 0.0f) {
+                if (bloom_wanted) {
                     crash::breadcrumb("bloom");
                     owner.bloom.apply(owner.frame, bloom);
                 }
