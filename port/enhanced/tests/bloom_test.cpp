@@ -235,8 +235,16 @@ int main(int argc, char**) {
     apply_in_chain(bloom, tiny, true, tiny_settings);
     const auto small_preview = tiny.read_rgba();
     if (enhanced_rendering_available()) {
-        CHECK(rgb_sum(small_preview, 65, 31, 31) < rgb_sum(small_before, 65, 31, 31));
-        CHECK(rgb_sum(small_preview, 65, 35, 32) > 0);
+        // glScissor uses a bottom-left origin, while FrameBuffer::read_rgba()
+        // flips rows to top-left. The 2x2 emitter drawn at GL y=31..32 is
+        // therefore at readback y=32..33. y=31 is black and cannot get dimmer;
+        // using it made the Vulkan preview test fail even when the mask worked.
+        constexpr int kEmitterReadbackY = 65 - (31 + 2);
+        const int source = rgb_sum(small_before, 65, 31, kEmitterReadbackY);
+        const int glow = rgb_sum(small_preview, 65, 31, kEmitterReadbackY);
+        CHECK(source == 3 * 255);
+        CHECK(glow < source);
+        CHECK(rgb_sum(small_preview, 65, 35, kEmitterReadbackY) > 0);
     } else {
         CHECK(small_preview == small_before);
     }
