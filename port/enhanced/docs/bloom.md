@@ -21,9 +21,25 @@ the 4K working set small while the source frame can remain HDR. At 3840x2160 the
 textures plus the largest compute buffer are about 19 MiB instead of well over 100 MiB for the first
 prototype.
 
-Defaults are deliberately restrained: the soft threshold starts around 0.82, its knee is 0.18 and
-the final bloom strength is 0.055. These are implementation defaults rather than user-facing
-settings.
+Defaults are deliberately restrained: the soft threshold starts around 0.82, its knee is 0.18,
+halo scatter is 0.62 and the final bloom strength is 0.055.
+
+## In-game controls and persistence
+
+In the native in-game debug menu, open **Enhanced Settings → Post processing → Bloom**.
+The same Vulkan enhanced renderer now exposes Bloom enabled, Bloom intensity (0–100%),
+Brightness threshold (0–2), Soft knee (0–1) and Halo spread (0–1).
+Adjustments apply to the next world frame, even with the settings panel open; the native HUD is
+composited after bloom and is never bloomed. Disabled bloom skips its compute, transfer and raster
+passes rather than simply setting their output to black. The **Reset Bloom** button restores the
+original subtle defaults without resetting AgX, motion blur or lighting.
+
+The settings are saved through the normal port settings file as `bloom`,
+`bloom_strength`, `bloom_threshold`, `bloom_knee` and `bloom_scatter`. Intensity is
+shown as a percentage but saved as a fractional value (0.055 means 5.5%). Settings absent from
+older files use the defaults; malformed/non-finite values are ignored. **Reset to Defaults** in
+Enhanced Settings also restores Bloom. Enhanced rendering still requires Vulkan and compatible
+probe data; compatibility/OpenGL rendering does not apply Bloom.
 
 ## Lifetime and fallback
 
