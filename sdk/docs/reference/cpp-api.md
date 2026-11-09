@@ -268,7 +268,7 @@ One of the mod's pages of the game's own menus (Mod::ui_page): set what it shows
 | `bool moby_kill(int slot) const` |  |
 | `int moby_spawn(int oclass, const openrac_moby& pose) const` |  |
 | `int figure_slot(int id) const` | Since 1.9: the slot of figure `id` (-1: the hero's), -1 for none. |
-| `void on_moby_update(openrac_moby_update_fn fn, void* user = nullptr)` | Since 1.9: the gate around each moby's update, `fn(slot, phase)` returning true to skip it (before), and the watcher of the game's hits, `fn(hit)` returning true to take it back. A plain function each (the port keeps no state for a lambda's capture): `user` is passed on. Only during load; throws openrac::Error when refused. |
+| `void on_moby_update(openrac_moby_update_fn fn, void* user = nullptr)` | Since 1.9: the gate around each moby's update, `fn(slot, phase)` returning true to skip it (before), and this mod's watcher of the game's hits, `fn(hit)` returning true to take it back. Hit watchers from different mods coexist and run in load order. A plain function each (the port keeps no state for a lambda's capture): `user` is passed on. Only during load; throws openrac::Error when refused. |
 | `void on_moby_hit(openrac_hit_fn fn, void* user = nullptr)` |  |
 | `bool hero_stand_in(const float position[3], int figure) const` | Since 1.9: in the gate's call before an update, the hero stands in at `position` with figure `figure` as his moby (-1: his own); false outside it. |
 | `bool moby_hit(const openrac_hit& hit) const` | Since 1.9: posts `hit` (its size set here); false for no victim. |
