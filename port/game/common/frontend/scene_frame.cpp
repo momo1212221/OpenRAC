@@ -429,9 +429,12 @@ bool draw_world(SceneFrame& frame) {
         std::function<void()> finish_colour;
         // Bloom and optional tone mapping are colour-only and run before late world/HUD work.
         if (finish_world_colour) {
-            finish_colour = [&owner, grade_colour, exposure = graphics.adjusted_agx_exposure()] {
-                crash::breadcrumb("bloom");
-                owner.bloom.apply(owner.frame);
+            finish_colour = [&owner, grade_colour, exposure = graphics.adjusted_agx_exposure(),
+                             bloom = graphics.bloom] {
+                if (bloom.enabled && bloom.strength > 0.0f) {
+                    crash::breadcrumb("bloom");
+                    owner.bloom.apply(owner.frame, bloom);
+                }
                 if (grade_colour) {
                     crash::breadcrumb("tone mapping");
                     owner.agx.apply(owner.frame, exposure);
