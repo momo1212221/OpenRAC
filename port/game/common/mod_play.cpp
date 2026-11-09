@@ -2022,6 +2022,11 @@ bool overlay_shows_level() {
     return phase_now(&level) == OPENRAC_PLAY_PLAYING;
 }
 
+bool overlay_shows_menus() {
+    std::int32_t level = -1;
+    return phase_now(&level) == OPENRAC_PLAY_MENU && level >= 0;
+}
+
 void reset_play() {
     {
         const std::lock_guard<std::mutex> lock(g_notice_lock);
