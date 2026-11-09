@@ -375,6 +375,57 @@ pub fn play_env(data_home: &Path, game: &str, version: &str) -> Option<(String, 
     dump_flag(data_home, &id).is_file().then(|| (DUMP_ENV.to_string(), dump_dir(data_home, &id).display().to_string()))
 }
 
+/// Static extracted textures made available through the ordinary texture-dump root for tools.
+///
+/// Runtime dumps remain authoritative: a hash that already exists anywhere below the dump is never
+/// overwritten. Missing hashes are copied from the already extracted level PNGs after reproducing
+/// the renderer's exact FNV-1a texture hash from decoded RGBA pixels.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeededTextureSources {
+    pub source_files: u32,
+    pub added: u32,
+    pub total: u32,
+}
+
+pub fn seed_dump_from_levels(
+    data_home: &Path,
+    data: &Path,
+    game: &str,
+    version: &str,
+) -> Result<SeededTextureSources, String> {
+    let id = id(game, version)?;
+    let port = data.join("port").join(version);
+    if !port.is_dir() {
+        return Err(format!("{} has no extracted level textures yet", port.display()));
+    }
+
+    let dump = dump_dir(data_home, &id);
+    let extracted = dump.join("Extracted");
+    std::fs::create_dir_all(&extracted).map_err(|e| format!("{}: {e}", extracted.display()))?;
+
+    let mut known: HashSet<String> = items_under(&dump).into_iter().map(|item| item.hash).collect();
+    let sources = png_files(&port);
+    let mut added = 0u32;
+
+    for path in &sources {
+        let (width, height, rgba) = png_rgba(path)?;
+        let hash = format!("{:016x}", image_hash(width, height, &rgba));
+        if !known.insert(hash.clone()) {
+            continue;
+        }
+        let target = extracted.join(format!("{hash}.png"));
+        std::fs::copy(path, &target).map_err(|e| format!("{} -> {}: {e}", path.display(), target.display()))?;
+        added += 1;
+    }
+
+    Ok(SeededTextureSources {
+        source_files: sources.len() as u32,
+        added,
+        total: items_under(&dump).len() as u32,
+    })
+}
+
 /// The launcher-built, persistent high-resolution pack. It is deliberately a subfolder of the
 /// player's pack: hand-made/imported textures outside it win, and a rebuild never deletes them.
 pub const ULTRA_FOLDER: &str = "Ultra4K";
@@ -1395,6 +1446,42 @@ mod tests {
         }
         assert!(id("rac2", "ntsc").is_ok_and(|i| i == "rac2-ntsc"));
         assert!(id("../x", "ntsc").is_err());
+    }
+
+    #[test]
+    fn static_level_textures_seed_missing_dump_hashes_without_overwriting_runtime_dumps() {
+        let t = tempfile::tempdir().unwrap();
+        let home = t.path().join("home");
+        let data = t.path().join("data");
+        let port = data.join("port/pal/level_01");
+        fs::create_dir_all(&port).unwrap();
+
+        let red = vec![255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255];
+        let green = vec![0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255];
+        let red_source = port.join("red.png");
+        let red_duplicate = port.join("red-copy.png");
+        let green_source = port.join("green.png");
+        write_rgba_png(&red_source, 2, 2, &red).unwrap();
+        fs::copy(&red_source, &red_duplicate).unwrap();
+        write_rgba_png(&green_source, 2, 2, &green).unwrap();
+
+        let red_hash = format!("{:016x}", image_hash(2, 2, &red));
+        let green_hash = format!("{:016x}", image_hash(2, 2, &green));
+        let dump = dump_dir(&home, "rac1-pal");
+        fs::create_dir_all(dump.join("Interface")).unwrap();
+        let runtime_red = dump.join("Interface").join(format!("{red_hash}.png"));
+        fs::copy(&red_source, &runtime_red).unwrap();
+
+        let seeded = seed_dump_from_levels(&home, &data, "rac1", "pal").unwrap();
+        assert_eq!(seeded.source_files, 3);
+        assert_eq!(seeded.added, 1);
+        assert_eq!(seeded.total, 2);
+        assert!(runtime_red.is_file());
+        assert!(dump.join("Extracted").join(format!("{green_hash}.png")).is_file());
+
+        let again = seed_dump_from_levels(&home, &data, "rac1", "pal").unwrap();
+        assert_eq!(again.added, 0);
+        assert_eq!(again.total, 2);
     }
 
     #[test]
