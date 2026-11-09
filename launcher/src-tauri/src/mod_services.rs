@@ -52,7 +52,7 @@ pub async fn mod_service_grant(
 ) -> Result<(), String> {
     installed(&state, &game, &id)?;
     let scope = if id == prep::ID {
-        "prepare and remove generated lighting/GI, water, cloud, texture and mesh caches; configure preparation for this game"
+        "prepare and remove generated lighting/GI, water, cloud, texture and mesh caches; configure preparation and explicitly enable Enhanced graphics when you choose an Enhanced preset"
     } else {
         "create/restore local save backups and synchronize saves with a folder you choose; the enable switch applies to all installed games"
     };
@@ -130,6 +130,7 @@ pub async fn mod_service(
                 )
                 .await,
             ),
+            "renderer.enable" => value(enhanced_set_enabled(state, game, version, true).await),
             "bake.start" => {
                 if prep::version_bake_status(&config, &key).busy {
                     return Err("Lighting preparation is already running".into());
@@ -186,6 +187,8 @@ pub async fn mod_service(
                 .ok_or("Python is not configured; reinstall or select the bundled Python in Settings")?;
                 let helper = folder.join("helper/openrac_graphics_helper.py");
                 let data = game_data_dir(&state, &game)?;
+                let material_pack =
+                    openrac_launcher_core::texture_packs::folder(&home, &data, &game, &version, false, "")?;
                 let _preparation = addons::begin_preparation(&home, &game, &version)?;
                 let g = game.clone();
                 let v = version.clone();
@@ -197,6 +200,7 @@ pub async fn mod_service(
                         &data,
                         &g,
                         &v,
+                        Some(&material_pack),
                         options,
                     )
                 })
