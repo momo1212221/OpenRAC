@@ -5,6 +5,7 @@
 // upscalers.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <span>
@@ -64,6 +65,13 @@ struct TemporalTarget {
     TemporalConsumer consumer,
     const std::function<void()>& record
 );
+// Records a full storage-buffer -> texture copy as an ordered transfer pass. The source range
+// is read after its declared compute writer; the image is fully replaced and exported for sampling.
+// Callers must allocate both resources before entering a deferred surface chain.
+[[nodiscard]] Result<void> temporal_buffer_to_texture(
+    std::string_view name, unsigned source_buffer, unsigned destination_texture, std::size_t bytes
+);
+
 // Declares external renderer images around a native upscaler, leaving its private history/barriers
 // opaque.
 // The callback restores sampled-read/GENERAL layouts before returning.
