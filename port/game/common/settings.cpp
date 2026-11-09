@@ -20,6 +20,7 @@ namespace openrac::settings {
 void Settings::reset_enhanced() {
     const Settings defaults;
     enhanced_graphics = defaults.enhanced_graphics;
+    bloom = defaults.bloom;
     enhanced_shadows = defaults.enhanced_shadows;
     shadow_quality = defaults.shadow_quality;
     volumetric_quality = defaults.volumetric_quality;
@@ -296,6 +297,16 @@ void load(const std::filesystem::path& file) {
             known = parse_bool(value, s.enhanced_rendering);
         } else if (key == "enhanced_graphics") {
             known = parse_bool(value, s.enhanced_graphics);
+        } else if (key == "bloom") {
+            known = parse_bool(value, s.bloom.enabled);
+        } else if (key == "bloom_strength") {
+            known = parse_float(value, 0.0f, 1.0f, s.bloom.strength);
+        } else if (key == "bloom_threshold") {
+            known = parse_float(value, 0.0f, 2.0f, s.bloom.threshold);
+        } else if (key == "bloom_knee") {
+            known = parse_float(value, 0.0f, 1.0f, s.bloom.knee);
+        } else if (key == "bloom_scatter") {
+            known = parse_float(value, 0.0f, 1.0f, s.bloom.scatter);
         } else if (key == "volumetric_quality") {
             known = parse(value, renderer::kVolumetricQualityKeys, s.volumetric_quality);
         } else if (key == "shadow_quality") {
@@ -573,6 +584,11 @@ void save() {
         << "msaa = " << s.msaa << "\n"
         << "enhanced_rendering = " << (s.enhanced_rendering ? 1 : 0) << "\n"
         << "enhanced_graphics = " << (s.enhanced_graphics ? 1 : 0) << "\n"
+        << "bloom = " << (s.bloom.enabled ? 1 : 0) << "\n"
+        << "bloom_strength = " << s.bloom.strength << "\n"
+        << "bloom_threshold = " << s.bloom.threshold << "\n"
+        << "bloom_knee = " << s.bloom.knee << "\n"
+        << "bloom_scatter = " << s.bloom.scatter << "\n"
         << "volumetric_quality = "
         << renderer::kVolumetricQualityKeys[static_cast<int>(s.volumetric_quality)] << "\n"
         << "shadow_quality = " << renderer::kShadowQualityKeys[static_cast<int>(s.shadow_quality)]
