@@ -38,12 +38,12 @@ bool same_extent(const renderer::Rgba8Image& image, int width, int height) {
                   == static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4;
 }
 
-renderer::Rgba8Image material_default(
-    int width, int height, std::array<std::uint8_t, 4> value
-) {
+renderer::Rgba8Image material_default(int width, int height, std::array<std::uint8_t, 4> value) {
     renderer::Rgba8Image image(width, height);
     for (std::size_t i = 0; i < image.pixels.size(); i += 4) {
-        std::copy(value.begin(), value.end(), image.pixels.begin() + static_cast<std::ptrdiff_t>(i));
+        std::copy(
+            value.begin(), value.end(), image.pixels.begin() + static_cast<std::ptrdiff_t>(i)
+        );
     }
     return image;
 }
@@ -179,9 +179,7 @@ unsigned upload_material_texture(
         ++mip;
     }
 
-    gl::glTexParameteri(
-        gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR
-    );
+    gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR);
     gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
     gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_S, gl::GL_REPEAT);
     gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_T, gl::GL_REPEAT);
@@ -491,8 +489,7 @@ void SceneLighting::bind_material_sidecars(
     const bool enabled = found != m_material_sidecars.end();
     gl::glUniform1i(enabled_location, enabled ? 1 : 0);
 
-    const std::array<unsigned, 5>& textures =
-        enabled ? found->second : m_material_sidecar_defaults;
+    const std::array<unsigned, 5>& textures = enabled ? found->second : m_material_sidecar_defaults;
     for (const auto [unit, uniform, texture] : {
              std::tuple{kMaterialNormalUnit, "material_sidecar_normal_tex", textures[0]},
              std::tuple{kMaterialOrmhUnit, "material_sidecar_ormh_tex", textures[1]},
@@ -605,24 +602,16 @@ void SceneLighting::load_material_sidecars(const scene::LevelData& level) {
             MaterialMipKind::Normal
         ),
         upload_material_texture(
-            material_default(1, 1, {255, 128, 0, 128}),
-            kMaterialOrmhUnit,
-            MaterialMipKind::Ormh
+            material_default(1, 1, {255, 128, 0, 128}), kMaterialOrmhUnit, MaterialMipKind::Ormh
         ),
         upload_material_texture(
-            material_default(1, 1, {0, 0, 0, 255}),
-            kMaterialEmissiveUnit,
-            MaterialMipKind::Emissive
+            material_default(1, 1, {0, 0, 0, 255}), kMaterialEmissiveUnit, MaterialMipKind::Emissive
         ),
         upload_material_texture(
-            material_default(1, 1, {0, 0, 0, 0}),
-            kMaterialSpecularUnit,
-            MaterialMipKind::Specular
+            material_default(1, 1, {0, 0, 0, 0}), kMaterialSpecularUnit, MaterialMipKind::Specular
         ),
         upload_material_texture(
-            material_default(1, 1, {0, 128, 0, 255}),
-            kMaterialDetailUnit,
-            MaterialMipKind::Detail
+            material_default(1, 1, {0, 128, 0, 255}), kMaterialDetailUnit, MaterialMipKind::Detail
         )
     };
 
