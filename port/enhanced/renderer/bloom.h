@@ -49,7 +49,7 @@ private:
     [[nodiscard]] bool upsample(
         unsigned high, unsigned low, unsigned destination, int width, int height, std::string& error
     );
-    void composite(renderer::FrameBuffer& output, float strength);
+    [[nodiscard]] bool composite(renderer::FrameBuffer& output, float strength, std::string& error);
 
     std::array<Level, kMaxLevels> m_levels{};
     int m_count = 0;
