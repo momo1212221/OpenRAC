@@ -38,6 +38,10 @@ if(OPENRAC_PROBE_BAKER)
   openrac_add_test(probe_density_stage SOURCES enhanced/tests/probe_density_stage_test.cpp
     enhanced/tools/baker/output/density_stage.cpp enhanced/tools/baker/output/report.cpp
     LIBS openrac_probe_bake openrac_common embree)
+  openrac_add_test(probe_quality_heatmap
+    SOURCES enhanced/tests/probe_quality_heatmap_test.cpp
+            enhanced/tools/baker/output/quality_heatmap.cpp
+    LIBS openrac_lighting openrac_common)
   openrac_add_test(environment_merge SOURCES enhanced/tests/environment_merge_test.cpp LIBS openrac_probe_bake embree)
   openrac_add_test(environment_floor_groups SOURCES enhanced/tests/environment_floor_groups_test.cpp
                   LIBS openrac_probe_bake embree)

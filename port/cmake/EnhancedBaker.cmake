@@ -53,6 +53,7 @@ if(OPENRAC_PROBE_BAKER)
     enhanced/tools/baker/output/environment_stage.cpp
     enhanced/tools/baker/output/environment_water_inputs.cpp
     enhanced/tools/baker/output/probe_output.cpp
+    enhanced/tools/baker/output/quality_heatmap.cpp
     enhanced/tools/baker/output/report.cpp
     # Water.
     enhanced/tools/water/water_bake.cpp
