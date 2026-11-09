@@ -58,21 +58,29 @@ int draw_patch(openrac::renderer::FrameBuffer& target) {
 // post-resolve callback used when FSR is enabled. Either path must declare every compute
 // dispatch, transfer and additive raster pass to the shared surface graph.
 void apply_in_chain(openrac::enhanced::Bloom& bloom,
-                    openrac::renderer::FrameBuffer& target, bool fsr_path, float strength) {
+                    openrac::renderer::FrameBuffer& target, bool fsr_path,
+                    const openrac::enhanced::BloomSettings& options) {
     using namespace openrac;
     const auto result = renderer::run_surface_chain([&] {
 #if defined(OPENRAC_VULKAN)
         if (fsr_path && gl::is_vulkan()) {
-            const auto temporal = vkgl::temporal_chain([&] { bloom.apply(target, strength); });
+            const auto temporal = vkgl::temporal_chain([&] { bloom.apply(target, options); });
             CHECK(temporal.has_value());
             return;
         }
 #else
         (void)fsr_path;
 #endif
-        bloom.apply(target, strength);
+        bloom.apply(target, options);
     });
     CHECK(result.has_value());
+}
+
+void apply_in_chain(openrac::enhanced::Bloom& bloom,
+                    openrac::renderer::FrameBuffer& target, bool fsr_path, float strength) {
+    openrac::enhanced::BloomSettings options;
+    options.strength = strength;
+    apply_in_chain(bloom, target, fsr_path, options);
 }
 
 void check_frame(openrac::enhanced::Bloom& bloom, int width, int height, bool fsr_path) {
@@ -149,10 +157,29 @@ int main(int argc, char**) {
     const auto disabled_before = disabled.read_rgba();
     apply_in_chain(bloom, disabled, false, 0.0f);
     CHECK(disabled.read_rgba() == disabled_before);
+    enhanced::BloomSettings options;
+    options.enabled = false;
+    options.strength = 1.0f;
+    apply_in_chain(bloom, disabled, false, options);
+    CHECK(disabled.read_rgba() == disabled_before);
+    options.enabled = true;
+    options.threshold = 2.0f;
+    options.knee = 0.0f;
+    apply_in_chain(bloom, disabled, false, options);
+    CHECK(disabled.read_rgba() == disabled_before);
+    options.threshold = 0.20f;
+    options.knee = 0.35f;
+    options.scatter = 0.85f;
+    apply_in_chain(bloom, disabled, true, options);
+    if (enhanced_rendering_available()) {
+        CHECK(rgb_total(disabled.read_rgba()) > rgb_total(disabled_before));
+    } else {
+        CHECK(disabled.read_rgba() == disabled_before);
+    }
     disabled.release();
     bloom.release();
 
     CHECK(glGetError() == GL_NO_ERROR);
-    std::puts("Bloom graph callbacks (FSR path on/off), disabled bypass, alpha and resize checks complete");
+    std::puts("Bloom graph callbacks, live tuning, bypass, alpha and resize checks complete");
     return test::result();
 }
