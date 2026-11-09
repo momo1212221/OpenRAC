@@ -17,8 +17,8 @@
 #pragma once
 
 #include <array>
-#include <cstdint>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <memory>
