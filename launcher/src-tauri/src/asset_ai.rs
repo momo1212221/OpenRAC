@@ -243,19 +243,8 @@ pub(crate) struct GraphicsHelperBake<'a> {
 /// level_NN override tree. Work happens under <data>/ai_assets first; only a validated complete
 /// pack replaces <data>/prepared-graphics/meshes/<version>. The game already mounts that directory
 /// through --prepared-meshes on its next start.
-pub(crate) fn bake_with_graphics_helper(
-    request: GraphicsHelperBake<'_>,
-) -> Result<MeshBake, String> {
-    let GraphicsHelperBake {
-        python,
-        openrac_root,
-        helper,
-        data,
-        game,
-        version,
-        material_pack,
-        options,
-    } = request;
+pub(crate) fn bake_with_graphics_helper(request: GraphicsHelperBake<'_>) -> Result<MeshBake, String> {
+    let GraphicsHelperBake { python, openrac_root, helper, data, game, version, material_pack, options } = request;
     if !helper.is_file() {
         return Err(format!("installed geometry helper is missing: {}", helper.display()));
     }
