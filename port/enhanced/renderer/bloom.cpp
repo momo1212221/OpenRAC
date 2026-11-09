@@ -272,6 +272,7 @@ bool Bloom::composite(renderer::FrameBuffer& output, float strength, std::string
     glUniform1i(m_composite.uniform("tex_T0"), 0);
     glBindVertexArray(m_vao);
     // The additive draw preserves existing world colour and alpha under the native HUD.
+#if defined(OPENRAC_VULKAN)
     const vkgl::TemporalTarget target{
         output.id(), vkgl::TemporalContents::Preserve,
         renderer::graph::Aspect::Colour, false, vkgl::TemporalConsumer::Attachment
@@ -280,16 +281,22 @@ bool Bloom::composite(renderer::FrameBuffer& output, float strength, std::string
     const auto drawn = vkgl::temporal_raster("bloom composite", target, inputs, [] {
         glDrawArrays(GL_TRIANGLES, 0, 3);
     });
+#else
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    (void)error;
+#endif
 
     glBindVertexArray(0);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     glActiveTexture(GL_TEXTURE0);
+#if defined(OPENRAC_VULKAN)
     if (!drawn) {
         error = drawn.error().message;
         return false;
     }
+#endif
     return true;
 }
 
