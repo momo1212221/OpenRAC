@@ -137,6 +137,25 @@ pub fn settings() -> Vec<SettingSpec> {
         texture_filter,
         temporal,
         spec(
+            "bloom",
+            "Bloom",
+            "bool",
+            true.into(),
+            "Soft glow around bright surfaces in enhanced Vulkan graphics. Off skips the bloom pass.",
+        ),
+        range(
+            spec(
+                "bloom_strength",
+                "Bloom intensity",
+                "float",
+                0.055.into(),
+                "Strength of the glow (0.055 = 5.5%). The original subtle default is preserved.",
+            ),
+            0.0,
+            1.0,
+            0.005,
+        ),
+        spec(
             "agx_preview",
             "Color Correction",
             "bool",
@@ -150,6 +169,18 @@ pub fn settings() -> Vec<SettingSpec> {
             0.01,
         ),
         spec("motion_blur", "Motion blur", "bool", true.into(), "Subtle motion blur to enhance animations."),
+        advanced(range(
+            spec("bloom_threshold", "Bloom threshold", "float", 0.82.into(), "Only surfaces above this brightness produce glow."),
+            0.0, 2.0, 0.01,
+        )),
+        advanced(range(
+            spec("bloom_knee", "Bloom soft knee", "float", 0.18.into(), "Smooth transition around the brightness threshold."),
+            0.0, 1.0, 0.01,
+        )),
+        advanced(range(
+            spec("bloom_scatter", "Bloom halo spread", "float", 0.62.into(), "How far the low-resolution glow spreads."),
+            0.0, 1.0, 0.01,
+        )),
         advanced(range(spec("temporal_sharpness", "Upscaling sharpening", "float", 0.2.into(), ""), 0.0, 1.0, 0.05)),
     ]
 }
@@ -292,7 +323,7 @@ mod tests {
         let all = settings();
         assert_eq!(
             all.iter().filter(|s| s.group == "advanced").map(|s| s.key.as_str()).collect::<Vec<_>>(),
-            vec!["temporal_sharpness"]
+            vec!["bloom_threshold", "bloom_knee", "bloom_scatter", "temporal_sharpness"]
         );
         assert!(all
             .iter()
@@ -335,6 +366,11 @@ mod tests {
         assert_eq!(value(&v, "temporal_sharpness"), Value::from(0.2));
         assert_eq!(value(&v, "agx_preview"), Value::Bool(true));
         assert_eq!(value(&v, "motion_blur"), Value::Bool(true));
+        assert_eq!(value(&v, "bloom"), Value::Bool(true));
+        assert_eq!(value(&v, "bloom_strength"), Value::from(0.055));
+        assert_eq!(value(&v, "bloom_threshold"), Value::from(0.82));
+        assert_eq!(value(&v, "bloom_knee"), Value::from(0.18));
+        assert_eq!(value(&v, "bloom_scatter"), Value::from(0.62));
 
         assert_eq!(value(&v, "agx_brightness"), Value::from(0.5));
         for brightness in [0.0, 0.5, 1.0] {
@@ -348,6 +384,19 @@ mod tests {
         assert!(set_setting(&home, "rac1", "pal", "agx_brightness", &Value::from(-0.01)).is_err());
         set_setting(&home, "rac1", "pal", "agx_preview", &Value::Bool(false)).unwrap();
         assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), "agx_preview"), Value::Bool(false));
+        // Bloom's launcher values share the port's settings file, without touching assets or bakes.
+        for (key, number) in [("bloom_strength", 0.35), ("bloom_threshold", 1.25),
+                              ("bloom_knee", 0.4), ("bloom_scatter", 0.8)] {
+            set_setting(&home, "rac1", "pal", key, &Value::from(number)).unwrap();
+            assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), key), Value::from(number));
+        }
+        set_setting(&home, "rac1", "pal", "bloom", &Value::Bool(false)).unwrap();
+        assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), "bloom"), Value::Bool(false));
+        for (key, invalid) in [("bloom_strength", -0.01), ("bloom_threshold", 2.01),
+                                ("bloom_knee", 1.01), ("bloom_scatter", -0.01)] {
+            assert!(set_setting(&home, "rac1", "pal", key, &Value::from(invalid)).is_err());
+        }
+        assert!(set_setting(&home, "rac1", "pal", "bloom", &Value::from("yes")).is_err());
         set_enabled(&home, "rac1", "pal", true).unwrap();
         set_setting(&home, "rac1", "pal", "motion_blur", &Value::Bool(true)).unwrap();
         set_setting(&home, "rac1", "pal", "shadow_quality", &Value::from("low")).unwrap();
@@ -369,6 +418,11 @@ mod tests {
             "agx_exposure = 1.5",
             "agx_preview = 0",
             "motion_blur = 1",
+            "bloom = 0",
+            "bloom_strength = 0.35",
+            "bloom_threshold = 1.25",
+            "bloom_knee = 0.4",
+            "bloom_scatter = 0.8",
         ] {
             assert!(text.lines().any(|l| l == line), "{line} in {text}");
         }
@@ -377,6 +431,8 @@ mod tests {
         assert_eq!(value(&v, "texture_filter"), Value::from("normal"));
         assert_eq!(value(&v, "shadow_quality"), Value::from("medium"));
         assert_eq!(value(&v, "motion_blur"), Value::Bool(true));
+        assert_eq!(value(&v, "bloom"), Value::Bool(false));
+        assert_eq!(value(&v, "bloom_strength"), Value::from(0.35));
         // Out of the port's range, another type, or not one of the entry's: refused, file kept.
         assert!(set_setting(&home, "rac1", "pal", "gtao", &Value::from("yes")).is_err());
         assert!(set_setting(&home, "rac1", "pal", "probe_spheres", &Value::Bool(true)).is_err());
