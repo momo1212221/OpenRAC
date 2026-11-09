@@ -476,9 +476,43 @@ void SceneLighting::bind_surface_material(
     }
 }
 
+void SceneLighting::ensure_material_sidecar_defaults() const {
+    if (!gl::enhanced_rendering_available() || std::all_of(
+            m_material_sidecar_defaults.begin(),
+            m_material_sidecar_defaults.end(),
+            [](unsigned texture) { return texture != 0; }
+        )) {
+        return;
+    }
+
+    // Some diagnostic/hero passes bind enhanced material programs before a level has called
+    // SceneLighting::load(). Vulkan still validates every declared sampled image for that draw,
+    // so create the neutral descriptor payload on first use rather than waiting for sidecar load.
+    m_material_sidecar_defaults = {
+        upload_material_texture(
+            material_default(1, 1, {128, 128, 255, 255}),
+            kMaterialNormalUnit,
+            MaterialMipKind::Normal
+        ),
+        upload_material_texture(
+            material_default(1, 1, {255, 128, 0, 128}), kMaterialOrmhUnit, MaterialMipKind::Ormh
+        ),
+        upload_material_texture(
+            material_default(1, 1, {0, 0, 0, 255}), kMaterialEmissiveUnit, MaterialMipKind::Emissive
+        ),
+        upload_material_texture(
+            material_default(1, 1, {0, 0, 0, 0}), kMaterialSpecularUnit, MaterialMipKind::Specular
+        ),
+        upload_material_texture(
+            material_default(1, 1, {0, 128, 0, 255}), kMaterialDetailUnit, MaterialMipKind::Detail
+        )
+    };
+}
+
 void SceneLighting::bind_material_sidecars(
     const renderer::Shader& shader, const scene::Material& source
 ) const {
+    ensure_material_sidecar_defaults();
     const auto enabled_location = shader.uniform("material_sidecars_enabled");
     if (enabled_location < 0) {
         return;
@@ -592,28 +626,7 @@ void SceneLighting::load_material_sidecars(const scene::LevelData& level) {
         return;
     }
 
-    // Every enhanced colour program declares the sidecar samplers. Bind real, initialized
-    // textures even for materials without authored maps: Vulkan validates descriptor contents
-    // independently of the runtime material_sidecars_enabled branch.
-    m_material_sidecar_defaults = {
-        upload_material_texture(
-            material_default(1, 1, {128, 128, 255, 255}),
-            kMaterialNormalUnit,
-            MaterialMipKind::Normal
-        ),
-        upload_material_texture(
-            material_default(1, 1, {255, 128, 0, 128}), kMaterialOrmhUnit, MaterialMipKind::Ormh
-        ),
-        upload_material_texture(
-            material_default(1, 1, {0, 0, 0, 255}), kMaterialEmissiveUnit, MaterialMipKind::Emissive
-        ),
-        upload_material_texture(
-            material_default(1, 1, {0, 0, 0, 0}), kMaterialSpecularUnit, MaterialMipKind::Specular
-        ),
-        upload_material_texture(
-            material_default(1, 1, {0, 128, 0, 255}), kMaterialDetailUnit, MaterialMipKind::Detail
-        )
-    };
+    ensure_material_sidecar_defaults();
 
     for (const auto& material : level.materials) {
         const auto hash = material.texture_pack_hash;
