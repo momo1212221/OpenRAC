@@ -24,7 +24,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::differences::{read_switch, read_value, settings_file, with_value, write_settings};
-use crate::plugins::{check_value, Choice, PluginView, SettingSpec, SettingView};
+use crate::plugins::{check_value, Choice, PluginView, Preset, SettingSpec, SettingView};
 
 mod bakes;
 pub use bakes::{bake_log, bake_status, delete_bakes, version_bake_status, BakeStatus};
@@ -81,6 +81,31 @@ fn range(mut s: SettingSpec, min: f64, max: f64, step: f64) -> SettingSpec {
 fn advanced(mut s: SettingSpec) -> SettingSpec {
     s.group = "advanced".into();
     s
+}
+
+// Ready-to-use profiles change only Bloom fields, not saved shadows, FSR or colour settings.
+fn bloom_presets() -> Vec<Preset> {
+    let make = |id: &str, name: &str, strength: f64, threshold: f64, knee: f64,
+                scatter: f64, preview: bool| Preset {
+        id: id.into(),
+        name: name.into(),
+        values: [
+            ("bloom", Value::Bool(true)),
+            ("bloom_strength", Value::from(strength)),
+            ("bloom_threshold", Value::from(threshold)),
+            ("bloom_knee", Value::from(knee)),
+            ("bloom_scatter", Value::from(scatter)),
+            ("bloom_preview", Value::Bool(preview)),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value))
+        .collect(),
+    };
+    vec![
+        make("visible", "Visible", 0.35, 0.60, 0.24, 0.85, false),
+        make("strong", "Strong", 0.80, 0.40, 0.28, 0.90, false),
+        make("glow_only", "Glow only", 0.35, 0.60, 0.24, 0.85, true),
+    ]
 }
 
 /// The settings the entry's page shows, with the port's defaults and ranges (settings.cpp). The
@@ -149,11 +174,18 @@ pub fn settings() -> Vec<SettingSpec> {
                 "Bloom intensity",
                 "float",
                 0.055.into(),
-                "Strength of the glow (0.055 = 5.5%). The original subtle default is preserved.",
+                "Strength of the glow (0.055 = 5.5%). Original subtle default; Visible and Strong presets below.",
             ),
             0.0,
-            1.0,
+            2.0,
             0.005,
+        ),
+        spec(
+            "bloom_preview",
+            "Show glow only (diagnostic)",
+            "bool",
+            false.into(),
+            "Temporarily replaces the scene with its glow mask, to verify that Bloom is rendering. Off to resume gameplay.",
         ),
         spec(
             "agx_preview",
@@ -170,8 +202,8 @@ pub fn settings() -> Vec<SettingSpec> {
         ),
         spec("motion_blur", "Motion blur", "bool", true.into(), "Subtle motion blur to enhance animations."),
         advanced(range(
-            spec("bloom_threshold", "Bloom threshold", "float", 0.82.into(), "Only surfaces above this brightness produce glow."),
-            0.0, 2.0, 0.01,
+            spec("bloom_threshold", "Bloom threshold", "float", 0.82.into(), "Only surfaces above this brightness produce glow. 1 stops all SDR glow."),
+            0.0, 1.0, 0.01,
         )),
         advanced(range(
             spec("bloom_knee", "Bloom soft knee", "float", 0.18.into(), "Smooth transition around the brightness threshold."),
@@ -250,7 +282,7 @@ pub fn view(data_home: &Path, game: &str, version: &str, bake: BakeStatus) -> En
             reason: String::new(),
             blocked: String::new(),
             settings,
-            presets: Vec::new(),
+            presets: bloom_presets(),
             hooks: Vec::new(),
             shared_hooks: Vec::new(),
             native: false,
