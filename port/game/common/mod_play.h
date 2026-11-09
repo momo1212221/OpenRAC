@@ -26,8 +26,8 @@ void fill_play_api(
 struct Host;
 void fill_motion_api(openrac_api& api, const Host& host);
 
-// The mod whose openrac_mod_load runs now (null: none): the gate and the hit watcher are taken
-// only then; and the game's calls into the world set (game_host.h).
+// The mod whose openrac_mod_load runs now (null: none): the gate and each mod's hit watcher are
+// registered only then; and the game's calls into the world set (game_host.h).
 void play_loading(const openrac_mod* mod);
 
 // Whether the game shows a level with the player in it: no menu, no scene (openrac_overlay).
