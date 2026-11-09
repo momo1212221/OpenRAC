@@ -71,11 +71,11 @@ void draw(
     int height,
     float aspect
 ) {
-    if (!has_camera || !mods::overlay_wanted()) {
+    if (!mods::overlay_wanted()) {
         return;
     }
     s.list.begin(aspect > 0.0f ? aspect : static_cast<float>(width) / static_cast<float>(height));
-    Frame frame{&camera, &s.list};
+    Frame frame{has_camera ? &camera : nullptr, &s.list};
     openrac_overlay overlay{};
     overlay.size = sizeof overlay;
     overlay.context = &frame;
