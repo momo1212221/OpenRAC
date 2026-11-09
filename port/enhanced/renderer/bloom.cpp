@@ -6,6 +6,7 @@
 #include "enhanced/renderer/bloom.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 
 #include "common/log.h"
@@ -24,6 +25,7 @@ using namespace openrac::gl;
 
 namespace {
 constexpr int kWorkgroup = 8;
+std::atomic<BloomPassStatus> g_pass_status{BloomPassStatus::Never};
 
 std::size_t output_bytes(int width, int height) {
     return static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
@@ -35,6 +37,10 @@ void texture_input(unsigned unit, unsigned texture) {
     glBindTexture(GL_TEXTURE_2D, texture);
 }
 }  // namespace
+
+BloomPassStatus bloom_pass_status() {
+    return g_pass_status.load(std::memory_order_relaxed);
+}
 
 Bloom::~Bloom() {
     release();
@@ -66,6 +72,8 @@ void Bloom::release() {
     m_composite.release();
     m_failed = false;
     m_failed_frames = 0;
+    m_logged_success = false;
+    g_pass_status.store(BloomPassStatus::Never, std::memory_order_relaxed);
 }
 
 void Bloom::allocate_texture(Level& level, int width, int height) {
@@ -343,6 +351,7 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
     if (!prepare(output.width(), output.height(), error)) {
         log::error("Bloom disabled: {}", error);
         m_failed = true;
+        g_pass_status.store(BloomPassStatus::Failed, std::memory_order_relaxed);
         return;
     }
 
@@ -353,6 +362,7 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
         if (!resolved) {
             log::error("Bloom disabled: {}", resolved.error().message);
             m_failed = true;
+            g_pass_status.store(BloomPassStatus::Failed, std::memory_order_relaxed);
             return;
         }
     } else {
@@ -367,6 +377,7 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
         if (!downsample(source, source_width, source_height, level, i == 0, options, error)) {
             log::error("Bloom disabled: {}", error);
             m_failed = true;
+            g_pass_status.store(BloomPassStatus::Failed, std::memory_order_relaxed);
             return;
         }
         source = level.colour;
@@ -380,6 +391,7 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
         if (!upsample(high.colour, low.colour, high.colour, high.width, high.height, options, error)) {
             log::error("Bloom disabled: {}", error);
             m_failed = true;
+            g_pass_status.store(BloomPassStatus::Failed, std::memory_order_relaxed);
             return;
         }
     }
@@ -387,9 +399,18 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
     if (!composite(output, strength, options.preview_only, error)) {
         log::error("Bloom disabled: {}", error);
         m_failed = true;
+        g_pass_status.store(BloomPassStatus::Failed, std::memory_order_relaxed);
         return;
     }
 
+    g_pass_status.store(BloomPassStatus::Completed, std::memory_order_relaxed);
+    if (!m_logged_success) {
+        m_logged_success = true;
+        log::info("Bloom GPU pass completed: strength {:.3f}, threshold {:.3f}, knee {:.3f}, "
+                  "scatter {:.3f}, glow-only {}",
+                  strength, options.threshold, options.knee, options.scatter,
+                  options.preview_only ? "yes" : "no");
+    }
     std::size_t texture_bytes = 0;
     for (int i = 0; i < m_count; ++i) {
         texture_bytes += output_bytes(m_levels[i].width, m_levels[i].height);
