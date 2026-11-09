@@ -337,7 +337,7 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
     }
 
     const stats::Scope timing("Bloom", stats::kGpu);
-    const float strength = std::clamp(options.strength, 0.0f, 1.0f);
+    const float strength = std::clamp(options.strength, 0.0f, 2.0f);
 
     std::string error;
     if (!prepare(output.width(), output.height(), error)) {
