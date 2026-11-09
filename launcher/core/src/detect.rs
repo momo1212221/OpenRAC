@@ -257,6 +257,16 @@ fn usual_places(tool: Tool) -> Vec<PathBuf> {
         // on macOS it ends at the system's Python, which is too old for the
         // tools. Homebrew's and a local install's are looked at as well.
         Tool::Python if !cfg!(windows) => {
+            // Homebrew may install python@3.12 without linking it as python3:
+            // /opt/homebrew/opt/python@3.12/bin/python3.12 still works. macOS
+            // Finder launches commonly have no Homebrew directory on PATH.
+            if cfg!(target_os = "macos") {
+                for prefix in ["/opt/homebrew", "/usr/local"] {
+                    for minor in [12, 13, 14, 11, 10, 15] {
+                        places.push(format!("{prefix}/opt/python@3.{minor}/bin/python3.{minor}").into());
+                    }
+                }
+            }
             places.push("/opt/homebrew/bin/python3".into());
             places.push("/usr/local/bin/python3".into());
         }
@@ -387,6 +397,23 @@ pub fn tool_candidates(tool: Tool) -> Vec<Candidate> {
         found = good.into_iter().chain(bad).map(|(c, _)| c).collect();
     }
     found
+}
+
+/// Replace a missing or too-old saved Python with an installed compatible interpreter.
+/// The port's tools use Python 3.10+ syntax. Merely having an old interpreter saved
+/// must never make "Extract the levels" crash while the player has a newer one.
+/// Preserve a valid explicit choice; never rewrite an unrelated launcher setting.
+pub fn repair_python(config: &mut crate::config::Config) -> bool {
+    if config.python.as_deref().is_some_and(|p| check_tool(Tool::Python, p).ok) {
+        return false;
+    }
+    let Some(candidate) =
+        tool_candidates(Tool::Python).into_iter().find(|c| check_tool(Tool::Python, &c.path).ok)
+    else {
+        return false;
+    };
+    config.python = Some(candidate.path);
+    true
 }
 
 /// The flag that makes each tool print its version, and what a good answer contains.
@@ -752,6 +779,34 @@ mod tests {
         let Some(godot) = tool_candidates(Tool::Godot).into_iter().next() else { return };
         let check = check_tool(Tool::Godot, &godot.path);
         assert!(check.ok, "{godot:?}: {check:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn repairs_an_outdated_saved_python_and_preserves_a_valid_one() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let Some(modern) = tool_candidates(Tool::Python)
+            .into_iter()
+            .find(|c| check_tool(Tool::Python, &c.path).ok)
+        else {
+            return;
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let old = tmp.path().join("python3");
+        std::fs::write(&old, "#!/bin/sh\necho 'Python 3.9.6'\n").unwrap();
+        let mut perm = std::fs::metadata(&old).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&old, perm).unwrap();
+
+        let mut config = crate::config::Config {
+            python: Some(old),
+            ..Default::default()
+        };
+        assert!(repair_python(&mut config));
+        assert_eq!(config.python, Some(modern.path.clone()));
+        assert!(!repair_python(&mut config));
+        assert_eq!(config.python, Some(modern.path));
     }
 
     #[test]
