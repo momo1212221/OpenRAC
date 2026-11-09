@@ -12,6 +12,7 @@
 #include "common/stats.h"
 #include "enhanced/renderer/compute_graph.h"
 #include "renderer/gl.h"
+#include "renderer/surface_chain.h"
 #if defined(OPENRAC_VULKAN)
 #include "renderer/vulkan/temporal_graph.h"
 #include "renderer/vulkan/vkgl.h"
@@ -324,8 +325,18 @@ void Bloom::apply(renderer::FrameBuffer& output, float strength) {
         return;
     }
 
-    // Resolve multisampling once before the compute chain samples the completed world colour.
-    output.resolved();
+    // The native MSAA resolve is a legacy blit, so execute it outside any deferred
+    // surface collection; the bloom compute, transfer and raster phases remain graph-declared.
+    if (output.samples() > 1 && renderer::collecting_surface_chain()) {
+        const auto resolved = renderer::run_surface_setup([&] { output.resolved(); });
+        if (!resolved) {
+            log::error("Bloom disabled: {}", resolved.error().message);
+            m_failed = true;
+            return;
+        }
+    } else {
+        output.resolved();
+    }
     unsigned source = output.colour_texture();
     int source_width = output.width();
     int source_height = output.height();
