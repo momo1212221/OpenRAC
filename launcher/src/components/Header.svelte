@@ -74,6 +74,7 @@
       <Logo height={34} />
       <span class="brand-mark"><Logo mark height={37} label="" /></span>
       {#if app.info?.version}<small class="ver">{app.info.version}</small>{/if}
+      <small class="bloom-test" title="Private OpenRAC Bloom Test build">Bloom Test</small>
     </div>
   {:else}
     <button
@@ -87,6 +88,7 @@
       <!-- The launcher's version beside the logo, on every page (also in the tooltip, for a phone's
            width, which shows the mark alone). -->
       {#if app.info?.version}<small class="ver">{app.info.version}</small>{/if}
+      <small class="bloom-test" title="Private OpenRAC Bloom Test build">Bloom Test</small>
     </button>
   {/if}
 
@@ -185,6 +187,17 @@
 </header>
 
 <style>
+  .bloom-test {
+    margin-left: 4px;
+    padding: 3px 7px;
+    border-radius: var(--radius-sm);
+    background: var(--coal-stripes);
+    color: var(--amber);
+    font-size: 0.7rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
   /* On a desktop the bar writes in the theme's page colour, so the logo and the dark chips match
      the window under them; Android keeps the picked game's own ink. */
   :global(html:not([data-platform="android"])) .site-header {
