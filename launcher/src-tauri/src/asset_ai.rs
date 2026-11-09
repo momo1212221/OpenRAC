@@ -242,6 +242,7 @@ pub fn bake_with_graphics_helper(
     data: &Path,
     game: &str,
     version: &str,
+    material_pack: Option<&Path>,
     options: serde_json::Value,
 ) -> Result<MeshBake, String> {
     if !helper.is_file() {
@@ -283,7 +284,8 @@ pub fn bake_with_graphics_helper(
     )
     .map_err(|e| format!("could not write {}: {e}", job_file.display()))?;
 
-    let run = Command::new(python)
+    let mut command = Command::new(python);
+    command
         .arg(helper)
         .arg(&job_file)
         .arg("--openrac-root")
@@ -293,7 +295,11 @@ pub fn bake_with_graphics_helper(
         .arg("--out")
         .arg(&output_root)
         .arg("--result-json")
-        .arg(&result_file)
+        .arg(&result_file);
+    if let Some(pack) = material_pack.filter(|pack| pack.join("Materials").is_dir()) {
+        command.arg("--material-pack").arg(pack);
+    }
+    let run = command
         .current_dir(openrac_root)
         .output()
         .map_err(|e| format!("could not start geometry helper with {}: {e}", python.display()))?;
