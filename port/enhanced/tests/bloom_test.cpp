@@ -143,6 +143,16 @@ int main(int argc, char**) {
         CHECK(enhanced_rendering_available());
     }
 
+    enhanced::BloomSettings choice;
+    CHECK(enhanced::bloom_requested(choice));
+    choice.enabled = false;
+    CHECK(!enhanced::bloom_requested(choice));
+    choice.enabled = true;
+    choice.strength = 0.0f;
+    CHECK(!enhanced::bloom_requested(choice));
+    choice.preview_only = true;
+    CHECK(enhanced::bloom_requested(choice));
+
     enhanced::Bloom bloom;
     // Exercise both graph entry points, across large, odd and very small render targets.
     for (bool fsr_path : {false, true}) {
@@ -163,7 +173,7 @@ int main(int argc, char**) {
     apply_in_chain(bloom, disabled, false, options);
     CHECK(disabled.read_rgba() == disabled_before);
     options.enabled = true;
-    options.threshold = 2.0f;
+    options.threshold = 1.0f;
     options.knee = 0.0f;
     apply_in_chain(bloom, disabled, false, options);
     CHECK(disabled.read_rgba() == disabled_before);
@@ -177,6 +187,59 @@ int main(int argc, char**) {
         CHECK(disabled.read_rgba() == disabled_before);
     }
     disabled.release();
+
+    // A small emitter must survive thresholding even if its neighbourhood is dark.
+    // The old blur-before-threshold kernel lost this 2x2 source entirely.
+    renderer::FrameBuffer tiny;
+    CHECK(tiny.create(65, 65, error, 1));
+    glBindFramebuffer(GL_FRAMEBUFFER, tiny.id());
+    glViewport(0, 0, 65, 65);
+    glDisable(GL_BLEND);
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 77.0f / 255.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(31, 31, 2, 2);
+    glClearColor(1.0f, 1.0f, 1.0f, 77.0f / 255.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+    const auto small_before = tiny.read_rgba();
+    enhanced::BloomSettings tiny_settings;
+    tiny_settings.strength = 1.0f;
+    apply_in_chain(bloom, tiny, false, tiny_settings);
+    const auto small_after = tiny.read_rgba();
+    if (enhanced_rendering_available()) {
+        CHECK(rgb_total(small_after) > rgb_total(small_before));
+        CHECK(rgb_sum(small_after, 65, 35, 32) > rgb_sum(small_before, 65, 35, 32));
+    } else {
+        CHECK(small_after == small_before);
+    }
+
+    // Preview-only mode works with intensity zero: mask RGB replaces world RGB.
+    tiny_settings.preview_only = true;
+    tiny_settings.strength = 0.0f;
+    glBindFramebuffer(GL_FRAMEBUFFER, tiny.id());
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0.0f, 0.0f, 0.0f, 77.0f / 255.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(31, 31, 2, 2);
+    glClearColor(1.0f, 1.0f, 1.0f, 77.0f / 255.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+    apply_in_chain(bloom, tiny, true, tiny_settings);
+    const auto small_preview = tiny.read_rgba();
+    if (enhanced_rendering_available()) {
+        CHECK(rgb_sum(small_preview, 65, 31, 31) < rgb_sum(small_before, 65, 31, 31));
+        CHECK(rgb_sum(small_preview, 65, 35, 32) > 0);
+    } else {
+        CHECK(small_preview == small_before);
+    }
+    for (std::size_t p = 3; p < small_preview.size(); p += 4) {
+        CHECK(small_preview[p] == small_before[p]);
+    }
+    tiny.release();
     bloom.release();
 
     CHECK(glGetError() == GL_NO_ERROR);
