@@ -243,7 +243,9 @@ pub(crate) struct GraphicsHelperBake<'a> {
 /// level_NN override tree. Work happens under <data>/ai_assets first; only a validated complete
 /// pack replaces <data>/prepared-graphics/meshes/<version>. The game already mounts that directory
 /// through --prepared-meshes on its next start.
-pub(crate) fn bake_with_graphics_helper(request: GraphicsHelperBake<'_>) -> Result<MeshBake, String> {
+pub(crate) fn bake_with_graphics_helper(
+    request: GraphicsHelperBake<'_>,
+) -> Result<MeshBake, String> {
     let GraphicsHelperBake {
         python,
         openrac_root,
