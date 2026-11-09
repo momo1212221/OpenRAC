@@ -174,11 +174,16 @@ pub async fn mod_service(
                     };
                     json!({"profile":profile,"scope":"all"})
                 };
-                let python = config
-                    .python
-                    .clone()
-                    .ok_or("Python is not configured; reinstall or select the bundled Python in Settings")?;
                 let root = config.root()?.to_path_buf();
+                let python = config.python.clone().or_else(|| {
+                    let bundled = if cfg!(windows) {
+                        root.join("python/python.exe")
+                    } else {
+                        root.join("python/bin/python3")
+                    };
+                    bundled.is_file().then_some(bundled)
+                })
+                .ok_or("Python is not configured; reinstall or select the bundled Python in Settings")?;
                 let helper = folder.join("helper/openrac_graphics_helper.py");
                 let data = game_data_dir(&state, &game)?;
                 let _preparation = addons::begin_preparation(&home, &game, &version)?;
