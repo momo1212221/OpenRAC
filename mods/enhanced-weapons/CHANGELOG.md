@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2
+
+- Checks the loaded-mod list immediately before applying XP or tier damage.
+- Prevents even the first post-load hit from being double-scaled when Arsenal Mastery is active.
+- Keeps the periodic scan as a low-cost status/logging fallback.
+
 ## 0.3.1
 
 - Detects Arsenal Mastery through the OpenRAC 1.14 loaded-mod list.
