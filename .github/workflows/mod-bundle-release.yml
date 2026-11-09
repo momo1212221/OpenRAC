@@ -154,12 +154,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: openrac-enhancements-v0.3.1
+          TAG: openrac-enhancements-v0.3.2
         shell: bash
         run: |
           cat > notes.md <<'EOF'
           Three installable OpenRAC native mods by Moritz Wallinger:
-          - Enhanced Weapons 0.3.1
+          - Enhanced Weapons 0.3.2
           - Enhanced Audio 0.2.0
           - Accessibility Pack 0.2.0
 
@@ -169,5 +169,5 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" --clobber dist/*
           else
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "OpenRAC enhancement mods 0.3.1" --notes-file notes.md dist/*
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "OpenRAC enhancement mods 0.3.2" --notes-file notes.md dist/*
           fi
