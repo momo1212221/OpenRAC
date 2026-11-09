@@ -208,6 +208,10 @@ private:
     enhanced::HeroWetness m_wetness;
     bool m_material_overrides = true;       // The viewer enables appearance by default.
     enhanced::MaterialRuntime m_materials;  // Unified typed bindings and sparse authoring state.
+    // Neutral 1x1 normal / ORMH / emissive / specular / detail textures keep every shader
+    // sampler bound even when a material has no sidecars. This is required by the Vulkan
+    // validation path and is also a safer OpenGL fallback than sampling texture object 0.
+    std::array<unsigned, 5> m_material_sidecar_defaults{};
     // Original texture hash -> normal / ORMH / emissive / specular / detail 2D textures.
     std::unordered_map<std::uint64_t, std::array<unsigned, 5>> m_material_sidecars;
     enhanced::FoliageMaterials m_foliage;   // Reviewed per-material thin-sheet response.
