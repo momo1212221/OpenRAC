@@ -254,7 +254,8 @@ typedef int (*openrac_hit_fn)(void* user, const openrac_hit* hit);
 ```
 
 Told a hit the game posted (openrac_api.on_moby_hit); returns 1 to take it back (the victim
-never reads it), 0 to leave it. Since 1.9.
+never reads it), 0 to leave it. Every registered watcher is called in mod load order; if any
+watcher returns 1 the retail hit is taken back. Since 1.9.
 
 ```c
 typedef void (*openrac_frame_fn)(void* user);
@@ -969,7 +970,7 @@ sees them, and one built for 1.2 loads on a 1.2 port or newer.
 | `int (*figure_slot)(openrac_mod* mod, int id)` | Returns the slot of the mod's figure `id` (figure_create), or of the hero's moby with -1; -1 for none. Since 1.9. |
 | `int (*on_moby_update)(openrac_mod* mod, openrac_moby_update_fn fn, void* user)` | Calls `fn(user, slot, phase)` around each moby's update (openrac_moby_update_fn). One mod's. Returns OPENRAC_HOOK_OK, OPENRAC_HOOK_TAKEN when another mod has it, or OPENRAC_HOOK_TOO_LATE after openrac_mod_load. Since 1.9. |
 | `int (*hero_stand_in)(openrac_mod* mod, const float position[3], int figure)` | Only in the gate's call before an update: for that update the hero is at `position`, and his moby is the mod's figure `figure` (-1: his own), as another player would be there; put back after it. Returns OPENRAC_HOOK_OK, or OPENRAC_HOOK_UNKNOWN outside that call. Since 1.9. |
-| `int (*on_moby_hit)(openrac_mod* mod, openrac_hit_fn fn, void* user)` | Calls `fn(user, &hit)` for each hit the game posts (openrac_hit_fn). One mod's. Returns as on_moby_update. Since 1.9. |
+| `int (*on_moby_hit)(openrac_mod* mod, openrac_hit_fn fn, void* user)` | Calls `fn(user, &hit)` for each hit the game posts (openrac_hit_fn). Each mod may register one watcher; all are called in load order and any may take the hit back. Returns OPENRAC_HOOK_OK, OPENRAC_HOOK_TAKEN when this same mod already registered one, or OPENRAC_HOOK_TOO_LATE after openrac_mod_load. Since 1.9. |
 | `int (*moby_hit)(openrac_mod* mod, const openrac_hit* hit)` | Posts `hit` to its victim as the game posts one (the victim's update reads it: an enemy takes the damage, the hero is hurt), not told to on_moby_hit. Returns OPENRAC_HOOK_OK, or OPENRAC_HOOK_UNKNOWN for no victim there. Since 1.9. |
 | `int (*play_eyes)(openrac_mod* mod, const float* xyz, int count)` | Sets up to OPENRAC_EYES_MAX points (x, y, z each) besides the camera: the mobys within their update distance of one run too (the world near other players). `count` 0 clears them. Returns OPENRAC_HOOK_OK. Since 1.9. |
 | `int (*bolts)(int add)` | Adds `add` to the player's bolts (0: none) and returns them. Since 1.9. |
