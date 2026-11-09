@@ -10,8 +10,10 @@
 
 #include "common/log.h"
 #include "common/stats.h"
+#include "enhanced/renderer/compute_graph.h"
 #include "renderer/gl.h"
 #if defined(OPENRAC_VULKAN)
+#include "renderer/vulkan/temporal_graph.h"
 #include "renderer/vulkan/vkgl.h"
 #endif
 #include "renderer_shaders.h"
@@ -99,7 +101,10 @@ bool Bloom::ensure_buffer(std::size_t bytes) {
 
 bool Bloom::copy_output(unsigned texture, int width, int height, std::string& error) {
 #if defined(OPENRAC_VULKAN)
-    if (vkgl::copy_buffer_to_texture(m_buffer, texture, width, height, true)) {
+    const auto copied = vkgl::temporal_buffer_to_texture(
+        "bloom buffer-to-image", m_buffer, texture, output_bytes(width, height)
+    );
+    if (copied) {
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         return true;
@@ -111,7 +116,12 @@ bool Bloom::copy_output(unsigned texture, int width, int height, std::string& er
 #endif
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-    error = "bloom compute output copy failed";
+    error =
+#if defined(OPENRAC_VULKAN)
+        copied.error().message;
+#else
+        "bloom compute output copy failed";
+#endif
     return false;
 }
 
@@ -198,11 +208,15 @@ bool Bloom::downsample(
     glUniform1i(m_downsample.uniform("first_pass"), first ? 1 : 0);
     glUniform1f(m_downsample.uniform("threshold"), kThreshold);
     glUniform1f(m_downsample.uniform("knee"), kKnee);
-    glDispatchCompute(
-        static_cast<unsigned>((destination.width + kWorkgroup - 1) / kWorkgroup),
-        static_cast<unsigned>((destination.height + kWorkgroup - 1) / kWorkgroup),
-        1
-    );
+    const ComputeOutput result{m_buffer, output_bytes(destination.width, destination.height)};
+    if (!run_compute_graph("bloom downsample", std::span(&result, 1), [&] {
+            glDispatchCompute(
+                static_cast<unsigned>((destination.width + kWorkgroup - 1) / kWorkgroup),
+                static_cast<unsigned>((destination.height + kWorkgroup - 1) / kWorkgroup), 1
+            );
+        }, error)) {
+        return false;
+    }
     return copy_output(destination.colour, destination.width, destination.height, error);
 }
 
@@ -223,16 +237,18 @@ bool Bloom::upsample(
         m_upsample.uniform("output_size"), static_cast<float>(width), static_cast<float>(height)
     );
     glUniform1f(m_upsample.uniform("scatter"), kScatter);
-    glDispatchCompute(
-        static_cast<unsigned>((width + kWorkgroup - 1) / kWorkgroup),
-        static_cast<unsigned>((height + kWorkgroup - 1) / kWorkgroup),
-        1
-    );
+    const ComputeOutput result{m_buffer, output_bytes(width, height)};
+    const bool computed = run_compute_graph("bloom upsample", std::span(&result, 1), [&] {
+        glDispatchCompute(
+            static_cast<unsigned>((width + kWorkgroup - 1) / kWorkgroup),
+            static_cast<unsigned>((height + kWorkgroup - 1) / kWorkgroup), 1
+        );
+    }, error);
     glActiveTexture(GL_TEXTURE0);
-    return copy_output(destination, width, height, error);
+    return computed && copy_output(destination, width, height, error);
 }
 
-void Bloom::composite(renderer::FrameBuffer& output, float strength) {
+bool Bloom::composite(renderer::FrameBuffer& output, float strength, std::string& error) {
     glBindFramebuffer(GL_FRAMEBUFFER, output.id());
     glViewport(0, 0, output.width(), output.height());
     glDisable(GL_DEPTH_TEST);
@@ -255,13 +271,26 @@ void Bloom::composite(renderer::FrameBuffer& output, float strength) {
     texture_input(0, m_levels[0].colour);
     glUniform1i(m_composite.uniform("tex_T0"), 0);
     glBindVertexArray(m_vao);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+    // The additive draw preserves existing world colour and alpha under the native HUD.
+    const vkgl::TemporalTarget target{
+        output.id(), vkgl::TemporalContents::Preserve,
+        renderer::graph::Aspect::Colour, false, vkgl::TemporalConsumer::Attachment
+    };
+    const std::array inputs{m_levels[0].colour};
+    const auto drawn = vkgl::temporal_raster("bloom composite", target, inputs, [] {
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    });
 
     glBindVertexArray(0);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     glActiveTexture(GL_TEXTURE0);
+    if (!drawn) {
+        error = drawn.error().message;
+        return false;
+    }
+    return true;
 }
 
 void Bloom::apply(renderer::FrameBuffer& output, float strength) {
@@ -316,7 +345,11 @@ void Bloom::apply(renderer::FrameBuffer& output, float strength) {
         }
     }
 
-    composite(output, strength);
+    if (!composite(output, strength, error)) {
+        log::error("Bloom disabled: {}", error);
+        m_failed = true;
+        return;
+    }
 
     std::size_t texture_bytes = 0;
     for (int i = 0; i < m_count; ++i) {
