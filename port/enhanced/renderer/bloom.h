@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <string>
 
+#include "enhanced/renderer/bloom_settings.h"
 #include "renderer/framebuffer.h"
 #include "renderer/shader.h"
 
@@ -17,7 +18,9 @@ class Bloom {
 public:
     ~Bloom();
 
-    // Applies a small additive bloom to completed world colour. The default is deliberately subtle.
+    // Applies configurable bloom to completed world colour; changes take effect on the next frame.
+    void apply(renderer::FrameBuffer& output, const BloomSettings& options);
+    // Compatibility entry point used by existing rendering tests.
     void apply(renderer::FrameBuffer& output, float strength = 0.055f);
 
     // Releases graphics resources on their owning context.
@@ -44,10 +47,12 @@ private:
         int source_height,
         Level& destination,
         bool first,
+        const BloomSettings& options,
         std::string& error
     );
     [[nodiscard]] bool upsample(
-        unsigned high, unsigned low, unsigned destination, int width, int height, std::string& error
+        unsigned high, unsigned low, unsigned destination, int width, int height,
+        const BloomSettings& options, std::string& error
     );
     [[nodiscard]] bool composite(renderer::FrameBuffer& output, float strength, std::string& error);
 
