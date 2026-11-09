@@ -636,6 +636,38 @@ void enhanced_settings_window() {
         }
     }
     if (ImGui::CollapsingHeader("Post processing")) {
+        ImGui::SeparatorText("Bloom");
+        changed |= checkbox("Bloom enabled", &graphics.bloom.enabled);
+        ImGui::BeginDisabled(!graphics.bloom.enabled);
+        float bloom_percent = graphics.bloom.strength * 100.0f;
+        if (slider_float(
+                "Bloom intensity", &bloom_percent, 0.0f, 100.0f, "%.0f%%",
+                ImGuiSliderFlags_AlwaysClamp
+            )) {
+            graphics.bloom.strength = bloom_percent / 100.0f;
+            changed = true;
+        }
+        changed |= slider_float(
+            "Brightness threshold", &graphics.bloom.threshold, 0.0f, 2.0f, "%.2f",
+            ImGuiSliderFlags_AlwaysClamp
+        );
+        control_tip("Only brighter world pixels produce a halo. Lower values bloom more surfaces.");
+        changed |= slider_float(
+            "Soft knee", &graphics.bloom.knee, 0.0f, 1.0f, "%.2f",
+            ImGuiSliderFlags_AlwaysClamp
+        );
+        control_tip("Smoothly brings pixels near the brightness threshold into the halo.");
+        changed |= slider_float(
+            "Halo spread", &graphics.bloom.scatter, 0.0f, 1.0f, "%.2f",
+            ImGuiSliderFlags_AlwaysClamp
+        );
+        control_tip("How much lower-resolution glow spreads into the final halo.");
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("Live preview on world colour; native HUD stays unchanged.");
+        if (ImGui::Button("Reset Bloom")) {
+            graphics.bloom = enhanced::BloomSettings{};
+            changed = true;
+        }
         ImGui::SeparatorText("AgX");
         changed |= checkbox("AgX", &graphics.agx_preview);
         control_tip(
