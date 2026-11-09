@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Detects Arsenal Mastery through the OpenRAC 1.14 loaded-mod list.
+- Automatically disables Enhanced Weapons' own XP and tier-damage progression while Arsenal Mastery is active.
+- Keeps hit markers, projectile heat haze and Enhanced RAC visual effects active.
+- Prevents double XP/damage scaling when both personal-list mods are installed.
+
 ## 0.3.0
 
 - Replaced plain weapon XP HUD text with the native OpenRAC 1.14 overlay renderer.
