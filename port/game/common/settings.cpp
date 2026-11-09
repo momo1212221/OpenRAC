@@ -300,13 +300,16 @@ void load(const std::filesystem::path& file) {
         } else if (key == "bloom") {
             known = parse_bool(value, s.bloom.enabled);
         } else if (key == "bloom_strength") {
-            known = parse_float(value, 0.0f, 1.0f, s.bloom.strength);
+            known = parse_float(value, 0.0f, 2.0f, s.bloom.strength);
         } else if (key == "bloom_threshold") {
-            known = parse_float(value, 0.0f, 2.0f, s.bloom.threshold);
+            // World colour is display-referred UNORM, so brightness >1 is never sampled.
+            known = parse_float(value, 0.0f, 1.0f, s.bloom.threshold);
         } else if (key == "bloom_knee") {
             known = parse_float(value, 0.0f, 1.0f, s.bloom.knee);
         } else if (key == "bloom_scatter") {
             known = parse_float(value, 0.0f, 1.0f, s.bloom.scatter);
+        } else if (key == "bloom_preview") {
+            known = parse_bool(value, s.bloom.preview_only);
         } else if (key == "volumetric_quality") {
             known = parse(value, renderer::kVolumetricQualityKeys, s.volumetric_quality);
         } else if (key == "shadow_quality") {
@@ -589,6 +592,7 @@ void save() {
         << "bloom_threshold = " << s.bloom.threshold << "\n"
         << "bloom_knee = " << s.bloom.knee << "\n"
         << "bloom_scatter = " << s.bloom.scatter << "\n"
+        << "bloom_preview = " << (s.bloom.preview_only ? 1 : 0) << "\n"
         << "volumetric_quality = "
         << renderer::kVolumetricQualityKeys[static_cast<int>(s.volumetric_quality)] << "\n"
         << "shadow_quality = " << renderer::kShadowQualityKeys[static_cast<int>(s.shadow_quality)]
