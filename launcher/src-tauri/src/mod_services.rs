@@ -140,7 +140,7 @@ pub async fn mod_service(
                     launcher_log::line("graphics preset: renderer set to Vulkan");
                 }
                 value(enhanced_set_enabled(state, game, version, true).await)
-            },
+            }
             "bake.start" => {
                 if prep::version_bake_status(&config, &key).busy {
                     return Err("Lighting preparation is already running".into());
@@ -229,15 +229,18 @@ pub async fn mod_service(
                     json!({"profile":profile,"scope":"all"})
                 };
                 let root = config.root()?.to_path_buf();
-                let python = config.python.clone().or_else(|| {
-                    let bundled = if cfg!(windows) {
-                        root.join("python/python.exe")
-                    } else {
-                        root.join("python/bin/python3")
-                    };
-                    bundled.is_file().then_some(bundled)
-                })
-                .ok_or("Python is not configured; reinstall or select the bundled Python in Settings")?;
+                let python = config
+                    .python
+                    .clone()
+                    .or_else(|| {
+                        let bundled = if cfg!(windows) {
+                            root.join("python/python.exe")
+                        } else {
+                            root.join("python/bin/python3")
+                        };
+                        bundled.is_file().then_some(bundled)
+                    })
+                    .ok_or("Python is not configured; reinstall or select the bundled Python in Settings")?;
                 let helper = folder.join("helper/openrac_graphics_helper.py");
                 let data = game_data_dir(&state, &game)?;
                 let material_pack =
@@ -264,7 +267,7 @@ pub async fn mod_service(
                     result.processed, result.output
                 ));
                 value(Ok(result))
-            },
+            }
             _ => Err("Operation is not available to the graphics preparation mod".into()),
         }
     } else {
