@@ -616,7 +616,21 @@ void several_games() {
     }
 }
 
+void menu_overlay_manifest() {
+    Manifest value;
+    std::string error;
+    CHECK(parse_manifest(manifest("ordinary", "1.0.0", "", "1.12"), value, error));
+    CHECK(!value.overlay_menus);
+    CHECK(parse_manifest(manifest("native-ui", "1.0.0",
+                                  R"(, "overlay_menus": true)", "1.12"), value, error));
+    CHECK(value.overlay_menus);
+    CHECK(parse_manifest(manifest("native-ui", "1.0.0",
+                                  R"(, "overlay_menus": false)", "1.14"), value, error));
+    CHECK(!value.overlay_menus);
+}
+
 int main() {
+    menu_overlay_manifest();
     versions();
     party();
     assets();
