@@ -99,6 +99,11 @@ void test_reset_enhanced() {
     s.texture_filter = renderer::TextureFilter::Normal;
     s.shadow_quality = renderer::ShadowQuality::Low;
     s.volumetric_quality = renderer::VolumetricQuality::High;
+    s.bloom.enabled = false;
+    s.bloom.strength = .9f;
+    s.bloom.threshold = 1.5f;
+    s.bloom.knee = .4f;
+    s.bloom.scatter = .8f;
     s.agx_preview = false;
     s.agx_exposure = 2;
     s.agx_brightness = 1;
@@ -113,10 +118,60 @@ void test_reset_enhanced() {
     CHECK(s.texture_filter == renderer::TextureFilter::EdgeAware);
     CHECK(s.shadow_quality == renderer::ShadowQuality::High);
     CHECK(s.volumetric_quality == renderer::VolumetricQuality::Off);
+    CHECK(s.bloom.enabled && s.bloom.strength == .055f);
+    CHECK(s.bloom.threshold == .82f && s.bloom.knee == .18f && s.bloom.scatter == .62f);
     CHECK(s.agx_preview && s.agx_exposure == .25f && s.agx_brightness == .5f);
     CHECK(!s.sun_direction_override && !s.probe_spheres);
     CHECK(s.motion_blur && s.motion_blur_settings.samples == 16);
     CHECK(s.lily_momentum == .25f);
+}
+
+// Bloom settings use the same persistent, validated settings file as the rest of the renderer.
+void test_bloom_settings(const std::filesystem::path& file) {
+    using namespace openrac;
+    std::ofstream(file) << "";
+    settings::load(file);
+    const auto defaults = enhanced::BloomSettings{};
+    CHECK(settings::get().bloom.enabled);
+    CHECK(settings::get().bloom.strength == defaults.strength);
+    CHECK(settings::get().bloom.threshold == defaults.threshold);
+    CHECK(settings::get().bloom.knee == defaults.knee);
+    CHECK(settings::get().bloom.scatter == defaults.scatter);
+
+    for (float strength : {0.0f, 0.055f, 1.0f}) {
+        std::ofstream(file) << "bloom = 0\nbloom_strength = " << strength
+                            << "\nbloom_threshold = 1.25\nbloom_knee = 0.35\n"
+                            << "bloom_scatter = 0.8\n";
+        settings::load(file);
+        for (int roundtrip = 0; roundtrip < 2; ++roundtrip) {
+            const auto& bloom = settings::get().bloom;
+            CHECK(!bloom.enabled && bloom.strength == strength);
+            CHECK(bloom.threshold == 1.25f && bloom.knee == .35f && bloom.scatter == .8f);
+            settings::save();
+            settings::load(file);
+        }
+    }
+
+    // All-zero values, the upper threshold limit and an enabled effect round-trip too.
+    std::ofstream(file) << "bloom = 1\nbloom_strength = 0\nbloom_threshold = 2\n"
+                           "bloom_knee = 0\nbloom_scatter = 0\n";
+    settings::load(file);
+    settings::save();
+    settings::load(file);
+    CHECK(settings::get().bloom.enabled);
+    CHECK(settings::get().bloom.strength == 0.0f);
+    CHECK(settings::get().bloom.threshold == 2.0f);
+    CHECK(settings::get().bloom.knee == 0.0f && settings::get().bloom.scatter == 0.0f);
+
+    // Malformed and out-of-range values must preserve safe, subtle defaults.
+    std::ofstream(file) << "bloom = invalid\nbloom_strength = nan\nbloom_threshold = 3\n"
+                           "bloom_knee = -1\nbloom_scatter = inf\n";
+    settings::load(file);
+    CHECK(settings::get().bloom.enabled);
+    CHECK(settings::get().bloom.strength == defaults.strength);
+    CHECK(settings::get().bloom.threshold == defaults.threshold);
+    CHECK(settings::get().bloom.knee == defaults.knee);
+    CHECK(settings::get().bloom.scatter == defaults.scatter);
 }
 
 void test_agx_preview(const std::filesystem::path& file) {
@@ -448,6 +503,7 @@ int main() {
     test_lily_momentum(file);
     test_hdr_settings(file);
     test_reset_enhanced();
+    test_bloom_settings(file);
     test_agx_preview(file);
     test_motion_blur_tuning(file);
     test_shadow_quality(file);
