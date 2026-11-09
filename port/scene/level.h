@@ -18,6 +18,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cmath>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -164,6 +165,31 @@ struct Instance {
     bool gameplay_essential = false;  // Eligible for enhanced lighting's subtle GI-coloured rim.
 };
 
+struct ModelLod {
+    std::uint32_t model = 0;
+    // World-space camera distance at which this model replaces the previous, more detailed one.
+    // LOD entries are stored strictly ascending by distance.
+    float distance = 0.0f;
+};
+
+// Select the most distant LOD threshold reached by DISTANCE. With no LODs, BASE is returned.
+// Kept as a small pure helper so loaders/frontends and tests share exactly the same policy.
+inline std::uint32_t select_lod_model(
+    std::uint32_t base, const std::vector<ModelLod>& lods, float distance
+) {
+    std::uint32_t selected = base;
+    if (!std::isfinite(distance) || distance < 0.0f) {
+        return selected;
+    }
+    for (const ModelLod& lod : lods) {
+        if (distance < lod.distance) {
+            break;
+        }
+        selected = lod.model;
+    }
+    return selected;
+}
+
 struct SpinAnimation {
     std::size_t instance = 0;  // Index in Layer::Animated.
     Vec3 axis{0.0f, 0.0f, 1.0f};
@@ -233,8 +259,10 @@ struct LevelData {
     std::array<std::vector<Instance>, kLayerCount> instances;
     // Mod-only rigid prop animation. Empty for retail levels and mods without animated.json.
     std::vector<SpinAnimation> spins;
-    // Moby classes: model and whether it is the stand-in box, for placing live mobys.
+    // Moby classes: base/high-detail model and whether it is the stand-in box, for placing live
+    // mobys. Optional replacement LODs are parallel by class id; retail exports remain empty.
     std::map<int, std::pair<std::uint32_t, bool>> moby_classes;
+    std::map<int, std::vector<ModelLod>> moby_lods;
 
     // Each tie's and shrub's draw distance as the game's loader and renderer leave it (parallel to
     // instances; game units of camera depth): a tie's own, capped at 720 (TieProc; 0 is never
