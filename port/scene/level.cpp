@@ -15,6 +15,7 @@
 #include <set>
 #include <stb_image.h>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 #include "common/json.h"
