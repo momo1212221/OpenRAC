@@ -575,9 +575,9 @@ int api_on_moby_hit(openrac_mod* mod, openrac_hit_fn fn, void* user) {
     // A watcher observes the game's hit stream; unlike a hook point it does not own or replace the
     // stream. Keep one callback per mod, but let independent gameplay/network mods observe it
     // together in deterministic load order.
-    if (std::any_of(
-            g_hits.begin(), g_hits.end(), [mod](const HitWatch& h) { return h.mod == mod; }
-        )) {
+    if (std::any_of(g_hits.begin(), g_hits.end(), [mod](const HitWatch& h) {
+            return h.mod == mod;
+        })) {
         return OPENRAC_HOOK_TAKEN;
     }
     g_hits.push_back({mod, fn, user});
