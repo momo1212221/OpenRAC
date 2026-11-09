@@ -32,6 +32,8 @@ void play_loading(const openrac_mod* mod);
 
 // Whether the game shows a level with the player in it: no menu, no scene (openrac_overlay).
 bool overlay_shows_level();
+// The game's own pause/vendor menu, not cutscenes or the front-end.
+bool overlay_shows_menus();
 
 // Forgets the figures and a pending start or travel (mods::reset, the tests).
 void reset_play();
