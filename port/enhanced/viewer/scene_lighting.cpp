@@ -858,6 +858,10 @@ void SceneLighting::bind(
     const renderer::Camera* camera,
     bool depth_matched
 ) const {
+    // Colour-graph descriptor capture happens before the first material-specific draw. Bind the
+    // neutral sidecars here so Vulkan sees defined sampled images for every declared sampler;
+    // bind_material() replaces them with the material's real sidecars immediately before drawing.
+    bind_material_sidecars(shader, scene::Material{});
     m_probes.bind(shader, layer, all_static_receivers, camera, depth_matched);
     m_local_lights.bind(shader, camera, depth_matched);
     m_atmosphere.bind(shader);
