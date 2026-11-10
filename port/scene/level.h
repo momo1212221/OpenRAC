@@ -82,6 +82,9 @@ struct Material {
     Vec3 emission{};  // shared linear emitted radiance, independent of diffuse lighting
     // Original glTF emissiveFactor evidence, retained after profile overrides for offline auditing.
     bool authored_emission = false;
+    // An imported Graphics Preparation emissive sidecar (not an original glTF emitter).
+    // Keep provenance: an automatic mask needs fallback emission even without probe bakes.
+    bool emission_from_texture_pack = false;
     // Optional absolute texture multiplier for baking; absent uses runtime emission.
     std::optional<float> bake_intensity;
     std::optional<int> source_slot;  // Original glTF slot, or -1 for its implicit material.
@@ -226,6 +229,8 @@ struct LevelData {
     // Parallel to images: index of optional Graphics Preparation emission texture, -1 if absent.
     // Its own image slot has -1; original game and PNG replacement texture IDs do not change.
     std::vector<int> image_emissive;
+    // Successful generated emission-map loads for this level (diagnostic only).
+    std::size_t emission_sidecars_loaded = 0;
     std::vector<std::string> image_paths;
     // Parallel to images: whether some texel is below full alpha (under the chip's 0x80), which
     // the GS blends however the export's alpha mode reads (material_index).

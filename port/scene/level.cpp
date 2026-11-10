@@ -173,6 +173,7 @@ int image_index(const fs::path& requested, LevelData& level) {
         const auto& original = level.images[index];
         if (emission->width == original.width && emission->height == original.height) {
             level.image_emissive[index] = static_cast<int>(level.images.size());
+            ++level.emission_sidecars_loaded;
             level.images.push_back(std::move(*emission));
             const auto emission_name = renderer::texture_pack::file_name(original_hash);
             level.image_paths.push_back("[material-emissive:" + emission_name + "]");
@@ -235,6 +236,11 @@ int material_index(
             m.emission_image = emission_slot;
             m.emission = {1.0f, 1.0f, 1.0f};
             m.authored_emission = true;
+            m.emission_from_texture_pack = true;
+            // An experimental offline CNN mask must not silently invalidate or
+            // change existing static GI bakes. It emits at runtime only unless
+            // an explicit material override elects to bake its radiance.
+            m.bake_intensity = 0.0f;
         }
     }
     // A texture with texels below full alpha is drawn by the GS as the cutout materials are (the
@@ -257,7 +263,8 @@ int material_index(
         if (o.image == m.image && o.cutout == m.cutout && o.blend == m.blend && o.metal == m.metal
             && o.clamp_s == m.clamp_s && o.clamp_t == m.clamp_t && o.colour == m.colour
             && o.emission == m.emission && o.emission_image == m.emission_image
-            && o.authored_emission == m.authored_emission && o.name == m.name
+            && o.authored_emission == m.authored_emission
+            && o.emission_from_texture_pack == m.emission_from_texture_pack && o.name == m.name
             && o.source_slot == m.source_slot) {
             return static_cast<int>(i);
         }

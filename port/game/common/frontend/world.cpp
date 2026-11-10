@@ -331,6 +331,13 @@ void use_level(int number) {
         log::error("level {}: {}", wanted, error);
         return;
     }
+    // Visible in game logs: distinguishes an active CNN-generated pack from
+    // merely enabling the bloom slider. Counting occurs before GPU upload.
+    log::info(
+        "neural bloom: level {} loaded {} emissive material sidecars",
+        wanted,
+        g->level.emission_sidecars_loaded
+    );
     // The 2D path: its part before the world first, the rest after the world renderers.
     crash::level_breadcrumb("level renderers setup", wanted);
     auto hud = std::make_unique<renderer::DirectRenderer>(

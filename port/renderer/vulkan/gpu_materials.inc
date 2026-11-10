@@ -152,7 +152,10 @@ bool material_program(Program& p, const std::string& vertex, const std::string& 
          {"foliage_parameters0", "int(O_MATERIAL.texture_indices.z)", 88},
          {"foliage_parameters1", "int(O_MATERIAL.texture_indices.w)", 92},
          {"cutout", "int(O_MATERIAL.flags.x)", 32},
-         {"emission_mask", "int(O_MATERIAL.flags.y)", 36},
+         // Automatic CNN/heuristic emission must retain the fallback bit for each
+         // draw. Reuse the unused emission_mask word, preserving the 96-byte record
+         // and the Vulkan bindless-material fast path.
+         {"material_fallback", "int(O_MATERIAL.flags.y)", 36},
          {"emission_vertex_colour", "int(O_MATERIAL.flags.z)", 40},
          {"probe_effect", "int(O_MATERIAL.flags.w)", 44},
          {"hero_shadow_receiver", "int(O_MATERIAL.resources.z)", 56},
