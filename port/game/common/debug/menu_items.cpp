@@ -327,7 +327,8 @@ Item item(Id id, std::uint8_t where) {
         case Id::BloomPrecision:
             it.shown = kEnhancedBuilt && gl::enhanced_rendering_available()
                        && set.enhanced_graphics;
-            it.value = set.bloom.precision_bits == 16 ? "16 bit (FP16 quality)" : "8 bit (performance)";
+            it.value =
+                set.bloom.precision_bits == 16 ? "16 bit (FP16 quality)" : "8 bit (performance)";
             it.can_lower = set.bloom.precision_bits == 16;
             it.can_raise = set.bloom.precision_bits != 16;
             return it;
