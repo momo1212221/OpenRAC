@@ -17,7 +17,7 @@ Gaussian filtering while it downsamples, avoiding separate horizontal/vertical b
 final composite is a single raster draw so it never samples and stores the world framebuffer through
 the same image.
 
-The pyramid is RGBA8 rather than RGBA32F. Bloom is a bounded, subtle secondary signal, so this keeps
+The base renderer uses RGBA8 for a subtle glow. The hybrid-HQ variant can select RGBA8 or RGBA16F at runtime, trading
 the 4K working set small while the source frame can remain HDR. At 3840x2160 the five pyramid
 textures plus the largest compute buffer are about 19 MiB instead of well over 100 MiB for the first
 prototype.
@@ -103,3 +103,19 @@ These are callback integration checks rather than full live-game FSR playback. A
 Outpost X11 manual validation should cover FSR enabled, FSR disabled, enhanced rendering off,
 window resizing, and the Vulkan validation layers. No runtime test result is implied by the
 presence of this test.
+
+## Fork-only Hybrid HQ Bloom (Mac development branch)
+
+This feature combines the existing render-graph-safe Vulkan Bloom with the separate high-quality
+patch. The native game and launcher now expose `bloom_precision = 8` (RGBA8, fastest)
+or `bloom_precision = 16` (RGBA16F, extra highlight/gradient precision). Switching
+formats re-creates Bloom-only pyramid/SSBO resources, **not** baked lighting or AI upscale caches.
+The pyramid has six stages and the RGB-only first-pass heuristic reduces over-bloom on green
+foliage; it cannot replace semantically verified emission.
+
+The offline optional CNN handoff remains in a different personal repository:
+`momo1212221/openrac-graphics-preparation`, branch
+`feat/hybrid-bloom-cnn-handoff-20261110` (draft PR #19). It is **not**
+a working live model and not embedded in this renderer. Model training, material-ID
+matching, scene-linear HDR and real Mac/Steam Deck/RTX image-quality tests are pending.
+Do not open an upstream PR or merge to the official OpenRAC project.
