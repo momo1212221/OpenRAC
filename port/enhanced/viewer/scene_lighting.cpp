@@ -182,7 +182,10 @@ void SceneLighting::bind_surface_material(
         m_foliage.bind(shader, source, m_material_overrides);
         const auto* response = m_material_overrides ? m_materials.response(model, slot) : nullptr;
         gl::glUniform1i(
-            shader.uniform("material_fallback"), response ? response->fallback_channels : 0
+            shader.uniform("material_fallback"),
+            enhanced::material_fallback_with_sidecar(
+                source, response ? response->fallback_channels : 0
+            )
         );
         // Catalog families override the legacy foliage adapter only when explicitly authored.
         if (response && response->family_override) {
