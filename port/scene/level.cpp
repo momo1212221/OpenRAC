@@ -150,6 +150,8 @@ int image_index(const fs::path& requested, LevelData& level) {
     // A texture pack's picture of it (docs/port/TEXTURE_PACKS.md), at any size, and its frames
     // when it is animated.
     renderer::texture_pack::Replacement replaced;
+    // Preserve the *original* game hash; the replacement's upscaled size/content differs.
+    const auto original_hash = image.pixels.empty() ? 0 : renderer::texture_pack::image_hash(image);
     renderer::texture_pack::replace(image, {.level = level.level}, &replaced);
     level.image_animations.resize(level.images.size());
     level.image_animations.push_back(std::move(replaced.animation));
@@ -160,9 +162,27 @@ int image_index(const fs::path& requested, LevelData& level) {
             break;
         }
     }
+    const int image_slot = static_cast<int>(level.images.size());
     level.images.push_back(std::move(image));
     level.translucent_images.push_back(translucent);
-    return pixels != nullptr ? static_cast<int>(level.images.size() - 1) : -1;
+    level.image_emissive.push_back(-1);
+    // Sidecars are deliberately separate from the diffuse image: preserve the AI upscale
+    // bytes, source alpha and original mip/UV semantics. A mismatched image is ignored.
+    if (auto emission = renderer::texture_pack::emissive_image(original_hash)) {
+        if (emission->width == level.images[static_cast<std::size_t>(image_slot)].width
+            && emission->height == level.images[static_cast<std::size_t>(image_slot)].height) {
+            level.image_emissive[static_cast<std::size_t>(image_slot)] =
+                static_cast<int>(level.images.size());
+            level.images.push_back(std::move(*emission));
+            level.image_paths.push_back("[material-emissive:" + renderer::texture_pack::file_name(original_hash) + "]");
+            level.image_animations.push_back(nullptr);
+            level.translucent_images.push_back(false);
+            level.image_emissive.push_back(-1);
+        } else {
+            log::warn("material emission sidecar dimensions do not match its diffuse texture");
+        }
+    }
+    return pixels != nullptr ? image_slot : -1;
 }
 
 // Shares equivalent decoded materials only when their exported slot identities agree.
@@ -203,6 +223,17 @@ int material_index(
                 m.clamp_s = texture->sampler->wrap_s == cgltf_wrap_mode_clamp_to_edge;
                 m.clamp_t = texture->sampler->wrap_t == cgltf_wrap_mode_clamp_to_edge;
             }
+        }
+    }
+    // A verified optional emission mask is sampled by the existing emission_texture
+    // shader binding. Never replace authored glTF emission or change metal/shiny passes.
+    if (!m.metal && m.emission_image < 0 && m.image >= 0
+        && static_cast<std::size_t>(m.image) < level.image_emissive.size()) {
+        const int emission_slot = level.image_emissive[static_cast<std::size_t>(m.image)];
+        if (emission_slot >= 0) {
+            m.emission_image = emission_slot;
+            m.emission = {1.0f, 1.0f, 1.0f};
+            m.authored_emission = true;
         }
     }
     // A texture with texels below full alpha is drawn by the GS as the cutout materials are (the
