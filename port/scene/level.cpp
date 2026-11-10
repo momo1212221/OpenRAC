@@ -235,6 +235,7 @@ int material_index(
             m.emission_image = emission_slot;
             m.emission = {1.0f, 1.0f, 1.0f};
             m.authored_emission = true;
+            m.emission_from_texture_pack = true;
         }
     }
     // A texture with texels below full alpha is drawn by the GS as the cutout materials are (the
@@ -257,7 +258,8 @@ int material_index(
         if (o.image == m.image && o.cutout == m.cutout && o.blend == m.blend && o.metal == m.metal
             && o.clamp_s == m.clamp_s && o.clamp_t == m.clamp_t && o.colour == m.colour
             && o.emission == m.emission && o.emission_image == m.emission_image
-            && o.authored_emission == m.authored_emission && o.name == m.name
+            && o.authored_emission == m.authored_emission
+            && o.emission_from_texture_pack == m.emission_from_texture_pack && o.name == m.name
             && o.source_slot == m.source_slot) {
             return static_cast<int>(i);
         }
