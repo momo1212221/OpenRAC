@@ -27,21 +27,25 @@ public:
     // Compatibility entry point used by existing rendering tests.
     void apply(renderer::FrameBuffer& output, float strength = 0.055f);
 
+    // GPU diagnostic for the active bloom-pyramid intermediate precision.
+    [[nodiscard]] int working_precision_bits() const { return m_precision_bits; }
+
     // Releases graphics resources on their owning context.
     void release();
 
 private:
-    static constexpr int kMaxLevels = 5;
+    static constexpr int kMaxLevels = 6;
 
     struct Level {
         unsigned colour = 0;
         int width = 0;
         int height = 0;
+        int precision_bits = 0;
     };
 
-    [[nodiscard]] bool prepare(int width, int height, std::string& error);
+    [[nodiscard]] bool prepare(int width, int height, int precision_bits, std::string& error);
     void release_level(Level& level);
-    void allocate_texture(Level& level, int width, int height);
+    void allocate_texture(Level& level, int width, int height, int precision_bits);
     [[nodiscard]] bool ensure_buffer(std::size_t bytes);
     [[nodiscard]] bool copy_output(unsigned texture, int width, int height, std::string& error);
 
@@ -72,6 +76,7 @@ private:
     unsigned m_buffer = 0;
     std::size_t m_buffer_capacity = 0;
     unsigned m_vao = 0;
+    int m_precision_bits = 0;
     bool m_failed = false;
     bool m_logged_success = false;
     unsigned m_failed_frames = 0;  // Retry a transient graphics/resize failure after 120 frames.
