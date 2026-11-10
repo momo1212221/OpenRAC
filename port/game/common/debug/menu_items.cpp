@@ -324,6 +324,13 @@ Item item(Id id, std::uint8_t where) {
             it.shown = enhanced_on() && enhanced::Fsr3::available();
             it.on = set.motion_blur;
             return it;
+        case Id::BloomPrecision:
+            it.shown = kEnhancedBuilt && gl::enhanced_rendering_available()
+                       && set.enhanced_graphics;
+            it.value = set.bloom.precision_bits == 16 ? "16 bit (FP16 quality)" : "8 bit (performance)";
+            it.can_lower = set.bloom.precision_bits == 16;
+            it.can_raise = set.bloom.precision_bits != 16;
+            return it;
         case Id::ColorCorrection:
             it.shown = enhanced_on();
             it.on = set.agx_preview;
@@ -658,6 +665,10 @@ bool act(Id id, int by) {
             return false;
         case Id::MotionBlur:
             set.motion_blur = !set.motion_blur;
+            changed();
+            return false;
+        case Id::BloomPrecision:
+            set.bloom.precision_bits = by < 0 ? 8 : 16;
             changed();
             return false;
         case Id::ColorCorrection:
