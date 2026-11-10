@@ -82,6 +82,9 @@ struct Material {
     Vec3 emission{};  // shared linear emitted radiance, independent of diffuse lighting
     // Original glTF emissiveFactor evidence, retained after profile overrides for offline auditing.
     bool authored_emission = false;
+    // An imported Graphics Preparation emissive sidecar (not an original glTF emitter).
+    // Keep provenance: an automatic mask needs fallback emission even without probe bakes.
+    bool emission_from_texture_pack = false;
     // Optional absolute texture multiplier for baking; absent uses runtime emission.
     std::optional<float> bake_intensity;
     std::optional<int> source_slot;  // Original glTF slot, or -1 for its implicit material.
