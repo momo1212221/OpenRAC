@@ -170,6 +170,27 @@ void test_exact_slots(const std::filesystem::path& directory) {
     CHECK(std::filesystem::remove(directory / "material-overrides.json"));
 }
 
+// Generated Emissive sidecars need their own emission fallback even when the
+// scene has no valid probe bake. The material flag does not turn ordinary or
+// authored glTF materials into emitters, and it cannot erase existing overrides.
+void test_cnn_sidecar_emission_without_probes() {
+    scene::Material material;
+    CHECK(enhanced::material_fallback_with_sidecar(material, 0) == 0);
+    CHECK(enhanced::material_fallback_with_sidecar(material, 1) == 1);
+    CHECK(enhanced::material_fallback_with_sidecar(material, 2) == 2);
+    material.emission_from_texture_pack = true;
+    material.emission_image = 3;
+    material.emission = {1.0f, 1.0f, 1.0f};
+    CHECK(enhanced::material_fallback_with_sidecar(material, 0) == 2);
+    CHECK(enhanced::material_fallback_with_sidecar(material, 1) == 3);
+    CHECK(enhanced::material_fallback_with_sidecar(material, 2) == 2);
+    // The real glTF emission path is distinct from our generated mask.
+    scene::Material authored;
+    authored.authored_emission = true;
+    authored.emission = {1.0f, 0.0f, 0.0f};
+    CHECK(enhanced::material_fallback_with_sidecar(authored, 0) == 0);
+}
+
 // A family selected without a preset still uses its established optical defaults.
 void test_family_defaults() {
     scene::MaterialSource source;
@@ -213,6 +234,7 @@ int main() {
         test_sparse_atomic_save(directory);
         test_export_identity();
         test_family_defaults();
+        test_cnn_sidecar_emission_without_probes();
         test_external_save_conflict(directory);
         std::error_code error;
         std::filesystem::remove(directory / "material-overrides.json", error);
