@@ -85,8 +85,7 @@ fn advanced(mut s: SettingSpec) -> SettingSpec {
 
 // Ready-to-use profiles change only Bloom fields, not saved shadows, FSR or colour settings.
 fn bloom_presets() -> Vec<Preset> {
-    let make = |id: &str, name: &str, strength: f64, threshold: f64, knee: f64,
-                scatter: f64, preview: bool| Preset {
+    let make = |id: &str, name: &str, strength: f64, threshold: f64, knee: f64, scatter: f64, preview: bool| Preset {
         id: id.into(),
         name: name.into(),
         values: [
@@ -156,8 +155,11 @@ pub fn settings() -> Vec<SettingSpec> {
         Choice { value: "performance".into(), name: "Performance".into() },
     ];
     let mut bloom_precision = spec(
-        "bloom_precision", "Bloom precision", "choice", "8".into(),
-        "8 bit is fastest; 16 bit uses FP16 intermediate glow buffers for smoother haloes. "
+        "bloom_precision",
+        "Bloom precision",
+        "choice",
+        "8".into(),
+        "8 bit is fastest; 16 bit uses FP16 intermediate glow buffers for smoother haloes. ",
     );
     bloom_precision.choices = vec![
         Choice { value: "8".into(), name: "8 bit (performance)".into() },
@@ -417,8 +419,7 @@ mod tests {
         let precision = v.entry.settings.iter().find(|s| s.spec.key == "bloom_precision").unwrap();
         assert_eq!(precision.spec.choices.len(), 2);
         let presets = &v.entry.presets;
-        assert_eq!(presets.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
-                   vec!["visible", "strong", "glow_only"]);
+        assert_eq!(presets.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), vec!["visible", "strong", "glow_only"]);
         assert!(presets.iter().all(|p| p.values.keys().all(|key| key.starts_with("bloom"))));
         assert_eq!(presets[2].values["bloom_preview"], Value::Bool(true));
 
@@ -435,8 +436,9 @@ mod tests {
         set_setting(&home, "rac1", "pal", "agx_preview", &Value::Bool(false)).unwrap();
         assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), "agx_preview"), Value::Bool(false));
         // Bloom's launcher values share the port's settings file, without touching assets or bakes.
-        for (key, number) in [("bloom_strength", 0.35), ("bloom_threshold", 0.75),
-                              ("bloom_knee", 0.4), ("bloom_scatter", 0.8)] {
+        for (key, number) in
+            [("bloom_strength", 0.35), ("bloom_threshold", 0.75), ("bloom_knee", 0.4), ("bloom_scatter", 0.8)]
+        {
             set_setting(&home, "rac1", "pal", key, &Value::from(number)).unwrap();
             assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), key), Value::from(number));
         }
@@ -447,9 +449,13 @@ mod tests {
         assert!(set_setting(&home, "rac1", "pal", "bloom_precision", &Value::from("12")).is_err());
         set_setting(&home, "rac1", "pal", "bloom_preview", &Value::Bool(true)).unwrap();
         assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), "bloom_preview"), Value::Bool(true));
-        for (key, invalid) in [("bloom_strength", -0.01), ("bloom_strength", 2.01),
-                                ("bloom_threshold", 1.01), ("bloom_knee", 1.01),
-                                ("bloom_scatter", -0.01)] {
+        for (key, invalid) in [
+            ("bloom_strength", -0.01),
+            ("bloom_strength", 2.01),
+            ("bloom_threshold", 1.01),
+            ("bloom_knee", 1.01),
+            ("bloom_scatter", -0.01),
+        ] {
             assert!(set_setting(&home, "rac1", "pal", key, &Value::from(invalid)).is_err());
         }
         assert!(set_setting(&home, "rac1", "pal", "bloom", &Value::from("yes")).is_err());
