@@ -310,6 +310,12 @@ void load(const std::filesystem::path& file) {
             known = parse_float(value, 0.0f, 1.0f, s.bloom.scatter);
         } else if (key == "bloom_preview") {
             known = parse_bool(value, s.bloom.preview_only);
+        } else if (key == "bloom_precision") {
+            int parsed = s.bloom.precision_bits;
+            known = parse_int(value, 8, 16, parsed) && (parsed == 8 || parsed == 16);
+            if (known) {
+                s.bloom.precision_bits = parsed;
+            }
         } else if (key == "volumetric_quality") {
             known = parse(value, renderer::kVolumetricQualityKeys, s.volumetric_quality);
         } else if (key == "shadow_quality") {
@@ -593,6 +599,7 @@ void save() {
         << "bloom_knee = " << s.bloom.knee << "\n"
         << "bloom_scatter = " << s.bloom.scatter << "\n"
         << "bloom_preview = " << (s.bloom.preview_only ? 1 : 0) << "\n"
+        << "bloom_precision = " << (s.bloom.precision_bits == 16 ? 16 : 8) << "\n"
         << "volumetric_quality = "
         << renderer::kVolumetricQualityKeys[static_cast<int>(s.volumetric_quality)] << "\n"
         << "shadow_quality = " << renderer::kShadowQualityKeys[static_cast<int>(s.shadow_quality)]

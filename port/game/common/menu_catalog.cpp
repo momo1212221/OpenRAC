@@ -118,6 +118,9 @@ constexpr Entry kEntries[] = {
      "How much the upscaler sharpens the picture it builds."},
     {Id::MotionBlur, Tab::Enhanced, "Enhanced graphics", kSwitch, A, "Motion blur",
      "Blurs what moves fast across the picture."},
+    {Id::BloomPrecision, Tab::Enhanced, "Enhanced graphics", kChoice, A, "Bloom precision",
+     "8 bit saves GPU memory and transfers; FP16 improves gradient precision and preserves "
+     "overbright Bloom when the world supplies HDR. Applies while playing."},
     {Id::ColorCorrection, Tab::Enhanced, "Enhanced graphics", kSwitch, A, "Color correction",
      "A filmic tone curve (AgX) for the enhanced lighting's brighter colours."},
     {Id::Brightness, Tab::Enhanced, "Enhanced graphics", kChoice, A, "Brightness",

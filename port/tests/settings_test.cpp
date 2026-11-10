@@ -140,6 +140,7 @@ void test_bloom_settings(const std::filesystem::path& file) {
     CHECK(settings::get().bloom.knee == defaults.knee);
     CHECK(settings::get().bloom.scatter == defaults.scatter);
     CHECK(!settings::get().bloom.preview_only);
+    CHECK(settings::get().bloom.precision_bits == 8);
 
     for (float strength : {0.0f, 0.055f, 1.0f, 2.0f}) {
         std::ofstream(file) << "bloom = 0\nbloom_strength = " << strength
@@ -178,6 +179,19 @@ void test_bloom_settings(const std::filesystem::path& file) {
     CHECK(settings::get().bloom.knee == defaults.knee);
     CHECK(settings::get().bloom.scatter == defaults.scatter);
     CHECK(!settings::get().bloom.preview_only);
+    CHECK(settings::get().bloom.precision_bits == 8);
+
+    // Only 8 and 16 are valid. Valid precision persists without changing the
+    // rest of the settings or any prepared texture/bake data.
+    std::ofstream(file) << "bloom_precision = 16\n";
+    settings::load(file);
+    CHECK(settings::get().bloom.precision_bits == 16);
+    settings::save();
+    settings::load(file);
+    CHECK(settings::get().bloom.precision_bits == 16);
+    std::ofstream(file) << "bloom_precision = 9\n";
+    settings::load(file);
+    CHECK(settings::get().bloom.precision_bits == 8);
 }
 
 void test_agx_preview(const std::filesystem::path& file) {
