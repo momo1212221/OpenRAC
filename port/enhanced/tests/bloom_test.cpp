@@ -127,6 +127,66 @@ void check_frame(openrac::enhanced::Bloom& bloom, int width, int height, bool fs
 }
 }  // namespace
 
+// Compare bright red and green texels at the same peak RGB brightness.
+// RGB-only discrimination is a fallback until authored material IDs exist.
+void check_colour_selectivity(openrac::enhanced::Bloom& bloom) {
+    using namespace openrac;
+    using namespace openrac::gl;
+    renderer::FrameBuffer target;
+    std::string error;
+    CHECK(target.create(65, 65, error, 1));
+    enhanced::BloomSettings options;
+    options.preview_only = true;
+    options.strength = 0.0f;
+    options.threshold = 0.82f;
+    options.knee = 0.04f;
+    auto sample = [&](float r, float g, float b) {
+        glBindFramebuffer(GL_FRAMEBUFFER, target.id());
+        glDisable(GL_BLEND);
+        glDisable(GL_SCISSOR_TEST);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.3f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(29, 29, 7, 7);
+        glClearColor(r, g, b, 0.3f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glDisable(GL_SCISSOR_TEST);
+        apply_in_chain(bloom, target, false, options);
+        return rgb_total(target.read_rgba());
+    };
+    const auto green = sample(0.0f, 1.0f, 0.0f);
+    const auto red = sample(1.0f, 0.0f, 0.0f);
+    if (enhanced_rendering_available()) CHECK(red > green);
+    else CHECK(red == green);
+    target.release();
+}
+
+void check_precision_toggle(openrac::enhanced::Bloom& bloom) {
+    using namespace openrac;
+    using namespace openrac::gl;
+    renderer::FrameBuffer target;
+    std::string error;
+    CHECK(target.create(65, 49, error, 1));
+    const bool gpu = enhanced_rendering_available();
+    enhanced::BloomSettings options;
+    options.strength = 0.4f;
+    for (int bits : {8, 16, 8}) {
+        draw_patch(target);
+        const auto before = target.read_rgba();
+        options.precision_bits = bits;
+        apply_in_chain(bloom, target, false, options);
+        const auto after = target.read_rgba();
+        if (gpu) {
+            CHECK(bloom.working_precision_bits() == bits);
+            CHECK(rgb_total(after) > rgb_total(before));
+        } else CHECK(after == before);
+        for (std::size_t p = 3; p < after.size(); p += 4)
+            CHECK(after[p] == before[p]);
+    }
+    target.release();
+}
+
 int main(int argc, char**) {
     using namespace openrac;
     using namespace openrac::gl;
@@ -252,6 +312,8 @@ int main(int argc, char**) {
         CHECK(small_preview[p] == small_before[p]);
     }
     tiny.release();
+    check_colour_selectivity(bloom);
+    check_precision_toggle(bloom);
     bloom.release();
     CHECK(enhanced::bloom_pass_status() == enhanced::BloomPassStatus::Never);
 
