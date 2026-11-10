@@ -227,7 +227,7 @@ int material_index(
     }
     // A verified optional emission mask is sampled by the existing emission_texture
     // shader binding. Never replace authored glTF emission or change metal/shiny passes.
-    if (!m.metal && m.emission_image < 0 && m.image >= 0
+    if (!m.metal && !m.authored_emission && m.emission_image < 0 && m.image >= 0
         && static_cast<std::size_t>(m.image) < level.image_emissive.size()) {
         const int emission_slot = level.image_emissive[static_cast<std::size_t>(m.image)];
         if (emission_slot >= 0) {
