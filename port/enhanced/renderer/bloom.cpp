@@ -83,8 +83,10 @@ void Bloom::allocate_texture(Level& level, int width, int height, int precision_
     }
     glBindTexture(GL_TEXTURE_2D, level.colour);
     const bool fp16 = precision_bits == 16;
-    glTexImage2D(GL_TEXTURE_2D, 0, fp16 ? GL_RGBA16F : GL_RGBA8, width, height, 0,
-                 GL_RGBA, fp16 ? GL_HALF_FLOAT : GL_UNSIGNED_BYTE, nullptr);
+    glTexImage2D(
+        GL_TEXTURE_2D, 0, fp16 ? GL_RGBA16F : GL_RGBA8, width, height, 0, GL_RGBA,
+        fp16 ? GL_HALF_FLOAT : GL_UNSIGNED_BYTE, nullptr
+    );
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -151,7 +153,9 @@ bool Bloom::prepare(int width, int height, int precision_bits, std::string& erro
 
     // A format change invalidates the temporary SSBO; do not affect game textures.
     if (m_precision_bits != 0 && m_precision_bits != precision_bits) {
-        if (m_buffer) glDeleteBuffers(1, &m_buffer);
+        if (m_buffer) {
+            glDeleteBuffers(1, &m_buffer);
+        }
         m_buffer = 0;
         m_buffer_capacity = 0;
         m_logged_success = false;
@@ -228,7 +232,9 @@ bool Bloom::downsample(
         static_cast<float>(source_height)
     );
     glUniform1i(m_downsample.uniform("first_pass"), first ? 1 : 0);
-    glUniform1i(m_downsample.uniform("bloom_precision16"), m_precision_bits == 16 ? 1 : 0);
+    glUniform1i(
+        m_downsample.uniform("bloom_precision16"), m_precision_bits == 16 ? 1 : 0
+    );
     glUniform1f(m_downsample.uniform("threshold"), std::clamp(options.threshold, 0.0f, 1.0f));
     glUniform1f(m_downsample.uniform("knee"), std::clamp(options.knee, 0.0f, 1.0f));
     const ComputeOutput result{m_buffer, output_bytes(destination.width, destination.height, m_precision_bits)};
@@ -344,7 +350,9 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
         return;
     }
     const int requested_precision = options.precision_bits == 16 ? 16 : 8;
-    if (m_failed && m_precision_bits != requested_precision) release();
+    if (m_failed && m_precision_bits != requested_precision) {
+        release();
+    }
     // A transient Vulkan graph/resize error should not silence Bloom for the
     // entire game session. Retry at a bounded interval instead of every frame.
     if (m_failed) {
