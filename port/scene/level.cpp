@@ -237,6 +237,10 @@ int material_index(
             m.emission = {1.0f, 1.0f, 1.0f};
             m.authored_emission = true;
             m.emission_from_texture_pack = true;
+            // An experimental offline CNN mask must not silently invalidate or
+            // change existing static GI bakes. It emits at runtime only unless
+            // an explicit material override elects to bake its radiance.
+            m.bake_intensity = 0.0f;
         }
     }
     // A texture with texels below full alpha is drawn by the GS as the cutout materials are (the
