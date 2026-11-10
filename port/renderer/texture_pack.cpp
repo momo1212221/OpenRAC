@@ -486,9 +486,10 @@ std::optional<Rgba8Image> emissive_image(std::uint64_t original_hash) {
         return std::nullopt;
     }
     auto image = s.io.load(path);
-    if (!image || image->width <= 0 || image->height <= 0
-        || image->width > 16384 || image->height > 16384
-        || image->pixels.size() > (64ull << 20)) {
+    const bool dimensions_ok = image && image->width > 0 && image->height > 0;
+    const bool bounds_ok = image && image->width <= 16384 && image->height <= 16384;
+    const bool bytes_ok = image && image->pixels.size() <= (64ull << 20);
+    if (!dimensions_ok || !bounds_ok || !bytes_ok) {
         log::warn("material emission sidecar {} is invalid; keeping original material", path.string());
         return std::nullopt;
     }
