@@ -173,6 +173,7 @@ int image_index(const fs::path& requested, LevelData& level) {
         const auto& original = level.images[index];
         if (emission->width == original.width && emission->height == original.height) {
             level.image_emissive[index] = static_cast<int>(level.images.size());
+            ++level.emission_sidecars_loaded;
             level.images.push_back(std::move(*emission));
             const auto emission_name = renderer::texture_pack::file_name(original_hash);
             level.image_paths.push_back("[material-emissive:" + emission_name + "]");
