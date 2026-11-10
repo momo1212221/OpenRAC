@@ -14,6 +14,18 @@
 #include "scene/material_overrides.h"
 
 namespace openrac::enhanced {
+
+// The authored catalog's fallback bits do not include automatic texture-pack
+// emission. Without this bit, scene-linear sidecar radiance disappears when
+// probe lighting is unavailable (e.g. unbaked levels, compatibility mode).
+// Bit 0 is diffuse scale; bit 1 is emitted radiance. Never fabricate emission
+// for ordinary glTF materials or for legacy texture replacements.
+[[nodiscard]] inline int material_fallback_with_sidecar(
+    const scene::Material& material, int authored_fallback_channels
+) {
+    return authored_fallback_channels | (material.emission_from_texture_pack ? 2 : 0);
+}
+
 // Typed responses compiled at load/edit, never interpreted from JSON during drawing.
 struct MaterialResponse {
     std::array<float, 3> sky_tint{1, 1, 1};  // RGB multiplier for the separate sky pass.
