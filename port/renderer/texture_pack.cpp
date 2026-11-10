@@ -22,6 +22,7 @@ namespace fs = std::filesystem;
 struct State {
     std::mutex lock;  // levels load on another thread than the 2D layer converts on
     Io io;
+    fs::path pack_root;  // Optional per-texture material sidecars use this root.
     std::unordered_map<std::uint64_t, fs::path> files;  // the pack's pictures by hash
     // The pack's animations by hash: a folder of frames or a GIF, and those read so far.
     std::unordered_map<std::uint64_t, fs::path> animated;
@@ -367,6 +368,7 @@ void configure(const fs::path& pack, const fs::path& dump, Io io, LevelNamer lev
     State& s = state();
     const std::lock_guard guard(s.lock);
     s.io = io;
+    s.pack_root = pack;
     s.level_name = level_name;
     s.files.clear();
     s.animated.clear();
@@ -469,6 +471,30 @@ bool replace(Rgba8Image& image, const Origin& origin, Replacement* found_out) {
     image = std::move(*picture);
     ++s.replaced;
     return true;
+}
+
+std::optional<Rgba8Image> emissive_image(std::uint64_t original_hash) {
+    State& s = state();
+    const std::lock_guard guard(s.lock);
+    if (s.pack_root.empty() || !s.io.load || original_hash == 0) {
+        return std::nullopt;
+    }
+    const std::string hash = file_name(original_hash).substr(0, kHashDigits);
+    const fs::path path = s.pack_root / "Materials" / hash / "emissive.png";
+    std::error_code error;
+    if (!fs::is_regular_file(path, error) || error) {
+        return std::nullopt;
+    }
+    auto image = s.io.load(path);
+    const bool dimensions_ok = image && image->width > 0 && image->height > 0;
+    const bool bounds_ok = image && image->width <= 16384 && image->height <= 16384;
+    const bool bytes_ok = image && image->pixels.size() <= (64ull << 20);
+    if (!dimensions_ok || !bounds_ok || !bytes_ok) {
+        const std::string file = path.string();
+        log::warn("material emission sidecar {} is invalid; keeping original material", file);
+        return std::nullopt;
+    }
+    return image;
 }
 
 bool dumping() {
