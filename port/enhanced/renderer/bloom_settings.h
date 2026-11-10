@@ -13,6 +13,7 @@ struct BloomSettings {
     float knee = 0.18f;        // 0..1; transition around the threshold.
     float scatter = 0.62f;     // 0..1; low-resolution halo mixing.
     bool preview_only = false; // Diagnostic: display the glow mask instead of world RGB.
+    int precision_bits = 8;    // 8 = RGBA8 speed; 16 = RGBA16F quality (bloom pyramid only).
 };
 
 [[nodiscard]] inline constexpr bool bloom_requested(const BloomSettings& options) {
