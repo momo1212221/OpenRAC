@@ -313,7 +313,9 @@ void load(const std::filesystem::path& file) {
         } else if (key == "bloom_precision") {
             int parsed = s.bloom.precision_bits;
             known = parse_int(value, 8, 16, parsed) && (parsed == 8 || parsed == 16);
-            if (known) s.bloom.precision_bits = parsed;
+            if (known) {
+                s.bloom.precision_bits = parsed;
+            }
         } else if (key == "volumetric_quality") {
             known = parse(value, renderer::kVolumetricQualityKeys, s.volumetric_quality);
         } else if (key == "shadow_quality") {
