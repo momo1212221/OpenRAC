@@ -344,8 +344,24 @@ int main() {
     CHECK(!texture_pack::replace(later, {.level = 5}) && disk().empty());
     CHECK(fs::exists(pack / "dump2" / "Shared" / later_name));
 
+    // CNN emission must be looked up under the original game's texture hash,
+    // never the replacement image's newly upscaled hash.
+    const auto original = solid(4, 4, 29);
+    const auto original_hash = texture_pack::image_hash(original);
+    const auto original_stem = texture_pack::file_name(original_hash).substr(0, 16);
+    const auto emissive_folder = pack / "Materials" / original_stem;
+    fs::create_directories(emissive_folder);
+    std::ofstream(emissive_folder / "emissive.png") << "png";
+    disk()["emissive.png"] = solid(4, 4, 240);
+    texture_pack::configure(pack, {}, {load, save});
+    const auto emission = texture_pack::emissive_image(original_hash);
+    CHECK(emission.has_value() && emission->width == 4 && emission->pixels[0] == 240);
+    CHECK(!texture_pack::emissive_image(original_hash + 1));
+    disk().erase("emissive.png");
+
     // No pack and no dump: nothing happens.
     texture_pack::configure({}, {}, {load, save});
+    CHECK(!texture_pack::emissive_image(original_hash));
     CHECK(!texture_pack::replace(image));
     CHECK(!texture_pack::dumping());
 
