@@ -894,6 +894,67 @@ mod tests {
     }
 
     #[test]
+    fn neural_material_sidecars_import_merge_and_export_without_changing_diffuse() {
+        let t = tempfile::tempdir().unwrap();
+        let data = t.path().join("data");
+        let home = t.path().join("home");
+        let input = t.path().join("neural.zip");
+        make_zip(
+            &input,
+            &[
+                (MANIFEST, manifest("rac1-pal")),
+                (&format!("Upscaled/{HASH_A}.png"), png(1)),
+                (&format!("Materials/{HASH_A}/emissive.png"), png(9)),
+                (&format!("Materials/{HASH_A}/normal.png"), png(2)),
+                (&format!("Materials/{HASH_A}/material.json"), br#"{"format":1,"emissiveCnn":{"status":"applied"}}"#.to_vec()),
+            ],
+        );
+        let preview = preview_import(&data, "rac1", "pal", &input).unwrap();
+        assert_eq!(preview.textures, 1);
+        let (count, kept) = import(&data, "rac1", "pal", &input, ImportMode::Replace).unwrap();
+        assert_eq!((count, kept), (1, None));
+        let pack = pack_dir(&data, "rac1-pal");
+        assert_eq!(fs::read(pack.join(format!("Upscaled/{HASH_A}.png"))).unwrap(), png(1));
+        assert_eq!(fs::read(pack.join(format!("Materials/{HASH_A}/emissive.png"))).unwrap(), png(9));
+        assert!(pack.join(format!("Materials/{HASH_A}/material.json")).is_file());
+        // Only the authoring sidecars are replaced during import. The diffuse remains.
+        let merge = t.path().join("merge.zip");
+        make_zip(
+            &merge,
+            &[
+                (&format!("Upscaled/{HASH_A}.png"), png(1)),
+                (&format!("Materials/{HASH_A}/emissive.png"), png(5)),
+            ],
+        );
+        import(&data, "rac1", "pal", &merge, ImportMode::Merge).unwrap();
+        assert_eq!(fs::read(pack.join(format!("Upscaled/{HASH_A}.png"))).unwrap(), png(1));
+        assert_eq!(fs::read(pack.join(format!("Materials/{HASH_A}/emissive.png"))).unwrap(), png(5));
+        let saved = t.path().join("export.zip");
+        let (textures, _) = export(&home, &data, "rac1", "pal", "test", &saved).unwrap();
+        assert_eq!(textures, 1);
+        let mut archive = open_zip(&saved).unwrap();
+        assert!(archive.by_name(&format!("Materials/{HASH_A}/emissive.png")).is_ok());
+        assert!(archive.by_name(&format!("Materials/{HASH_A}/material.json")).is_ok());
+    }
+
+    #[test]
+    fn malformed_neural_material_paths_are_not_imported_as_textures() {
+        let t = tempfile::tempdir().unwrap();
+        let zip = t.path().join("bad-neural.zip");
+        make_zip(&zip, &[
+            (MANIFEST, manifest("rac1-pal")),
+            (&format!("Upscaled/{HASH_A}.png"), png(1)),
+            (&format!("Materials/{HASH_A}/emissive.exe"), b"unexpected".to_vec()),
+        ]);
+        let preview = preview_import(t.path(), "rac1", "pal", &zip).unwrap();
+        assert_eq!(preview.textures, 1);
+        assert_eq!(preview.skipped, 1);
+        import(t.path(), "rac1", "pal", &zip, ImportMode::Replace).unwrap();
+        let pack = pack_dir(t.path(), "rac1-pal");
+        assert!(!pack.join(format!("Materials/{HASH_A}/emissive.exe")).exists());
+    }
+
+    #[test]
     fn a_flat_pack_in_a_folder_of_its_own_imports_and_merges() {
         let t = tempfile::tempdir().unwrap();
         let data = t.path().join("data");
