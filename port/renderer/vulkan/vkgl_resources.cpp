@@ -956,6 +956,9 @@ VkDeviceSize buffer_image_bytes(const Image& image) {
         case VK_FORMAT_R8G8B8A8_UNORM:
             texel_bytes = 4;
             break;
+        case VK_FORMAT_R16G16B16A16_SFLOAT:
+            texel_bytes = 8;
+            break;
         case VK_FORMAT_R32G32_SFLOAT:
             texel_bytes = 8;
             break;
