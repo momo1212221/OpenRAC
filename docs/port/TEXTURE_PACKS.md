@@ -26,6 +26,35 @@ off. It is a mod like the others: `--no-mods` (the launcher's Mods switch
 under Play off) leaves it out too. The log says how many textures the pack
 has at the start.
 
+## Optional neural emissive material maps (personal-fork preview)
+
+In the PERSONAL momo1212221/OpenRAC branch
+test/bloom-hq-cnn-materials-20261110 only, the texture-pack ZIP importer
+preserves Materials/<original-16-hex-hash>/emissive.png and other supported
+Graphics Preparation sidecars. The stock launcher rejects these files.
+
+The Graphics Preparation 0.21.4 experimental preview (owner's personal fork)
+has an optional CNN emissive detection switch. Inference runs during the
+material-preparation export, not during game frames, preserving original
+AI-upscaled diffuse bytes and their cache identity. It writes neural/heuristic
+emission into Materials/<hash>/emissive.png alongside the normal diffuse pack.
+
+On level load OpenRAC hashes the ORIGINAL retail texture before replacing it.
+It loads the optional emission sidecar only if its size matches the upscaled
+colour image exactly. Authored glTF emission takes precedence and HUD/interface
+textures are not auto-emissive. The existing mesh-shader emission_texture
+binding carries the mask into the regular HQ Bloom bright pass.
+
+User workflow: install the Graphics Preparation 0.21.4 preview in this custom
+launcher; enable Enhanced material maps and the experimental CNN emissive
+switch; Prepare AI graphics or rebuild sidecars from the existing AI cache;
+import the exported texture-pack ZIP with the custom launcher; enable
+Enhanced graphics, Vulkan and HQ Bloom.
+
+The tiny CNN was trained only on SYNTHETIC examples and is OFF by default.
+This is not a real-game quality or 60fps guarantee. No official upstream
+OpenRAC changes or extracted game images are included in the GitHub branches.
+
 ## In the launcher
 
 Your pack is a mod. It is the first row of **Graphics and sound packs** on
