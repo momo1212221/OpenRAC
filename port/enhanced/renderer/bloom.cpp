@@ -140,6 +140,7 @@ bool Bloom::prepare(int width, int height, int precision_bits, std::string& erro
 #if !defined(OPENRAC_VULKAN)
     (void)width;
     (void)height;
+    (void)precision_bits;
     error = "bloom requires the Vulkan enhanced renderer";
     return false;
 #else
