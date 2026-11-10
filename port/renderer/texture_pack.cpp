@@ -490,7 +490,8 @@ std::optional<Rgba8Image> emissive_image(std::uint64_t original_hash) {
     const bool bounds_ok = image && image->width <= 16384 && image->height <= 16384;
     const bool bytes_ok = image && image->pixels.size() <= (64ull << 20);
     if (!dimensions_ok || !bounds_ok || !bytes_ok) {
-        log::warn("material emission sidecar {} is invalid; keeping original material", path.string());
+        const std::string file = path.string();
+        log::warn("material emission sidecar {} is invalid; keeping original material", file);
         return std::nullopt;
     }
     return image;
