@@ -407,8 +407,7 @@ pub fn repair_python(config: &mut crate::config::Config) -> bool {
     if config.python.as_deref().is_some_and(|p| check_tool(Tool::Python, p).ok) {
         return false;
     }
-    let Some(candidate) =
-        tool_candidates(Tool::Python).into_iter().find(|c| check_tool(Tool::Python, &c.path).ok)
+    let Some(candidate) = tool_candidates(Tool::Python).into_iter().find(|c| check_tool(Tool::Python, &c.path).ok)
     else {
         return false;
     };
@@ -786,9 +785,7 @@ mod tests {
     fn repairs_an_outdated_saved_python_and_preserves_a_valid_one() {
         use std::os::unix::fs::PermissionsExt;
 
-        let Some(modern) = tool_candidates(Tool::Python)
-            .into_iter()
-            .find(|c| check_tool(Tool::Python, &c.path).ok)
+        let Some(modern) = tool_candidates(Tool::Python).into_iter().find(|c| check_tool(Tool::Python, &c.path).ok)
         else {
             return;
         };
@@ -799,10 +796,7 @@ mod tests {
         perm.set_mode(0o755);
         std::fs::set_permissions(&old, perm).unwrap();
 
-        let mut config = crate::config::Config {
-            python: Some(old),
-            ..Default::default()
-        };
+        let mut config = crate::config::Config { python: Some(old), ..Default::default() };
         assert!(repair_python(&mut config));
         assert_eq!(config.python, Some(modern.path.clone()));
         assert!(!repair_python(&mut config));
