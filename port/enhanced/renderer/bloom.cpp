@@ -27,9 +27,9 @@ namespace {
 constexpr int kWorkgroup = 8;
 std::atomic<BloomPassStatus> g_pass_status{BloomPassStatus::Never};
 
-std::size_t output_bytes(int width, int height) {
+std::size_t output_bytes(int width, int height, int precision_bits) {
     return static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
-           * sizeof(std::uint32_t);
+           * static_cast<std::size_t>(precision_bits == 16 ? 8 : 4);
 }
 
 void texture_input(unsigned unit, unsigned texture) {
@@ -67,6 +67,7 @@ void Bloom::release() {
     m_buffer_capacity = 0;
     m_vao = 0;
     m_count = 0;
+    m_precision_bits = 0;
     m_downsample.release();
     m_upsample.release();
     m_composite.release();
@@ -76,12 +77,14 @@ void Bloom::release() {
     g_pass_status.store(BloomPassStatus::Never, std::memory_order_relaxed);
 }
 
-void Bloom::allocate_texture(Level& level, int width, int height) {
+void Bloom::allocate_texture(Level& level, int width, int height, int precision_bits) {
     if (!level.colour) {
         glGenTextures(1, &level.colour);
     }
     glBindTexture(GL_TEXTURE_2D, level.colour);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    const bool fp16 = precision_bits == 16;
+    glTexImage2D(GL_TEXTURE_2D, 0, fp16 ? GL_RGBA16F : GL_RGBA8, width, height, 0,
+                 GL_RGBA, fp16 ? GL_HALF_FLOAT : GL_UNSIGNED_BYTE, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -89,6 +92,7 @@ void Bloom::allocate_texture(Level& level, int width, int height) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
     level.width = width;
     level.height = height;
+    level.precision_bits = precision_bits;
 }
 
 bool Bloom::ensure_buffer(std::size_t bytes) {
@@ -109,7 +113,7 @@ bool Bloom::ensure_buffer(std::size_t bytes) {
 bool Bloom::copy_output(unsigned texture, int width, int height, std::string& error) {
 #if defined(OPENRAC_VULKAN)
     const auto copied = vkgl::temporal_buffer_to_texture(
-        "bloom buffer-to-image", m_buffer, texture, output_bytes(width, height)
+        "bloom buffer-to-image", m_buffer, texture, output_bytes(width, height, m_precision_bits)
     );
     if (copied) {
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
@@ -132,7 +136,7 @@ bool Bloom::copy_output(unsigned texture, int width, int height, std::string& er
     return false;
 }
 
-bool Bloom::prepare(int width, int height, std::string& error) {
+bool Bloom::prepare(int width, int height, int precision_bits, std::string& error) {
 #if !defined(OPENRAC_VULKAN)
     (void)width;
     (void)height;
@@ -144,6 +148,14 @@ bool Bloom::prepare(int width, int height, std::string& error) {
         return false;
     }
 
+    // A format change invalidates the temporary SSBO; do not affect game textures.
+    if (m_precision_bits != 0 && m_precision_bits != precision_bits) {
+        if (m_buffer) glDeleteBuffers(1, &m_buffer);
+        m_buffer = 0;
+        m_buffer_capacity = 0;
+        m_logged_success = false;
+    }
+    m_precision_bits = precision_bits;
     if (!m_downsample.id()
         && (!m_downsample.build_compute(
                 "bloom gaussian downsample", renderer::shaders::bloom_downsample_comp, error
@@ -171,8 +183,9 @@ bool Bloom::prepare(int width, int height, std::string& error) {
         next_height = std::max(1, (next_height + 1) / 2);
         auto& level = m_levels[count];
 
-        if (level.width != next_width || level.height != next_height || !level.colour) {
-            allocate_texture(level, next_width, next_height);
+        if (level.width != next_width || level.height != next_height || !level.colour
+            || level.precision_bits != precision_bits) {
+            allocate_texture(level, next_width, next_height, precision_bits);
         }
 
         if (next_width == 1 && next_height == 1) {
@@ -200,7 +213,7 @@ bool Bloom::downsample(
     const BloomSettings& options,
     std::string& error
 ) {
-    if (!ensure_buffer(output_bytes(destination.width, destination.height))) {
+    if (!ensure_buffer(output_bytes(destination.width, destination.height, m_precision_bits))) {
         error = "bloom compute buffer allocation failed";
         return false;
     }
@@ -214,9 +227,10 @@ bool Bloom::downsample(
         static_cast<float>(source_height)
     );
     glUniform1i(m_downsample.uniform("first_pass"), first ? 1 : 0);
+    glUniform1i(m_downsample.uniform("bloom_precision16"), m_precision_bits == 16 ? 1 : 0);
     glUniform1f(m_downsample.uniform("threshold"), std::clamp(options.threshold, 0.0f, 1.0f));
     glUniform1f(m_downsample.uniform("knee"), std::clamp(options.knee, 0.0f, 1.0f));
-    const ComputeOutput result{m_buffer, output_bytes(destination.width, destination.height)};
+    const ComputeOutput result{m_buffer, output_bytes(destination.width, destination.height, m_precision_bits)};
     if (!run_compute_graph("bloom downsample", std::span(&result, 1), [&] {
             glDispatchCompute(
                 static_cast<unsigned>((destination.width + kWorkgroup - 1) / kWorkgroup),
@@ -232,7 +246,7 @@ bool Bloom::upsample(
     unsigned high, unsigned low, unsigned destination, int width, int height,
     const BloomSettings& options, std::string& error
 ) {
-    if (!ensure_buffer(output_bytes(width, height))) {
+    if (!ensure_buffer(output_bytes(width, height, m_precision_bits))) {
         error = "bloom compute buffer allocation failed";
         return false;
     }
@@ -246,7 +260,8 @@ bool Bloom::upsample(
         m_upsample.uniform("output_size"), static_cast<float>(width), static_cast<float>(height)
     );
     glUniform1f(m_upsample.uniform("scatter"), std::clamp(options.scatter, 0.0f, 1.0f));
-    const ComputeOutput result{m_buffer, output_bytes(width, height)};
+    glUniform1i(m_upsample.uniform("bloom_precision16"), m_precision_bits == 16 ? 1 : 0);
+    const ComputeOutput result{m_buffer, output_bytes(width, height, m_precision_bits)};
     const bool computed = run_compute_graph("bloom upsample", std::span(&result, 1), [&] {
         glDispatchCompute(
             static_cast<unsigned>((width + kWorkgroup - 1) / kWorkgroup),
@@ -327,6 +342,8 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
         || !enhanced_rendering_available()) {
         return;
     }
+    const int requested_precision = options.precision_bits == 16 ? 16 : 8;
+    if (m_failed && m_precision_bits != requested_precision) release();
     // A transient Vulkan graph/resize error should not silence Bloom for the
     // entire game session. Retry at a bounded interval instead of every frame.
     if (m_failed) {
@@ -348,7 +365,7 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
     const float strength = std::clamp(options.strength, 0.0f, 2.0f);
 
     std::string error;
-    if (!prepare(output.width(), output.height(), error)) {
+    if (!prepare(output.width(), output.height(), requested_precision, error)) {
         log::error("Bloom disabled: {}", error);
         m_failed = true;
         g_pass_status.store(BloomPassStatus::Failed, std::memory_order_relaxed);
@@ -406,6 +423,7 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
     g_pass_status.store(BloomPassStatus::Completed, std::memory_order_relaxed);
     if (!m_logged_success) {
         m_logged_success = true;
+        log::info("Bloom pyramid precision: {} bit", m_precision_bits);
         log::info("Bloom GPU pass completed: strength {:.3f}, threshold {:.3f}, knee {:.3f}, "
                   "scatter {:.3f}, glow-only {}",
                   strength, options.threshold, options.knee, options.scatter,
@@ -413,7 +431,7 @@ void Bloom::apply(renderer::FrameBuffer& output, const BloomSettings& options) {
     }
     std::size_t texture_bytes = 0;
     for (int i = 0; i < m_count; ++i) {
-        texture_bytes += output_bytes(m_levels[i].width, m_levels[i].height);
+        texture_bytes += output_bytes(m_levels[i].width, m_levels[i].height, m_precision_bits);
     }
     stats::gauge("Bloom levels", m_count);
     stats::gauge(
