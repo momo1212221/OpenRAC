@@ -252,6 +252,31 @@ export PATH="$(brew --prefix node@22)/bin:$PATH"
 corepack yarn tauri dev
 ```
 
+### HQ Bloom: first build from a fresh git worktree
+
+The separate owner-fork branch `test/bloom-hq-hybrid-20261110` extends the Bloom Test
+with a six-level pyramid, 8-bit/FP16 selection, and GPU regression checks. It is
+**not** an official upstream release.
+
+After a fresh `git submodule update --init --recursive`, apply OpenRAC's extra
+decompilation source patches before building the game:
+
+```sh
+cd ~/OpenRAC-bloom-hq-integrated
+"$(brew --prefix python@3.12)/bin/python3.12" tools/sources.py apply rac1/pal
+```
+
+The CI's `decomp-sources` action runs this automatically, but a direct
+`git submodule update` does not. Without the patches, `hostgen` can fail
+with missing `Moby` fields such as `prevSeq`, `unk7D`, `unk7E` and `pClass`.
+`games/rac1/decomp-patches/0004-functional-c.patch` adapts the affected
+candidate's private field layout.
+
+Re-run `tools/build_port.py` with the same game/disc/target arguments to
+continue its incremental Ninja build. Do **not** use `--clean` or delete the
+AI textures, probes, saves or `port/build/release`. `tools/sources.py apply`
+checks for existing source edits and will refuse to overwrite them.
+
 ## Develop
 
 With **developer tools** on (Settings → Launcher), the app also shows
