@@ -155,6 +155,14 @@ pub fn settings() -> Vec<SettingSpec> {
         Choice { value: "balanced".into(), name: "Balanced".into() },
         Choice { value: "performance".into(), name: "Performance".into() },
     ];
+    let mut bloom_precision = spec(
+        "bloom_precision", "Bloom precision", "choice", "8".into(),
+        "8 bit is fastest; 16 bit uses FP16 intermediate glow buffers for smoother haloes. "
+    );
+    bloom_precision.choices = vec![
+        Choice { value: "8".into(), name: "8 bit (performance)".into() },
+        Choice { value: "16".into(), name: "16 bit (FP16 quality)".into() },
+    ];
     vec![
         shadows,
         spec("gtao", "Ambient occlusion", "bool", true.into(), "Soft shade in corners and under objects."),
@@ -187,6 +195,7 @@ pub fn settings() -> Vec<SettingSpec> {
             false.into(),
             "Temporarily replaces the scene with its glow mask, to verify that Bloom is rendering. Off to resume gameplay.",
         ),
+        bloom_precision,
         spec(
             "agx_preview",
             "Color Correction",
