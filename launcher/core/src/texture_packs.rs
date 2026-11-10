@@ -378,18 +378,27 @@ const PACK_FOLDERS: &[&str] = &["Interface", "Shared", "Planets", "Animated", "M
 // known flat filenames under the source texture's 16-digit hash, and reject traversal.
 fn material_sidecar(rel: &str) -> Option<PathBuf> {
     let mut parts = rel.split('/');
-    let (Some("Materials"), Some(hash), Some(name), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
+    let (Some("Materials"), Some(hash), Some(name), None) = (parts.next(), parts.next(), parts.next(), parts.next())
     else {
         return None;
     };
     if !is_hash(hash)
         || !matches!(
             name,
-            "emissive.png" | "normal.png" | "roughness.png" | "height.png" | "ao.png"
-                | "specular.png" | "metallic.png" | "cavity.png" | "curvature.png"
-                | "edgewear.png" | "coarseHeight.png" | "midHeight.png"
-                | "microHeight.png" | "material.json"
+            "emissive.png"
+                | "normal.png"
+                | "roughness.png"
+                | "height.png"
+                | "ao.png"
+                | "specular.png"
+                | "metallic.png"
+                | "cavity.png"
+                | "curvature.png"
+                | "edgewear.png"
+                | "coarseHeight.png"
+                | "midHeight.png"
+                | "microHeight.png"
+                | "material.json"
         )
     {
         return None;
@@ -634,9 +643,7 @@ pub fn import(
     let count = scanned.items.len() as u32;
     let result = match mode {
         ImportMode::Replace => replace_with(&pack, &staging, &id),
-        ImportMode::Merge => {
-            merge_into(&pack, &staging, &scanned.items, &scanned.material_files).map(|()| None)
-        },
+        ImportMode::Merge => merge_into(&pack, &staging, &scanned.items, &scanned.material_files).map(|()| None),
     };
     let _ = std::fs::remove_dir_all(&staging);
     result.map(|kept| (count, kept))
@@ -665,7 +672,10 @@ fn remove_item(pack: &Path, item: &Item) {
 }
 
 fn merge_into(
-    pack: &Path, staging: &Path, items: &[(Item, Vec<ZipFile>)], materials: &[ZipFile]
+    pack: &Path,
+    staging: &Path,
+    items: &[(Item, Vec<ZipFile>)],
+    materials: &[ZipFile],
 ) -> Result<(), String> {
     let current: HashMap<String, Item> = items_under(pack).into_iter().map(|i| (i.hash.clone(), i)).collect();
     for (item, files) in items {
@@ -764,10 +774,7 @@ pub fn export(
                     let name = entry.file_name().to_string_lossy().into_owned();
                     let rel = format!("Materials/{}/{}", item.hash, name);
                     if material_sidecar(&rel).is_some() {
-                        mine.push((
-                            PathBuf::from(rel),
-                            std::fs::read(entry.path()).map_err(|e| e.to_string())?,
-                        ));
+                        mine.push((PathBuf::from(rel), std::fs::read(entry.path()).map_err(|e| e.to_string())?));
                     }
                 }
             }
@@ -906,7 +913,10 @@ mod tests {
                 (&format!("Upscaled/{HASH_A}.png"), png(1)),
                 (&format!("Materials/{HASH_A}/emissive.png"), png(9)),
                 (&format!("Materials/{HASH_A}/normal.png"), png(2)),
-                (&format!("Materials/{HASH_A}/material.json"), br#"{"format":1,"emissiveCnn":{"status":"applied"}}"#.to_vec()),
+                (
+                    &format!("Materials/{HASH_A}/material.json"),
+                    br#"{"format":1,"emissiveCnn":{"status":"applied"}}"#.to_vec(),
+                ),
             ],
         );
         let preview = preview_import(&data, "rac1", "pal", &input).unwrap();
@@ -921,10 +931,7 @@ mod tests {
         let merge = t.path().join("merge.zip");
         make_zip(
             &merge,
-            &[
-                (&format!("Upscaled/{HASH_A}.png"), png(1)),
-                (&format!("Materials/{HASH_A}/emissive.png"), png(5)),
-            ],
+            &[(&format!("Upscaled/{HASH_A}.png"), png(1)), (&format!("Materials/{HASH_A}/emissive.png"), png(5))],
         );
         import(&data, "rac1", "pal", &merge, ImportMode::Merge).unwrap();
         assert_eq!(fs::read(pack.join(format!("Upscaled/{HASH_A}.png"))).unwrap(), png(1));
@@ -941,11 +948,14 @@ mod tests {
     fn malformed_neural_material_paths_are_not_imported_as_textures() {
         let t = tempfile::tempdir().unwrap();
         let zip = t.path().join("bad-neural.zip");
-        make_zip(&zip, &[
-            (MANIFEST, manifest("rac1-pal")),
-            (&format!("Upscaled/{HASH_A}.png"), png(1)),
-            (&format!("Materials/{HASH_A}/emissive.exe"), b"unexpected".to_vec()),
-        ]);
+        make_zip(
+            &zip,
+            &[
+                (MANIFEST, manifest("rac1-pal")),
+                (&format!("Upscaled/{HASH_A}.png"), png(1)),
+                (&format!("Materials/{HASH_A}/emissive.exe"), b"unexpected".to_vec()),
+            ],
+        );
         let preview = preview_import(t.path(), "rac1", "pal", &zip).unwrap();
         assert_eq!(preview.textures, 1);
         assert_eq!(preview.skipped, 1);
