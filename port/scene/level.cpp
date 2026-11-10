@@ -169,12 +169,13 @@ int image_index(const fs::path& requested, LevelData& level) {
     // Sidecars are deliberately separate from the diffuse image: preserve the AI upscale
     // bytes, source alpha and original mip/UV semantics. A mismatched image is ignored.
     if (auto emission = renderer::texture_pack::emissive_image(original_hash)) {
-        if (emission->width == level.images[static_cast<std::size_t>(image_slot)].width
-            && emission->height == level.images[static_cast<std::size_t>(image_slot)].height) {
-            level.image_emissive[static_cast<std::size_t>(image_slot)] =
-                static_cast<int>(level.images.size());
+        const auto index = static_cast<std::size_t>(image_slot);
+        const auto& original = level.images[index];
+        if (emission->width == original.width && emission->height == original.height) {
+            level.image_emissive[index] = static_cast<int>(level.images.size());
             level.images.push_back(std::move(*emission));
-            level.image_paths.push_back("[material-emissive:" + renderer::texture_pack::file_name(original_hash) + "]");
+            const auto emission_name = renderer::texture_pack::file_name(original_hash);
+            level.image_paths.push_back("[material-emissive:" + emission_name + "]");
             level.image_animations.push_back(nullptr);
             level.translucent_images.push_back(false);
             level.image_emissive.push_back(-1);
