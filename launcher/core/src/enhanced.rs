@@ -413,6 +413,9 @@ mod tests {
         assert_eq!(value(&v, "bloom_knee"), Value::from(0.18));
         assert_eq!(value(&v, "bloom_scatter"), Value::from(0.62));
         assert_eq!(value(&v, "bloom_preview"), Value::Bool(false));
+        assert_eq!(value(&v, "bloom_precision"), Value::from("8"));
+        let precision = v.entry.settings.iter().find(|s| s.spec.key == "bloom_precision").unwrap();
+        assert_eq!(precision.spec.choices.len(), 2);
         let presets = &v.entry.presets;
         assert_eq!(presets.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
                    vec!["visible", "strong", "glow_only"]);
@@ -439,6 +442,9 @@ mod tests {
         }
         set_setting(&home, "rac1", "pal", "bloom", &Value::Bool(false)).unwrap();
         assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), "bloom"), Value::Bool(false));
+        set_setting(&home, "rac1", "pal", "bloom_precision", &Value::from("16")).unwrap();
+        assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), "bloom_precision"), Value::from("16"));
+        assert!(set_setting(&home, "rac1", "pal", "bloom_precision", &Value::from("12")).is_err());
         set_setting(&home, "rac1", "pal", "bloom_preview", &Value::Bool(true)).unwrap();
         assert_eq!(value(&view(&home, "rac1", "pal", BakeStatus::default()), "bloom_preview"), Value::Bool(true));
         for (key, invalid) in [("bloom_strength", -0.01), ("bloom_strength", 2.01),
@@ -474,6 +480,7 @@ mod tests {
             "bloom_knee = 0.4",
             "bloom_scatter = 0.8",
             "bloom_preview = 1",
+            "bloom_precision = 16",
         ] {
             assert!(text.lines().any(|l| l == line), "{line} in {text}");
         }
