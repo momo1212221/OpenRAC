@@ -115,6 +115,11 @@ struct Replacement {
 // draws the first frame as a still picture).
 bool replace(Rgba8Image& image, const Origin& origin = {}, Replacement* found = nullptr);
 
+// Optional Graphics Preparation Materials/<original-hash>/emissive.png sidecar.
+// Read-only and bounded, keyed by the game's texture hash (never the upscaled pixels).
+// Only the world mesh renderer consumes this; HUD textures cannot receive emission.
+std::optional<Rgba8Image> emissive_image(std::uint64_t original_hash);
+
 // Whether textures are being dumped (a dump folder was configured).
 bool dumping();
 
